@@ -879,6 +879,14 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       console.log('[HaruStream] Player ready:', videoTitle);
     });
 
+    // Custom hotkey for 'f' to toggle fullscreen
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        art.fullscreen = !art.fullscreen;
+      }
+    });
+
     // Track download clicks
     art.on('video:ended', () => {
       navigator.sendBeacon('/api/media/track', JSON.stringify({
