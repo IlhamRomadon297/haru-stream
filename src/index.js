@@ -397,7 +397,10 @@ async function handleDeleteDrive(driveId, env, user) {
 // ── SYNC ────────────────────────────────────────────────────
 
 async function handleSync(request, env, user) {
-  const { drive_id } = await request.json().catch(() => ({}));
+  const body = await request.json().catch(() => ({}));
+  const { drive_id } = body;
+  // force_full=true → skip incremental checks, INSERT OR REPLACE everything found in GDrive
+  const forceFullScan = body.force_full === true || body.force === true;
 
   let drivesQuery;
   if (drive_id) {
@@ -411,7 +414,7 @@ async function handleSync(request, env, user) {
   const drives = drivesQuery.results;
   if (!drives.length) return errorResponse('No active drives found.', 404);
 
-  let totalSynced = 0;
+  let totalSynced  = 0;
   let totalSkipped = 0;
   const errors = [];
 
@@ -422,12 +425,48 @@ async function handleSync(request, env, user) {
         const data = await listDriveVideos(drive, env.DB, pageToken);
         const files = data.files || [];
 
-        // ── Incremental sync: only write if new or actually changed ──────────
-        // Fetch all existing drive_file_ids from this drive in one query
-        const existingMap = new Map();
-        if (files.length > 0) {
+        if (files.length === 0) {
+          pageToken = data.nextPageToken || null;
+          continue;
+        }
+
+        if (forceFullScan) {
+          // ── FULL SCAN MODE: INSERT OR REPLACE everything — no incremental check ──
+          const stmts = files.map(file => {
+            const resolution = parseResolution(file.videoMediaMetadata);
+            const duration   = file.videoMediaMetadata?.durationMillis
+              ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000)
+              : 0;
+            return env.DB.prepare(
+              `INSERT INTO videos
+                (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(drive_file_id) DO UPDATE SET
+                 title             = excluded.title,
+                 size              = excluded.size,
+                 mime_type         = excluded.mime_type,
+                 resolution        = excluded.resolution,
+                 duration          = excluded.duration,
+                 thumbnail_url     = excluded.thumbnail_url,
+                 drive_modified_at = excluded.drive_modified_at,
+                 updated_at        = datetime('now')`
+            ).bind(
+              user.sub, drive.id, file.id, file.name,
+              parseInt(file.size || 0), file.mimeType,
+              resolution, duration,
+              file.thumbnailLink || null, file.modifiedTime || null
+            );
+          });
+
+          if (stmts.length > 0) {
+            await env.DB.batch(stmts);
+            totalSynced += stmts.length;
+          }
+
+        } else {
+          // ── INCREMENTAL MODE: only write if new or actually changed ──────────
+          const existingMap = new Map();
           const ids = files.map(f => f.id);
-          // SQLite supports up to 999 params; chunk if needed
           const chunkSize = 200;
           for (let ci = 0; ci < ids.length; ci += chunkSize) {
             const chunk = ids.slice(ci, ci + chunkSize);
@@ -436,66 +475,62 @@ async function handleSync(request, env, user) {
               `SELECT drive_file_id, title, size, drive_modified_at FROM videos
                WHERE drive_file_id IN (${placeholders})`
             ).bind(...chunk).all();
-            for (const r of rows.results) {
-              existingMap.set(r.drive_file_id, r);
-            }
+            for (const r of rows.results) existingMap.set(r.drive_file_id, r);
           }
-        }
 
-        const insertStmts = [];
-        const updateStmts = [];
+          const insertStmts = [];
+          const updateStmts = [];
 
-        for (const file of files) {
-          const resolution = parseResolution(file.videoMediaMetadata);
-          const duration   = file.videoMediaMetadata?.durationMillis
-            ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000)
-            : 0;
-          const fileSize   = parseInt(file.size || 0);
-          const existing   = existingMap.get(file.id);
+          for (const file of files) {
+            const resolution = parseResolution(file.videoMediaMetadata);
+            const duration   = file.videoMediaMetadata?.durationMillis
+              ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000)
+              : 0;
+            const fileSize = parseInt(file.size || 0);
+            const existing = existingMap.get(file.id);
 
-          if (!existing) {
-            // Brand new file — INSERT
-            insertStmts.push(
-              env.DB.prepare(
-                `INSERT OR IGNORE INTO videos
-                  (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-              ).bind(
-                user.sub, drive.id, file.id, file.name, fileSize,
-                file.mimeType, resolution, duration,
-                file.thumbnailLink || null, file.modifiedTime || null
-              )
-            );
-          } else {
-            // Existing file — only UPDATE if something actually changed
-            const modifiedChanged = existing.drive_modified_at !== (file.modifiedTime || null);
-            const sizeChanged     = existing.size !== fileSize;
-            const titleChanged    = existing.title !== file.name;
-            if (modifiedChanged || sizeChanged || titleChanged) {
-              updateStmts.push(
+            if (!existing) {
+              insertStmts.push(
                 env.DB.prepare(
-                  `UPDATE videos SET
-                     title = ?, size = ?, resolution = ?, duration = ?,
-                     thumbnail_url = ?, drive_modified_at = ?,
-                     updated_at = datetime('now')
-                   WHERE drive_file_id = ?`
+                  `INSERT OR IGNORE INTO videos
+                    (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
                 ).bind(
-                  file.name, fileSize, resolution, duration,
-                  file.thumbnailLink || null, file.modifiedTime || null,
-                  file.id
+                  user.sub, drive.id, file.id, file.name, fileSize,
+                  file.mimeType, resolution, duration,
+                  file.thumbnailLink || null, file.modifiedTime || null
                 )
               );
             } else {
-              totalSkipped++;
-              continue;
+              const modifiedChanged = existing.drive_modified_at !== (file.modifiedTime || null);
+              const sizeChanged     = existing.size !== fileSize;
+              const titleChanged    = existing.title !== file.name;
+              if (modifiedChanged || sizeChanged || titleChanged) {
+                updateStmts.push(
+                  env.DB.prepare(
+                    `UPDATE videos SET
+                       title = ?, size = ?, resolution = ?, duration = ?,
+                       thumbnail_url = ?, drive_modified_at = ?,
+                       updated_at = datetime('now')
+                     WHERE drive_file_id = ?`
+                  ).bind(
+                    file.name, fileSize, resolution, duration,
+                    file.thumbnailLink || null, file.modifiedTime || null,
+                    file.id
+                  )
+                );
+              } else {
+                totalSkipped++;
+                continue;
+              }
             }
           }
-        }
 
-        const allStmts = [...insertStmts, ...updateStmts];
-        if (allStmts.length > 0) {
-          await env.DB.batch(allStmts);
-          totalSynced += allStmts.length;
+          const allStmts = [...insertStmts, ...updateStmts];
+          if (allStmts.length > 0) {
+            await env.DB.batch(allStmts);
+            totalSynced += allStmts.length;
+          }
         }
 
         pageToken = data.nextPageToken || null;
@@ -514,14 +549,16 @@ async function handleSync(request, env, user) {
 
   return jsonResponse({
     success: true,
+    mode: forceFullScan ? 'full_scan' : 'incremental',
     synced: totalSynced,
     skipped: totalSkipped,
     errors,
-    message: `Sync complete. ${totalSynced} files indexed.`,
+    message: `${forceFullScan ? 'Full scan' : 'Incremental sync'} complete — ${totalSynced} files indexed, ${totalSkipped} skipped.`,
   });
 }
 
 // ── MEDIA ───────────────────────────────────────────────────
+
 
 async function handleListMedia(request, env, user) {
   const url    = new URL(request.url);
