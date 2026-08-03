@@ -97,7 +97,7 @@ Write-Ok "Token      : $shortToken..."
 Write-Step "Step 3: Creating D1 database 'haru-stream-db'..."
 
 $dbName = "haru-stream-db"
-$dbOut  = & npx wrangler d1 create $dbName --account-id $env:CLOUDFLARE_ACCOUNT_ID 2>&1
+$dbOut  = & npx wrangler d1 create $dbName 2>&1
 $dbStr  = ($dbOut -join "`n")
 Write-Host $dbStr -ForegroundColor DarkGray
 
@@ -111,7 +111,7 @@ foreach ($ln in $dbOut) {
 
 if ([string]::IsNullOrEmpty($dbId)) {
     Write-Info "DB ID not found in create output. Checking list..."
-    $listOut = & npx wrangler d1 list --account-id $env:CLOUDFLARE_ACCOUNT_ID 2>&1
+    $listOut = & npx wrangler d1 list 2>&1
     Write-Host ($listOut -join "`n") -ForegroundColor DarkGray
     foreach ($ln in $listOut) {
         if ($ln -match $dbName) {
@@ -145,7 +145,7 @@ Write-Ok "wrangler.toml updated with database_id."
 Write-Step "Step 5: Applying schema.sql to D1..."
 
 $schemaPath = Join-Path $PSScriptRoot "schema.sql"
-$schemaOut  = & npx wrangler d1 execute $dbName --file $schemaPath --account-id $env:CLOUDFLARE_ACCOUNT_ID 2>&1
+$schemaOut  = & npx wrangler d1 execute $dbName --file $schemaPath 2>&1
 $schemaStr  = ($schemaOut -join "`n")
 Write-Host $schemaStr -ForegroundColor DarkGray
 
@@ -160,7 +160,7 @@ if ($schemaStr -match '(?i)\berror\b') {
 # ── STEP 6: Deploy Worker ────────────────────────────────────
 Write-Step "Step 6: Deploying Worker..."
 
-$depOut = & npx wrangler deploy --account-id $env:CLOUDFLARE_ACCOUNT_ID 2>&1
+$depOut = & npx wrangler deploy 2>&1
 $depStr = ($depOut -join "`n")
 Write-Host $depStr -ForegroundColor DarkGray
 
@@ -182,7 +182,7 @@ Write-Ok "Worker deployed: $workerUrl"
 
 # ── STEP 7: Set JWT_SECRET ───────────────────────────────────
 Write-Step "Step 7: Setting JWT_SECRET on Worker..."
-$env:HS_JWT_SECRET | & npx wrangler secret put JWT_SECRET --account-id $env:CLOUDFLARE_ACCOUNT_ID 2>&1 | Out-Null
+$env:HS_JWT_SECRET | & npx wrangler secret put JWT_SECRET 2>&1 | Out-Null
 Write-Ok "JWT_SECRET set."
 
 # ── STEP 8: Update Pages proxy ───────────────────────────────
