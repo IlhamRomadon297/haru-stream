@@ -25,7 +25,7 @@ try {
 
 # ── STEP 1: Wrangler install ─────────────────────────────────
 Write-Step "Step 1: Wrangler setup..."
-$wranglerCmd = Join-Path $PSScriptRoot "node_modules" ".bin" "wrangler.cmd"
+$wranglerCmd = Join-Path (Join-Path (Join-Path $PSScriptRoot "node_modules") ".bin") "wrangler.cmd"
 if (-not (Test-Path $wranglerCmd)) {
     Write-Info "Running npm install..."
     & npm install --silent
@@ -188,7 +188,7 @@ Write-Ok "JWT_SECRET set."
 # ── STEP 8: Update Pages proxy ───────────────────────────────
 Write-Step "Step 8: Updating Pages proxy..."
 
-$proxyPath = Join-Path $PSScriptRoot "functions" "[[path]].js"
+$proxyPath = Join-Path (Join-Path $PSScriptRoot "functions") "[[path]].js"
 if (Test-Path $proxyPath) {
     $px = Get-Content $proxyPath -Raw
     $px = $px.Replace("const WORKER_URL = 'https://haru-stream.YOUR_SUBDOMAIN.workers.dev';", "const WORKER_URL = '$workerUrl';")
