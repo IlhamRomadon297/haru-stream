@@ -1,0 +1,16 @@
+# Dependency files
+node_modules/
+.wrangler/
+
+# Secret credentials — NEVER commit these
+.env.deploy
+.env.local
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.swp
