@@ -739,6 +739,14 @@ async function handleStream(driveFileId, request, env) {
     if (v) responseHeaders.set(h, v);
   }
   responseHeaders.set('Cache-Control', 'public, max-age=3600');
+  responseHeaders.set('Access-Control-Allow-Origin', '*');
+  responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+
+  const url = new URL(request.url);
+  if (url.searchParams.get('download') === '1') {
+    const filename = video.title.replace(/"/g, '\\"');
+    responseHeaders.set('Content-Disposition', `attachment; filename="${filename}"`);
+  }
 
   return new Response(driveResp.body, {
     status: driveResp.status,
@@ -857,7 +865,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           html: '<button style="color:#fff;background:transparent;border:none;cursor:pointer;font-size:13px;padding:4px 8px">⬇ Download</button>',
           click: () => {
             const a = document.createElement('a');
-            a.href = streamUrl + '&download=1';
+            a.href = streamUrl + '?download=1';
             a.download = videoTitle;
             a.click();
           },
