@@ -9,25 +9,27 @@
 const WORKER_URL = 'https://haru-stream.ilhamromadon220907.workers.dev';
 
 export async function onRequest(context) {
-  const { request } = context;
+  const { request, next } = context;
   const url = new URL(request.url);
 
-  // Build the target URL pointing to the Worker
-  const targetUrl = WORKER_URL + url.pathname + url.search;
+  // If the request is for the API or Auth, proxy it to the Worker
+  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/auth')) {
+    const targetUrl = WORKER_URL + url.pathname + url.search;
 
-  // Clone the request with the new URL
-  const newRequest = new Request(targetUrl, {
-    method:  request.method,
-    headers: request.headers,
-    body:    ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
-    redirect: 'follow',
-  });
+    const newRequest = new Request(targetUrl, {
+      method:  request.method,
+      headers: request.headers,
+      body:    ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
+      redirect: 'follow',
+    });
 
-  const response = await fetch(newRequest);
+    const response = await fetch(newRequest);
+    return new Response(response.body, {
+      status:  response.status,
+      headers: response.headers,
+    });
+  }
 
-  // Return the Worker's response as-is
-  return new Response(response.body, {
-    status:  response.status,
-    headers: response.headers,
-  });
+  // Otherwise, serve the static frontend assets from Cloudflare Pages
+  return next();
 }
