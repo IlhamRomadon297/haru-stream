@@ -855,6 +855,9 @@
           <input type="checkbox" id="exp-stream-link" class="accent-brand-500"> Stream Link
         </label>
         <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
+          <input type="checkbox" id="exp-download-link" class="accent-brand-500"> Download Link
+        </label>
+        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
           <input type="checkbox" id="exp-views"       class="accent-brand-500"> Views
         </label>
       </div>
@@ -1739,6 +1742,7 @@ function generateExport() {
     embed_link:  $('exp-embed-link')?.checked,
     embed_code:  $('exp-embed-code')?.checked,
     stream_link: $('exp-stream-link')?.checked,
+    download_link:$('exp-download-link')?.checked,
     views:       $('exp-views')?.checked,
   };
 
@@ -1751,6 +1755,7 @@ function generateExport() {
     if (fields.embed_link)  parts.push(`${BASE_URL}/embed/${v.drive_file_id}`);
     if (fields.embed_code)  parts.push(`<iframe src="${BASE_URL}/embed/${v.drive_file_id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`);
     if (fields.stream_link) parts.push(`${BASE_URL}/stream/${v.drive_file_id}`);
+    if (fields.download_link) parts.push(`${BASE_URL}/stream/${v.drive_file_id}?download=1`);
     if (fields.views)       parts.push(String(v.views));
 
     return APP.exportSeparator === 'newline' ? parts.join('\n') : parts.join(sep);

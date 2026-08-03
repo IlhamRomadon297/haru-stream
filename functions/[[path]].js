@@ -12,8 +12,13 @@ export async function onRequest(context) {
   const { request, next } = context;
   const url = new URL(request.url);
 
-  // If the request is for the API or Auth, proxy it to the Worker
-  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/auth')) {
+  // If the request is for the API, Auth, Embed, or Stream, proxy it to the Worker
+  if (
+    url.pathname.startsWith('/api') || 
+    url.pathname.startsWith('/auth') || 
+    url.pathname.startsWith('/embed') || 
+    url.pathname.startsWith('/stream')
+  ) {
     const targetUrl = WORKER_URL + url.pathname + url.search;
 
     const newRequest = new Request(targetUrl, {
