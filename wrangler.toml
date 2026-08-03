@@ -4,15 +4,13 @@ compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 # ============================================================
-# Account & Pages Settings
+# Cron Triggers — Smart Auto-Sync Scheduler
+# Fires every 1 minute; actual sync interval is configurable
+# in the dashboard (default 30 min). When it fires but it is
+# not yet time to sync, it returns immediately (1 D1 read only).
 # ============================================================
-# pages_build_output_dir = "public"
-
-# ============================================================
-# Resource Limits (Cloudflare Workers)
-# ============================================================
-# [limits]
-# cpu_ms = 50
+[triggers]
+crons = ["*/1 * * * *"]
 
 # ============================================================
 # D1 Database Binding
@@ -32,24 +30,9 @@ JWT_EXPIRES_IN = "7d"
 CORS_ORIGIN    = "*"
 
 # ============================================================
-# Secrets â€” set via: wrangler secret put <KEY>
+# Secrets — set via: wrangler secret put <KEY>
 # JWT_SECRET   : Random 256-bit hex string for signing JWTs
 # ============================================================
-
-# ============================================================
-# Development environment overrides
-# ============================================================
-[env.development]
-name = "haru-stream-dev"
-
-[[env.development.d1_databases]]
-binding       = "DB"
-database_name = "haru-stream-db-dev"
-database_id   = "394035de-7e3c-42cc-b312-9b508a86c8c8"
-
-[env.development.vars]
-APP_NAME    = "HaruStream PRO (Dev)"
-CORS_ORIGIN = "*"
 
 # ============================================================
 # Production environment overrides
@@ -65,4 +48,3 @@ database_id   = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 [env.production.vars]
 APP_NAME    = "HaruStream PRO"
 CORS_ORIGIN = "https://haru-stream.pages.dev"
-

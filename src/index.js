@@ -826,6 +826,58 @@ async function handleStream(driveFileId, request, env) {
   });
 }
 
+// ── AUTO-SYNC SETTINGS ──────────────────────────────────────
+
+async function handleGetAutoSync(env) {
+  const rows = await env.DB.prepare(
+    `SELECT key, value FROM app_settings WHERE key IN ('auto_sync_enabled','auto_sync_interval_minutes','last_auto_sync_at')`
+  ).all();
+  const s = {};
+  for (const r of rows.results) s[r.key] = r.value;
+  return jsonResponse({
+    success: true,
+    auto_sync_enabled:          s.auto_sync_enabled          === '1',
+    auto_sync_interval_minutes: parseInt(s.auto_sync_interval_minutes || '30'),
+    last_auto_sync_at:          s.last_auto_sync_at || null,
+  });
+}
+
+async function handleSetAutoSync(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const stmts = [];
+
+  if (typeof body.auto_sync_enabled === 'boolean') {
+    stmts.push(env.DB.prepare(
+      `INSERT INTO app_settings (key,value,updated_at) VALUES ('auto_sync_enabled',?,datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+    ).bind(body.auto_sync_enabled ? '1' : '0'));
+  }
+  if ([30, 60, 120].includes(body.auto_sync_interval_minutes)) {
+    stmts.push(env.DB.prepare(
+      `INSERT INTO app_settings (key,value,updated_at) VALUES ('auto_sync_interval_minutes',?,datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+    ).bind(String(body.auto_sync_interval_minutes)));
+  }
+
+  if (stmts.length) await env.DB.batch(stmts);
+  return jsonResponse({ success: true, message: 'Auto-sync settings updated.' });
+}
+
+// ── SINGLE VIDEO ─────────────────────────────────────────────
+
+async function handleGetVideo(videoId, env, user) {
+  const video = await env.DB.prepare(
+    `SELECT v.id, v.drive_file_id, v.title, v.size, v.resolution, v.duration,
+            v.views, v.downloads, v.mime_type, v.thumbnail_url, v.folder_id,
+            v.is_public, v.tags, v.drive_modified_at, v.created_at,
+            d.drive_name
+     FROM videos v LEFT JOIN drives d ON d.id = v.drive_id
+     WHERE v.id = ? AND v.user_id = ?`
+  ).bind(videoId, user.sub).first();
+  if (!video) return errorResponse('Video not found.', 404);
+  return jsonResponse({ success: true, video });
+}
+
 // ── STATS ────────────────────────────────────────────────────
 
 async function handleStats(env, user) {
@@ -868,12 +920,11 @@ async function handleStats(env, user) {
 // ── EMBED HTML TEMPLATE ──────────────────────────────────────
 
 function buildEmbedPage(video, streamUrl, driveFileId) {
-  // Detect if this is a heavy format (MKV / HEVC / AV1 / multi-track)
-  const mime      = (video.mime_type || '').toLowerCase();
-  const titleLow  = (video.title    || '').toLowerCase();
-  const isHeavy   = mime.includes('x-matroska') || mime.includes('mkv') ||
-                    titleLow.endsWith('.mkv') || titleLow.endsWith('.hevc') ||
-                    titleLow.endsWith('.av1');
+  const mime     = (video.mime_type || '').toLowerCase();
+  const titleLow = (video.title    || '').toLowerCase();
+  const isHeavy  = mime.includes('x-matroska') || mime.includes('mkv') ||
+                   titleLow.endsWith('.mkv') || titleLow.endsWith('.hevc') ||
+                   titleLow.endsWith('.av1');
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1056,7 +1107,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         theme: '#6366f1',
         lang: 'en',
         moreVideoAttr: {
-          crossOrigin: 'anonymous',
           preload: 'metadata',
         },
         controls: [
@@ -1171,6 +1221,156 @@ async function handleTrack(request, env) {
 // MAIN ROUTER
 // ============================================================
 
+// ── CRON SCHEDULED HANDLER ────────────────────────────────────
+// Runs every 1 minute via Cloudflare Cron Triggers.
+// Cost: 1 D1 read per minute when idle (~1440 reads/day).
+// Only runs actual sync when: enabled AND (now - last_sync) >= interval.
+
+async function runAutoSync(env) {
+  // ── 1. Read settings (1 D1 read) ────────────────────────────
+  const rows = await env.DB.prepare(
+    `SELECT key, value FROM app_settings WHERE key IN ('auto_sync_enabled','auto_sync_interval_minutes','last_auto_sync_at')`
+  ).all();
+
+  const s = {};
+  for (const r of rows.results) s[r.key] = r.value;
+
+  if (s.auto_sync_enabled !== '1') return; // disabled → bail immediately
+
+  const intervalMs   = parseInt(s.auto_sync_interval_minutes || '30') * 60 * 1000;
+  const lastSyncTime = new Date(s.last_auto_sync_at || 0).getTime();
+  const now          = Date.now();
+
+  if (now - lastSyncTime < intervalMs) return; // not yet time → bail
+
+  // ── 2. Time to sync! Get all active drives ───────────────────
+  const drivesResult = await env.DB.prepare(
+    `SELECT * FROM drives WHERE is_active = 1`
+  ).all();
+  const drives = drivesResult.results;
+  if (!drives.length) return;
+
+  // ── 3. For each drive: fetch GDrive IDs, compare with D1, upsert new, delete removed ──
+  for (const drive of drives) {
+    try {
+      // Collect ALL drive file IDs from GDrive (paginated)
+      const gdriveIds   = new Set();
+      const newFiles    = []; // files to insert
+      let pageToken     = null;
+
+      do {
+        const data  = await listDriveVideos(drive, env.DB, pageToken);
+        const files = data.files || [];
+
+        // Collect all IDs seen in GDrive
+        for (const f of files) gdriveIds.add(f.id);
+
+        // Accumulate files for upsert
+        for (const file of files) {
+          newFiles.push(file);
+        }
+        pageToken = data.nextPageToken || null;
+      } while (pageToken);
+
+      if (!gdriveIds.size) continue;
+
+      // ── 3a. Fetch existing IDs from D1 for this drive (chunked) ─
+      // Only read IDs — minimal D1 reads
+      const existingMap = new Map();
+      const idArray     = [...gdriveIds];
+      const CHUNK       = 200;
+      for (let ci = 0; ci < idArray.length; ci += CHUNK) {
+        const chunk = idArray.slice(ci, ci + CHUNK);
+        const ph    = chunk.map(() => '?').join(',');
+        const rows2 = await env.DB.prepare(
+          `SELECT drive_file_id, title, size, drive_modified_at FROM videos WHERE drive_file_id IN (${ph})`
+        ).bind(...chunk).all();
+        for (const r of rows2.results) existingMap.set(r.drive_file_id, r);
+      }
+
+      // ── 3b. Determine inserts / updates (skip unchanged) ────────
+      const insertStmts = [];
+      const updateStmts = [];
+
+      for (const file of newFiles) {
+        const resolution = parseResolution(file.videoMediaMetadata);
+        const duration   = file.videoMediaMetadata?.durationMillis
+          ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
+        const fileSize   = parseInt(file.size || 0);
+        const existing   = existingMap.get(file.id);
+
+        if (!existing) {
+          insertStmts.push(
+            env.DB.prepare(
+              `INSERT OR IGNORE INTO videos
+                (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+               VALUES (
+                 (SELECT user_id FROM drives WHERE id = ?),
+                 ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            ).bind(
+              drive.id, drive.id, file.id, file.name, fileSize,
+              file.mimeType, resolution, duration,
+              file.thumbnailLink || null, file.modifiedTime || null
+            )
+          );
+        } else {
+          const changed = existing.drive_modified_at !== (file.modifiedTime || null) ||
+                          existing.size  !== fileSize ||
+                          existing.title !== file.name;
+          if (changed) {
+            updateStmts.push(
+              env.DB.prepare(
+                `UPDATE videos SET title=?,size=?,resolution=?,duration=?,thumbnail_url=?,drive_modified_at=?,updated_at=datetime('now')
+                 WHERE drive_file_id=?`
+              ).bind(file.name, fileSize, resolution, duration,
+                     file.thumbnailLink || null, file.modifiedTime || null, file.id)
+            );
+          }
+        }
+      }
+
+      // Batch writes in chunks of 100
+      const allWrite = [...insertStmts, ...updateStmts];
+      for (let ci = 0; ci < allWrite.length; ci += 100) {
+        await env.DB.batch(allWrite.slice(ci, ci + 100));
+      }
+
+      // ── 3c. Delete from D1 files no longer in GDrive ────────────
+      // Get all D1 IDs for this drive that are NOT in the GDrive set
+      const d1IdsResult = await env.DB.prepare(
+        `SELECT drive_file_id FROM videos WHERE drive_id = ?`
+      ).bind(drive.id).all();
+      const toDelete = d1IdsResult.results
+        .map(r => r.drive_file_id)
+        .filter(id => !gdriveIds.has(id));
+
+      if (toDelete.length > 0) {
+        for (let ci = 0; ci < toDelete.length; ci += 100) {
+          const chunk = toDelete.slice(ci, ci + 100);
+          const ph    = chunk.map(() => '?').join(',');
+          await env.DB.prepare(
+            `DELETE FROM videos WHERE drive_file_id IN (${ph})`
+          ).bind(...chunk).run();
+        }
+      }
+
+      // Update last_synced_at for this drive
+      await env.DB.prepare(
+        `UPDATE drives SET last_synced_at=datetime('now'), updated_at=datetime('now') WHERE id=?`
+      ).bind(drive.id).run();
+
+    } catch (_e) {
+      // Don't let one failing drive stop others
+    }
+  }
+
+  // ── 4. Update last_auto_sync_at ─────────────────────────────
+  await env.DB.prepare(
+    `INSERT INTO app_settings (key,value,updated_at) VALUES ('last_auto_sync_at',?,datetime('now'))
+     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+  ).bind(new Date().toISOString()).run();
+}
+
 // Track whether admin seeding has been attempted in this isolate lifetime
 let adminSeeded = false;
 
@@ -1276,6 +1476,20 @@ export default {
       res = jsonResponse({ success: true, user: { id: user.sub, username: user.username, role: user.role } });
     }
 
+    // Auto-sync settings
+    else if (path === '/api/settings/auto-sync') {
+      if (method === 'GET')       res = await handleGetAutoSync(env);
+      else if (method === 'POST') res = await handleSetAutoSync(request, env);
+      else res = errorResponse('Method not allowed.', 405);
+    }
+
+    // Single video detail
+    else if (path.startsWith('/api/media/') && method === 'GET') {
+      const videoId = parseInt(path.split('/').pop());
+      if (!isNaN(videoId)) res = await handleGetVideo(videoId, env, user);
+      else res = errorResponse('Not Found.', 404);
+    }
+
     // Fallthrough → serve public SPA (handled by Cloudflare Pages)
     else {
       res = errorResponse('Not Found.', 404);
@@ -1283,6 +1497,11 @@ export default {
 
     addCorsHeaders(res, corsHeaders);
     return res;
+  },
+
+  // ── Cron handler (1-minute interval, smart sleep) ─────────
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(runAutoSync(env));
   },
 };
 
