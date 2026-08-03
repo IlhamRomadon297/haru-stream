@@ -1,5 +1,6 @@
 param()
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
+$WarningPreference     = 'SilentlyContinue'
 
 function Write-Step { param([string]$m) Write-Host ""; Write-Host ">>> $m" -ForegroundColor Cyan }
 function Write-Ok   { param([string]$m) Write-Host "  [OK] $m" -ForegroundColor Green }

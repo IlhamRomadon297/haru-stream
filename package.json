@@ -11,6 +11,6 @@
     "pages:dev": "wrangler pages dev ./public --compatibility-date=2024-09-23"
   },
   "devDependencies": {
-    "wrangler": "^3.57.0"
+    "wrangler": "^3.114.4"
   }
 }
