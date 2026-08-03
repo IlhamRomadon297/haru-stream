@@ -6,13 +6,13 @@ compatibility_flags = ["nodejs_compat"]
 # ============================================================
 # Account & Pages Settings
 # ============================================================
-pages_build_output_dir = "public"
+# pages_build_output_dir = "public"
 
 # ============================================================
 # Resource Limits (Cloudflare Workers)
 # ============================================================
-[limits]
-cpu_ms = 50
+# [limits]
+# cpu_ms = 50
 
 # ============================================================
 # D1 Database Binding
@@ -20,7 +20,7 @@ cpu_ms = 50
 [[d1_databases]]
 binding     = "DB"
 database_name = "haru-stream-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 
 # ============================================================
 # Environment Variables (Non-secret)
@@ -32,7 +32,7 @@ JWT_EXPIRES_IN = "7d"
 CORS_ORIGIN    = "*"
 
 # ============================================================
-# Secrets — set via: wrangler secret put <KEY>
+# Secrets â€” set via: wrangler secret put <KEY>
 # JWT_SECRET   : Random 256-bit hex string for signing JWTs
 # ============================================================
 
@@ -45,7 +45,7 @@ name = "haru-stream-dev"
 [[env.development.d1_databases]]
 binding       = "DB"
 database_name = "haru-stream-db-dev"
-database_id   = "REPLACE_WITH_YOUR_D1_DEV_DATABASE_ID"
+database_id   = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 
 [env.development.vars]
 APP_NAME    = "HaruStream PRO (Dev)"
@@ -60,8 +60,9 @@ name = "haru-stream"
 [[env.production.d1_databases]]
 binding       = "DB"
 database_name = "haru-stream-db"
-database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id   = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 
 [env.production.vars]
 APP_NAME    = "HaruStream PRO"
 CORS_ORIGIN = "https://haru-stream.pages.dev"
+

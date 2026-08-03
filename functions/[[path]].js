@@ -6,7 +6,7 @@
  * Format: https://haru-stream.<your-subdomain>.workers.dev
  */
 
-const WORKER_URL = 'https://haru-stream.YOUR_SUBDOMAIN.workers.dev';
+const WORKER_URL = 'https://haru-stream.ilhamromadon220907.workers.dev';
 
 export async function onRequest(context) {
   const { request } = context;
