@@ -1,0 +1,67 @@
+name = "haru-stream"
+main = "src/index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+# ============================================================
+# Account & Pages Settings
+# ============================================================
+pages_build_output_dir = "public"
+
+# ============================================================
+# Resource Limits (Cloudflare Workers)
+# ============================================================
+[limits]
+cpu_ms = 50
+
+# ============================================================
+# D1 Database Binding
+# ============================================================
+[[d1_databases]]
+binding     = "DB"
+database_name = "haru-stream-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ============================================================
+# Environment Variables (Non-secret)
+# ============================================================
+[vars]
+APP_NAME       = "HaruStream PRO"
+APP_VERSION    = "1.0.0"
+JWT_EXPIRES_IN = "7d"
+CORS_ORIGIN    = "*"
+
+# ============================================================
+# Secrets — set via: wrangler secret put <KEY>
+# JWT_SECRET   : Random 256-bit hex string for signing JWTs
+# ============================================================
+
+# ============================================================
+# Development environment overrides
+# ============================================================
+[env.development]
+name = "haru-stream-dev"
+
+[[env.development.d1_databases]]
+binding       = "DB"
+database_name = "haru-stream-db-dev"
+database_id   = "REPLACE_WITH_YOUR_D1_DEV_DATABASE_ID"
+
+[env.development.vars]
+APP_NAME    = "HaruStream PRO (Dev)"
+CORS_ORIGIN = "*"
+
+# ============================================================
+# Production environment overrides
+# ============================================================
+[env.production]
+name = "haru-stream"
+
+[[env.production.d1_databases]]
+binding       = "DB"
+database_name = "haru-stream-db"
+database_id   = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[env.production.vars]
+APP_NAME    = "HaruStream PRO"
+CORS_ORIGIN = "https://haru-stream.pages.dev"

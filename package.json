@@ -1,0 +1,16 @@
+{
+  "name": "haru-stream",
+  "version": "1.0.0",
+  "description": "HaruStream PRO — Advanced serverless video streaming aggregator powered by Cloudflare Workers + D1",
+  "private": true,
+  "scripts": {
+    "dev":     "wrangler dev",
+    "deploy":  "wrangler deploy",
+    "db:init": "wrangler d1 execute haru-stream-db --file ./schema.sql",
+    "db:init:dev": "wrangler d1 execute haru-stream-db-dev --local --file ./schema.sql",
+    "pages:dev": "wrangler pages dev ./public --compatibility-date=2024-09-23"
+  },
+  "devDependencies": {
+    "wrangler": "^3.57.0"
+  }
+}
