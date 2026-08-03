@@ -253,7 +253,7 @@
 
 <body class="dark">
 
-<!-- ============================================================
+  <!-- ============================================================
      LOGIN SCREEN
      ============================================================ -->
 <div id="login-screen" class="fixed inset-0 flex items-center justify-center z-50" style="background:linear-gradient(135deg,#0a0a15,#0f0f25,#080812)">
@@ -271,13 +271,7 @@
       <p class="text-sm mt-1" style="color:#64748b">Premium Video Management System</p>
     </div>
 
-    <!-- Tabs -->
-    <div class="flex gap-2 mb-6 p-1 rounded-xl" style="background:#0f0f1a">
-      <button id="tab-login"    class="tab-btn active flex-1" onclick="switchAuthTab('login')">Sign In</button>
-      <button id="tab-register" class="tab-btn flex-1"        onclick="switchAuthTab('register')">Register</button>
-    </div>
-
-    <!-- Login Form -->
+    <!-- Login Form (only form — registration disabled) -->
     <form id="login-form" onsubmit="handleLoginSubmit(event)">
       <div class="mb-4">
         <label class="block text-xs font-semibold mb-2" style="color:#64748b">USERNAME</label>
@@ -296,25 +290,7 @@
         <i class="fas fa-sign-in-alt mr-2"></i>Sign In
       </button>
     </form>
-
-    <!-- Register Form (hidden) -->
-    <form id="register-form" class="hidden" onsubmit="handleRegisterSubmit(event)">
-      <div class="mb-4">
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">USERNAME</label>
-        <input id="reg-username" type="text" class="form-input" placeholder="Choose a username" autocomplete="username" required minlength="3" />
-      </div>
-      <div class="mb-4">
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">EMAIL (optional)</label>
-        <input id="reg-email" type="email" class="form-input" placeholder="your@email.com" autocomplete="email" />
-      </div>
-      <div class="mb-6">
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">PASSWORD</label>
-        <input id="reg-password" type="password" class="form-input" placeholder="Min. 6 characters" autocomplete="new-password" required minlength="6" />
-      </div>
-      <button type="submit" id="register-btn" class="btn-gradient w-full py-3 rounded-xl text-white font-semibold text-sm">
-        <i class="fas fa-user-plus mr-2"></i>Create Account
-      </button>
-    </form>
+    <!-- Note: Public registration is disabled on this system -->
   </div>
 </div>
 
@@ -818,13 +794,13 @@
   </div>
 </div>
 
-<!-- Export Modal -->
+    <!-- Export Modal -->
 <div id="modal-export" class="modal-overlay hidden">
   <div class="modal-box" style="max-width:700px">
     <div class="flex items-center justify-between mb-5">
       <div>
         <h3 class="text-base font-bold text-white">Export to File / View Text</h3>
-        <p class="text-xs mt-0.5" style="color:#64748b">Output respects the current active sort order of the table.</p>
+        <p class="text-xs mt-0.5" style="color:#64748b">Output opens in a new tab for easy bulk-copying (Player4Me style).</p>
       </div>
       <button onclick="closeModal('modal-export')" style="color:#64748b;background:none;border:none;cursor:pointer;font-size:20px">✕</button>
     </div>
@@ -864,7 +840,7 @@
     </div>
 
     <!-- Separator -->
-    <div class="mb-4">
+    <div class="mb-5">
       <div class="text-xs font-semibold mb-2" style="color:#64748b">FIELD SEPARATOR</div>
       <div class="flex gap-2">
         <button class="tab-btn active text-xs" id="sep-newline" onclick="setExportSeparator('newline')">Newline (one per row)</button>
@@ -874,15 +850,14 @@
       </div>
     </div>
 
-    <div class="flex justify-between items-center mb-3">
-      <div class="text-xs font-semibold" style="color:#64748b">OUTPUT PREVIEW</div>
-      <div class="flex gap-2">
-        <button onclick="generateExport()" class="tab-btn text-xs active"><i class="fas fa-file-alt mr-1"></i>Text</button>
-        <button onclick="downloadExport()" class="tab-btn text-xs"><i class="fas fa-download mr-1"></i>Download .txt</button>
-        <button onclick="copyExportToClipboard()" class="tab-btn text-xs"><i class="fas fa-copy mr-1"></i>Copy</button>
-      </div>
+    <div class="flex justify-end gap-3">
+      <button onclick="openExportBlob()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white">
+        <i class="fas fa-external-link-alt mr-2"></i>Open in New Tab
+      </button>
+      <button onclick="downloadExport()" class="tab-btn text-sm">
+        <i class="fas fa-download mr-1"></i>Download .txt
+      </button>
     </div>
-    <textarea id="export-output" class="form-input form-textarea w-full" style="min-height:220px;font-family:'JetBrains Mono',monospace;font-size:12px;resize:vertical" readonly placeholder="Click 'Text' to generate output..."></textarea>
   </div>
 </div>
 
@@ -1716,7 +1691,6 @@ let exportBulkOnly = false;
 function openExportModal(bulkOnly = false) {
   exportBulkOnly = bulkOnly;
   $('modal-export').classList.remove('hidden');
-  $('export-output').value = '';
 }
 
 function setExportSeparator(type) {
@@ -1725,55 +1699,62 @@ function setExportSeparator(type) {
 }
 
 function getExportData() {
-  let data = exportBulkOnly
+  return exportBulkOnly
     ? APP.mediaData.filter(v => APP.selectedIds.has(v.id))
     : APP.mediaData;
-  return data;
 }
 
-function generateExport() {
+function generateExportText() {
   const data = getExportData();
   const sep  = { newline: '\n', tab: '\t', csv: ',', pipe: ' | ' }[APP.exportSeparator] || '\n';
   const fields = {
-    title:       $('exp-title')?.checked,
-    file_id:     $('exp-file-id')?.checked,
-    resolution:  $('exp-resolution')?.checked,
-    size:        $('exp-size')?.checked,
-    embed_link:  $('exp-embed-link')?.checked,
-    embed_code:  $('exp-embed-code')?.checked,
-    stream_link: $('exp-stream-link')?.checked,
+    title:        $('exp-title')?.checked,
+    file_id:      $('exp-file-id')?.checked,
+    resolution:   $('exp-resolution')?.checked,
+    size:         $('exp-size')?.checked,
+    embed_link:   $('exp-embed-link')?.checked,
+    embed_code:   $('exp-embed-code')?.checked,
+    stream_link:  $('exp-stream-link')?.checked,
     download_link:$('exp-download-link')?.checked,
-    views:       $('exp-views')?.checked,
+    views:        $('exp-views')?.checked,
   };
 
   const lines = data.map(v => {
     const parts = [];
-    if (fields.title)       parts.push(v.title);
-    if (fields.file_id)     parts.push(v.drive_file_id);
-    if (fields.resolution)  parts.push(v.resolution || '');
-    if (fields.size)        parts.push(formatBytes(v.size));
-    if (fields.embed_link)  parts.push(`${BASE_URL}/embed/${v.drive_file_id}`);
-    if (fields.embed_code)  parts.push(`<iframe src="${BASE_URL}/embed/${v.drive_file_id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`);
-    if (fields.stream_link) parts.push(`${BASE_URL}/stream/${v.drive_file_id}`);
-    if (fields.download_link) parts.push(`${BASE_URL}/stream/${v.drive_file_id}?download=1`);
-    if (fields.views)       parts.push(String(v.views));
-
+    if (fields.title)        parts.push(v.title);
+    if (fields.file_id)      parts.push(v.drive_file_id);
+    if (fields.resolution)   parts.push(v.resolution || '');
+    if (fields.size)         parts.push(formatBytes(v.size));
+    if (fields.embed_link)   parts.push(`${BASE_URL}/embed/${v.drive_file_id}`);
+    if (fields.embed_code)   parts.push(`<iframe src="${BASE_URL}/embed/${v.drive_file_id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`);
+    if (fields.stream_link)  parts.push(`${BASE_URL}/stream/${v.drive_file_id}`);
+    if (fields.download_link)parts.push(`${BASE_URL}/stream/${v.drive_file_id}?download=1`);
+    if (fields.views)        parts.push(String(v.views));
     return APP.exportSeparator === 'newline' ? parts.join('\n') : parts.join(sep);
   });
 
   const divider = APP.exportSeparator === 'newline' ? '\n---\n' : '\n';
-  $('export-output').value = lines.join(divider);
+  return lines.join(divider);
 }
 
-function copyExportToClipboard() {
-  generateExport();
-  const val = $('export-output').value;
-  navigator.clipboard.writeText(val).then(() => showToast('Copied to clipboard!', 'success'));
+/**
+ * Player4Me-style: open the exported content as a Blob URL in a new tab.
+ * This gives a clean, scrollable, full-page text view for easy bulk-copying.
+ */
+function openExportBlob() {
+  const text = generateExportText();
+  if (!text.trim()) { showToast('No data to export. Select fields and try again.', 'error'); return; }
+  const blob   = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const blobUrl = URL.createObjectURL(blob);
+  const win = window.open(blobUrl, '_blank');
+  // Revoke after short delay so the tab can read it
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+  if (!win) showToast('Pop-up blocked. Please allow pop-ups for this site.', 'error');
+  else closeModal('modal-export');
 }
 
 function downloadExport() {
-  generateExport();
-  const val = $('export-output').value;
+  const val = generateExportText();
   const blob = new Blob([val], { type: 'text/plain' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

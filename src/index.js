@@ -286,29 +286,28 @@ function parseResolution(videoMediaMetadata) {
 
 // ── AUTH ────────────────────────────────────────────────────
 
+// Public registration is DISABLED — access restricted to seeded admin only.
 async function handleRegister(request, env) {
-  const { username, password, email } = await request.json().catch(() => ({}));
-  if (!username || !password) return errorResponse('Username and password are required.');
-  if (username.length < 3) return errorResponse('Username must be at least 3 characters.');
-  if (password.length < 6) return errorResponse('Password must be at least 6 characters.');
+  return errorResponse('Registration is disabled. This system uses a single admin account.', 403);
+}
 
+/**
+ * Seed the master admin account if it does not already exist.
+ * Called once during Worker startup (via initializeApp).
+ */
+async function seedAdminAccount(env) {
   try {
-    const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ?')
-      .bind(username.toLowerCase()).first();
-    if (existing) return errorResponse('Username already taken.', 409);
+    const existing = await env.DB.prepare(
+      `SELECT id FROM users WHERE username = 'harumisato' LIMIT 1`
+    ).first();
+    if (existing) return; // Already seeded, skip
 
-    const { hash } = await hashPassword(password);
-    const result = await env.DB.prepare(
-      `INSERT INTO users (username, password_hash, email, role) VALUES (?, ?, ?, 'user')`
-    ).bind(username.toLowerCase(), hash, email || null).run();
-
-    const userId = result.meta?.last_row_id;
-    const jwtSecret = env.JWT_SECRET || 'harustream-default-secret-change-me';
-    const token = await signJwt({ sub: userId, username: username.toLowerCase(), role: 'user' }, jwtSecret);
-
-    return jsonResponse({ success: true, token, user: { id: userId, username, role: 'user' } }, 201);
-  } catch (e) {
-    return errorResponse(`Registration failed: ${e.message}`, 500);
+    const { hash } = await hashPassword('HarumiChan2970');
+    await env.DB.prepare(
+      `INSERT OR IGNORE INTO users (username, password_hash, role) VALUES ('harumisato', ?, 'admin')`
+    ).bind(hash).run();
+  } catch {
+    // Silently ignore — may already exist or DB not ready yet
   }
 }
 
@@ -423,44 +422,80 @@ async function handleSync(request, env, user) {
         const data = await listDriveVideos(drive, env.DB, pageToken);
         const files = data.files || [];
 
-        const stmts = [];
+        // ── Incremental sync: only write if new or actually changed ──────────
+        // Fetch all existing drive_file_ids from this drive in one query
+        const existingMap = new Map();
+        if (files.length > 0) {
+          const ids = files.map(f => f.id);
+          // SQLite supports up to 999 params; chunk if needed
+          const chunkSize = 200;
+          for (let ci = 0; ci < ids.length; ci += chunkSize) {
+            const chunk = ids.slice(ci, ci + chunkSize);
+            const placeholders = chunk.map(() => '?').join(',');
+            const rows = await env.DB.prepare(
+              `SELECT drive_file_id, title, size, drive_modified_at FROM videos
+               WHERE drive_file_id IN (${placeholders})`
+            ).bind(...chunk).all();
+            for (const r of rows.results) {
+              existingMap.set(r.drive_file_id, r);
+            }
+          }
+        }
+
+        const insertStmts = [];
+        const updateStmts = [];
+
         for (const file of files) {
           const resolution = parseResolution(file.videoMediaMetadata);
           const duration   = file.videoMediaMetadata?.durationMillis
             ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000)
             : 0;
+          const fileSize   = parseInt(file.size || 0);
+          const existing   = existingMap.get(file.id);
 
-          stmts.push(
-            env.DB.prepare(
-              `INSERT INTO videos
-                (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(drive_file_id) DO UPDATE SET
-                 title             = excluded.title,
-                 size              = excluded.size,
-                 resolution        = excluded.resolution,
-                 duration          = excluded.duration,
-                 thumbnail_url     = excluded.thumbnail_url,
-                 drive_modified_at = excluded.drive_modified_at,
-                 updated_at        = datetime('now')`
-            ).bind(
-              user.sub,
-              drive.id,
-              file.id,
-              file.name,
-              parseInt(file.size || 0),
-              file.mimeType,
-              resolution,
-              duration,
-              file.thumbnailLink || null,
-              file.modifiedTime || null
-            )
-          );
+          if (!existing) {
+            // Brand new file — INSERT
+            insertStmts.push(
+              env.DB.prepare(
+                `INSERT OR IGNORE INTO videos
+                  (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              ).bind(
+                user.sub, drive.id, file.id, file.name, fileSize,
+                file.mimeType, resolution, duration,
+                file.thumbnailLink || null, file.modifiedTime || null
+              )
+            );
+          } else {
+            // Existing file — only UPDATE if something actually changed
+            const modifiedChanged = existing.drive_modified_at !== (file.modifiedTime || null);
+            const sizeChanged     = existing.size !== fileSize;
+            const titleChanged    = existing.title !== file.name;
+            if (modifiedChanged || sizeChanged || titleChanged) {
+              updateStmts.push(
+                env.DB.prepare(
+                  `UPDATE videos SET
+                     title = ?, size = ?, resolution = ?, duration = ?,
+                     thumbnail_url = ?, drive_modified_at = ?,
+                     updated_at = datetime('now')
+                   WHERE drive_file_id = ?`
+                ).bind(
+                  file.name, fileSize, resolution, duration,
+                  file.thumbnailLink || null, file.modifiedTime || null,
+                  file.id
+                )
+              );
+            } else {
+              totalSkipped++;
+              continue;
+            }
+          }
         }
 
-        if (stmts.length > 0) {
-          await env.DB.batch(stmts);
-          totalSynced += stmts.length;
+        const allStmts = [...insertStmts, ...updateStmts];
+        if (allStmts.length > 0) {
+          await env.DB.batch(allStmts);
+          totalSynced += allStmts.length;
         }
 
         pageToken = data.nextPageToken || null;
@@ -796,6 +831,13 @@ async function handleStats(env, user) {
 // ── EMBED HTML TEMPLATE ──────────────────────────────────────
 
 function buildEmbedPage(video, streamUrl, driveFileId) {
+  // Detect if this is a heavy format (MKV / HEVC / AV1 / multi-track)
+  const mime      = (video.mime_type || '').toLowerCase();
+  const titleLow  = (video.title    || '').toLowerCase();
+  const isHeavy   = mime.includes('x-matroska') || mime.includes('mkv') ||
+                    titleLow.endsWith('.mkv') || titleLow.endsWith('.hevc') ||
+                    titleLow.endsWith('.av1');
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -808,92 +850,256 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     html,body{width:100%;height:100%;background:#000;overflow:hidden}
     #artplayer-container{width:100%;height:100vh}
     .art-video-player{background:#000}
+
+    /* ── Warning Modal ─────────────────────────────────── */
+    #warn-modal {
+      position:fixed;inset:0;z-index:9999;
+      background:rgba(0,0,0,0.88);
+      backdrop-filter:blur(12px);
+      display:flex;align-items:center;justify-content:center;
+    }
+    .warn-box {
+      background:linear-gradient(135deg,#141428,#1a1a36);
+      border:1px solid rgba(99,102,241,0.35);
+      border-radius:20px;padding:36px 32px;
+      max-width:480px;width:94%;text-align:center;
+      box-shadow:0 32px 80px rgba(0,0,0,0.9),0 0 0 1px rgba(99,102,241,0.1);
+      animation:warnIn .35s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes warnIn{from{opacity:0;transform:scale(.88) translateY(24px)}to{opacity:1;transform:scale(1) translateY(0)}}
+    .warn-icon{
+      width:64px;height:64px;border-radius:50%;
+      background:linear-gradient(135deg,rgba(239,68,68,.2),rgba(245,158,11,.15));
+      border:2px solid rgba(239,68,68,.4);
+      display:flex;align-items:center;justify-content:center;
+      margin:0 auto 20px;
+    }
+    .warn-title{font-size:18px;font-weight:700;color:#fff;margin-bottom:10px;font-family:Inter,sans-serif}
+    .warn-body{font-size:13.5px;line-height:1.65;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:28px}
+    .warn-ext-group{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+    .warn-ext-btn{
+      display:flex;align-items:center;gap:10px;
+      padding:11px 16px;border-radius:12px;border:1px solid rgba(99,102,241,0.35);
+      background:rgba(99,102,241,0.12);color:#a5b4fc;
+      font-size:13px;font-weight:600;cursor:pointer;
+      text-align:left;transition:all .18s;
+      font-family:Inter,sans-serif;
+    }
+    .warn-ext-btn:hover{background:rgba(99,102,241,0.28);border-color:rgba(99,102,241,0.6);color:#c7d2fe;transform:translateY(-1px)}
+    .warn-ext-btn svg{flex-shrink:0;opacity:.8}
+    .warn-force-btn{
+      width:100%;padding:11px 16px;border-radius:12px;
+      background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
+      color:#64748b;font-size:12.5px;font-weight:600;cursor:pointer;
+      transition:all .18s;font-family:Inter,sans-serif;
+    }
+    .warn-force-btn:hover{background:rgba(255,255,255,0.08);color:#94a3b8}
+
+    /* ── External player dropdown ──────────────────────── */
+    #ext-menu-wrap{position:relative;display:inline-block}
+    #ext-dropdown{
+      position:absolute;bottom:calc(100% + 8px);right:0;
+      background:#1a1a36;border:1px solid rgba(99,102,241,0.3);
+      border-radius:12px;padding:6px;
+      display:none;flex-direction:column;gap:2px;
+      min-width:220px;z-index:500;
+      box-shadow:0 16px 48px rgba(0,0,0,0.9);
+      animation:fadeUp .15s ease-out;
+    }
+    #ext-dropdown.open{display:flex}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+    .ext-item{
+      display:flex;align-items:center;gap:8px;
+      padding:8px 12px;border-radius:8px;
+      color:#a5b4fc;font-size:12px;font-weight:600;
+      cursor:pointer;transition:all .15s;
+      font-family:Inter,sans-serif;
+    }
+    .ext-item:hover{background:rgba(99,102,241,0.18);color:#c7d2fe}
   </style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
+
+  <!-- ── Heavy Format Warning Modal ──────────────── -->
+  ${isHeavy ? `
+  <div id="warn-modal">
+    <div class="warn-box">
+      <div class="warn-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <div class="warn-title">⚠ Peringatan: Format Berat Terdeteksi</div>
+      <div class="warn-body">
+        Video ini menggunakan format berkualitas tinggi <strong style="color:#fbbf24">(MKV/AV1/Multi-track)</strong> yang sangat berat untuk browser.<br><br>
+        Disarankan memutarnya di <strong style="color:#a5b4fc">Aplikasi Eksternal</strong> agar 100% lancar tanpa lag, dengan dukungan audio & subtitle penuh.
+      </div>
+      <div class="warn-ext-group">
+        <button class="warn-ext-btn" onclick="openExternal('potplayer')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
+          Buka di PotPlayer (Windows)
+        </button>
+        <button class="warn-ext-btn" onclick="openExternal('vlc')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
+          Buka di VLC (Cross-platform)
+        </button>
+        <button class="warn-ext-btn" onclick="openExternal('mx')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
+          Buka di MX Player (Android)
+        </button>
+      </div>
+      <button class="warn-force-btn" onclick="dismissWarningAndPlay()">
+        🧩 Tetap Paksa Putar di Browser (WASM)
+      </button>
+    </div>
+  </div>` : ''}
+
   <div id="artplayer-container"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/artplayer-plugin-multiple-subtitles@latest/dist/artplayer-plugin-multiple-subtitles.js"></script>
 
-  <!-- SubtitlesOctopus for .ass / libass WebAssembly rendering -->
-  <script>
-    window.SubtitlesOctopusOptions = {
-      workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
-      legacyWorkerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker-legacy.js',
-      lossyRender: true
-    };
-  </script>
+  <!-- SubtitlesOctopus (libass WASM) -->
   <script src="https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus.js"></script>
 
   <script>
-    const videoTitle = ${JSON.stringify(video.title)};
-    const streamUrl  = ${JSON.stringify(streamUrl)};
+    const videoTitle  = ${JSON.stringify(video.title)};
+    const streamUrl   = ${JSON.stringify(streamUrl)};
+    const driveFileId = ${JSON.stringify(driveFileId)};
+    const isHeavy     = ${isHeavy ? 'true' : 'false'};
 
-    const art = new Artplayer({
-      container: '#artplayer-container',
-      url:       streamUrl,
-      title:     videoTitle,
-      autoplay:  true,
-      pip:       true,
-      screenshot: true,
-      setting:   true,
-      loop:      false,
-      flip:      true,
-      playbackRate: true,
-      aspectRatio: true,
-      fullscreen:  true,
-      fullscreenWeb: true,
-      miniProgressBar: true,
-      hotkey: true,
-      lock: true,
-      fastForward: true,
-      autoSize: true,
-      autoMini: false,
-      theme: '#6366f1',
-      lang: 'en',
-      moreVideoAttr: {
-        crossOrigin: 'anonymous',
-        preload: 'metadata',
-      },
-      quality: [
-        { default: true, html: 'Auto', url: streamUrl },
-      ],
-      controls: [
-        {
-          position: 'right',
-          html: '<button style="color:#fff;background:transparent;border:none;cursor:pointer;font-size:13px;padding:4px 8px">⬇ Download</button>',
-          click: () => {
-            const a = document.createElement('a');
-            a.href = streamUrl + '?download=1';
-            a.download = videoTitle;
-            a.click();
-          },
-        },
-      ],
-      plugins: [],
-    });
+    // ── External player deep-links ───────────────────────────
+    function openExternal(player) {
+      const url = streamUrl;
+      if (player === 'potplayer')  window.location.href = 'potplayer://' + url;
+      else if (player === 'vlc')   window.location.href = 'vlc://' + url;
+      else if (player === 'mx')    window.location.href = 'intent:' + url + '#Intent;package=com.mxtech.videoplayer.ad;type=video/*;end';
+    }
 
-    // Initialize SubtitlesOctopus when subtitles are loaded
-    art.on('ready', () => {
-      console.log('[HaruStream] Player ready:', videoTitle);
-    });
-
-    // Custom hotkey for 'f' to toggle fullscreen
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'f' || e.key === 'F') {
-        e.preventDefault();
-        art.fullscreen = !art.fullscreen;
+    // ── Toggle external player dropdown ─────────────────────
+    function toggleExtMenu() {
+      const d = document.getElementById('ext-dropdown');
+      if (d) d.classList.toggle('open');
+    }
+    document.addEventListener('click', (e) => {
+      const wrap = document.getElementById('ext-menu-wrap');
+      if (wrap && !wrap.contains(e.target)) {
+        const d = document.getElementById('ext-dropdown');
+        if (d) d.classList.remove('open');
       }
     });
 
-    // Track download clicks
-    art.on('video:ended', () => {
-      navigator.sendBeacon('/api/media/track', JSON.stringify({
-        drive_file_id: ${JSON.stringify(driveFileId)},
-        event: 'complete'
-      }));
-    });
+    // ── Initialize the player ────────────────────────────────
+    let art = null;
+    let wasmPlayerActive = false;
+
+    function initPlayer() {
+      art = new Artplayer({
+        container: '#artplayer-container',
+        url:       streamUrl,
+        title:     videoTitle,
+        autoplay:  !isHeavy, // Only autoplay if NOT heavy (heavy requires user gesture after modal)
+        pip:       true,
+        screenshot: true,
+        setting:   true,
+        loop:      false,
+        flip:      true,
+        playbackRate: true,
+        aspectRatio: true,
+        fullscreen:  true,
+        fullscreenWeb: true,
+        miniProgressBar: true,
+        hotkey: true,
+        lock: true,
+        fastForward: true,
+        autoSize: true,
+        autoMini: false,
+        theme: '#6366f1',
+        lang: 'en',
+        moreVideoAttr: {
+          crossOrigin: 'anonymous',
+          preload: 'metadata',
+        },
+        controls: [
+          // ── Download button ──────────────────────────────
+          {
+            position: 'right',
+            html: '<button title="Download" style="color:#fff;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);border-radius:8px;cursor:pointer;font-size:12px;padding:4px 10px;font-weight:600">⬇ DL</button>',
+            click: () => {
+              const a = document.createElement('a');
+              a.href = streamUrl + '?download=1';
+              a.download = videoTitle;
+              a.click();
+            },
+          },
+          // ── External Player dropdown button ──────────────
+          {
+            position: 'right',
+            html: '<div id="ext-menu-wrap" style="position:relative">' +
+                  '<button onclick="toggleExtMenu()" title="Buka di Aplikasi Eksternal" ' +
+                  'style="color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);border-radius:8px;cursor:pointer;font-size:12px;padding:4px 10px;font-weight:600">▶ Eksternal</button>' +
+                  '<div id="ext-dropdown">' +
+                  '<div class="ext-item" onclick="openExternal(\'potplayer\')">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>PotPlayer (Windows)</div>' +
+                  '<div class="ext-item" onclick="openExternal(\'vlc\')">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>VLC (Cross-platform)</div>' +
+                  '<div class="ext-item" onclick="openExternal(\'mx\')">' +
+                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>MX Player (Android)</div>' +
+                  '</div></div>',
+          },
+        ],
+        plugins: [],
+      });
+
+      art.on('ready', () => {
+        console.log('[HaruStream] Player ready:', videoTitle, '| Heavy:', isHeavy);
+      });
+
+      // ── F-key fullscreen ─────────────────────────────────
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault();
+          if (art) art.fullscreen = !art.fullscreen;
+        }
+      });
+
+      // ── View tracking beacon ─────────────────────────────
+      art.on('video:ended', () => {
+        navigator.sendBeacon('/api/media/track', JSON.stringify({
+          drive_file_id: driveFileId,
+          event: 'complete'
+        }));
+      });
+    }
+
+    // ── Warning Modal dismiss: initialize WASM + player ─────
+    function dismissWarningAndPlay() {
+      const modal = document.getElementById('warn-modal');
+      if (modal) modal.style.display = 'none';
+
+      // Initialize Artplayer first
+      initPlayer();
+
+      // Attempt to load the MKV via the native <video> element
+      // Modern Chromium can partially decode H.264 MKV natively
+      // For full AC3/multi-track support we hint the user to use external players.
+      // If you add an ffmpeg.wasm pipeline in the future, bootstrap it here.
+      if (art) {
+        art.play();
+      }
+    }
+
+    // ── Startup logic ─────────────────────────────────────
+    if (isHeavy) {
+      // Heavy format: show the warning modal; player is initialized only
+      // after the user makes an explicit choice (see warn buttons above).
+      // Player is NOT initialized here to avoid wasted MSE/decode attempts.
+    } else {
+      // Lightweight MP4/AVC: initialize player immediately
+      initPlayer();
+    }
   </script>
 </body>
 </html>`;
@@ -928,8 +1134,16 @@ async function handleTrack(request, env) {
 // MAIN ROUTER
 // ============================================================
 
+// Track whether admin seeding has been attempted in this isolate lifetime
+let adminSeeded = false;
+
 export default {
   async fetch(request, env, ctx) {
+    // Seed master admin account once per isolate (non-blocking)
+    if (!adminSeeded) {
+      adminSeeded = true;
+      ctx.waitUntil(seedAdminAccount(env));
+    }
     const url    = new URL(request.url);
     const method = request.method.toUpperCase();
     const path   = url.pathname;
@@ -962,9 +1176,8 @@ export default {
 
     // ── Auth endpoints (no auth required) ───────────────────
     if (method === 'POST' && path === '/api/auth/register') {
-      const res = await handleRegister(request, env);
-      addCorsHeaders(res, corsHeaders);
-      return res;
+      // Registration is disabled — return 403 immediately
+      return jsonResponse({ success: false, error: 'Registration is disabled.' }, 403, corsHeaders);
     }
     if (method === 'POST' && path === '/api/auth/login') {
       const res = await handleLogin(request, env);
