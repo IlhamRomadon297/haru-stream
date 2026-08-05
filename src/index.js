@@ -744,13 +744,12 @@ async function handleRemoteUpload(request, env, user) {
 
 // ── EMBED / STREAM ───────────────────────────────────────────
 
-async function handleEmbed(driveFileId, request, env) {
+async function handleEmbed(fileId, request, env) {
   // Increment view count (fire-and-forget)
   env.DB.prepare(
-    `UPDATE videos SET views = views + 1, updated_at = datetime('now') WHERE drive_file_id = ?`
-  ).bind(driveFileId).run().catch(() => {});
+    `UPDATE videos SET views = views + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+  ).bind(fileId, parseInt(fileId) || 0).run().catch(() => {});
 
-async function handleEmbed(fileId, request, env) {
   // Find the drive credentials for this file (supports both drive_file_id and v.id)
   const video = await env.DB.prepare(
     `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at, d.id as drive_row_id
