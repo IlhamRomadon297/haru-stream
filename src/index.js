@@ -795,7 +795,21 @@ async function handleStream(fileId, request, env) {
   const driveStreamUrl = `${GOOGLE_DRIVE_API}/files/${video.drive_file_id}?alt=media&supportsAllDrives=true`;
 
   // 1. Fetch from Google Drive API with redirect: 'manual'
-  const rangeHeader = request.headers.get('Range');
+  let rangeHeader = request.headers.get('Range');
+  
+  // FFmpeg (movi-player) relies on suffix byte ranges (e.g. bytes=-10000) to find the MKV index.
+  // Google Drive often ignores suffix ranges and returns the whole file (200 OK), causing Timeout at 0.
+  // We MUST translate suffix ranges to absolute ranges using video.size!
+  if (rangeHeader && rangeHeader.startsWith('bytes=-')) {
+    const suffixStr = rangeHeader.substring(7);
+    const suffix = parseInt(suffixStr, 10);
+    const sizeNum = parseInt(video.size, 10);
+    if (!isNaN(suffix) && !isNaN(sizeNum) && sizeNum > 0) {
+      const start = Math.max(0, sizeNum - suffix);
+      rangeHeader = `bytes=${start}-${sizeNum - 1}`;
+    }
+  }
+
   const reqHeaders = { Authorization: `Bearer ${accessToken}` };
   if (rangeHeader) reqHeaders['Range'] = rangeHeader;
 
@@ -822,11 +836,12 @@ async function handleStream(fileId, request, env) {
 
   // 3. Forward the response back to the client
   const responseHeaders = new Headers();
-  const copyHeaders = ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges'];
+  const copyHeaders = ['Content-Length', 'Content-Range', 'Accept-Ranges'];
   for (const h of copyHeaders) {
     const v = driveResp.headers.get(h);
     if (v) responseHeaders.set(h, v);
   }
+  responseHeaders.set('Content-Type', video.mime_type || driveResp.headers.get('Content-Type') || 'application/octet-stream');
 
   // Must add CORP for WebAssembly / SharedArrayBuffer isolation
   responseHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
