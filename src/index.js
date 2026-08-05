@@ -1061,11 +1061,20 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    // These functions must be available immediately for the modal buttons
     function openExternal(player, streamUrl) {
-      if (player === 'potplayer')  window.location.href = 'potplayer://' + streamUrl;
-      else if (player === 'vlc')   window.location.href = 'vlc://' + streamUrl;
-      else if (player === 'mx')    window.location.href = 'intent:' + streamUrl + '#Intent;package=com.mxtech.videoplayer.ad;type=video/*;end';
+      let absoluteUrl = new URL(streamUrl, window.location.origin).href;
+      let urlWithoutProto = absoluteUrl.replace(/^https?:\/\//, '');
+      if (player === 'potplayer') {
+        window.location.href = 'potplayer://' + absoluteUrl;
+      } else if (player === 'vlc') {
+        if (/android/i.test(navigator.userAgent)) {
+          window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=org.videolan.vlc;type=video/*;end';
+        } else {
+          window.location.href = 'vlc://' + absoluteUrl;
+        }
+      } else if (player === 'mx') {
+        window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=video/*;end';
+      }
     }
 
     function toggleExtMenu() {
@@ -1174,48 +1183,54 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         const origDecode = result.instance.exports.movi_decode_subtitle;
         const origEnable = result.instance.exports.movi_enable_decoder;
         
-        const newExports = Object.create(result.instance.exports);
-        
-        newExports.movi_enable_decoder = function(ctx, stream_index, extradata, size) {
-            if (extradata && size > 0) {
-                const memory = result.instance.exports.memory;
-                const extra = new Uint8Array(memory.buffer, extradata, size);
-                const str = new TextDecoder('utf-8').decode(extra);
-                if (str.includes('[Script Info]')) {
-                    window.assExtradata = str;
+        const proxiedExports = new Proxy(result.instance.exports, {
+            get(target, prop) {
+                if (prop === 'movi_enable_decoder') {
+                    return function(ctx, stream_index, extradata, size) {
+                        if (extradata && size > 0) {
+                            const memory = target.memory;
+                            const extra = new Uint8Array(memory.buffer, extradata, size);
+                            const str = new TextDecoder('utf-8').decode(extra);
+                            if (str.includes('[Script Info]')) {
+                                window.assExtradata = str;
+                            }
+                        }
+                        return origEnable.apply(target, arguments);
+                    };
                 }
-            }
-            return origEnable.apply(this, arguments);
-        };
-
-        newExports.movi_decode_subtitle = function(ctx, stream_index, data, size, pts, duration) {
-            if (data && size > 0 && window.assExtradata) {
-                const memory = result.instance.exports.memory;
-                const packet = new Uint8Array(memory.buffer, data, size);
-                const str = new TextDecoder('utf-8').decode(packet);
-                const parts = str.split(',');
-                if (parts.length >= 3) {
-                    const layer = parts[1]; // Usually ReadOrder is parts[0], Layer is parts[1]
-                    const startStr = window.formatAssTime(pts);
-                    const endStr = window.formatAssTime(pts + duration);
-                    const rest = parts.slice(2).join(',');
-                    const dialogue = \`Dialogue: \${layer},\${startStr},\${endStr},\${rest}\`;
-                    if (!window.assEvents.has(dialogue)) {
-                        window.assEvents.add(dialogue);
-                        clearTimeout(window.jassubDebounce);
-                        window.jassubDebounce = setTimeout(window.updateJassubTrack, 50);
-                    }
+                if (prop === 'movi_decode_subtitle') {
+                    return function(ctx, stream_index, data, size, pts, duration) {
+                        if (data && size > 0 && window.assExtradata) {
+                            const memory = target.memory;
+                            const packet = new Uint8Array(memory.buffer, data, size);
+                            const str = new TextDecoder('utf-8').decode(packet);
+                            const parts = str.split(',');
+                            if (parts.length >= 3) {
+                                const layer = parts[1];
+                                const startStr = window.formatAssTime(pts);
+                                const endStr = window.formatAssTime(pts + duration);
+                                const rest = parts.slice(2).join(',');
+                                const dialogue = 'Dialogue: ' + layer + ',' + startStr + ',' + endStr + ',' + rest;
+                                if (!window.assEvents.has(dialogue)) {
+                                    window.assEvents.add(dialogue);
+                                    clearTimeout(window.jassubDebounce);
+                                    window.jassubDebounce = setTimeout(window.updateJassubTrack, 50);
+                                }
+                            }
+                        }
+                        return origDecode.apply(target, arguments);
+                    };
                 }
+                return target[prop];
             }
-            return origDecode.apply(this, arguments);
-        };
+        });
 
         return {
             module: result.module,
             instance: new Proxy(result.instance, {
                 get(target, prop) {
                     if (prop === 'exports') {
-                        return newExports;
+                        return proxiedExports;
                     }
                     if (typeof target[prop] === 'function') {
                         return target[prop].bind(target);
