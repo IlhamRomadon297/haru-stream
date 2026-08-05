@@ -1294,7 +1294,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
             extractor.extractFonts().then(fontsData => {
                 if (fontsData && fontsData.length > 0) {
-                    console.log(`[JASSUB] Successfully extracted ${fontsData.length} fonts! Re-initializing renderer...`);
+                    console.log("[JASSUB] Successfully extracted " + fontsData.length + " fonts! Re-initializing renderer...");
                     const fontUrls = fontsData.map(uint8 => {
                         const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
                         return URL.createObjectURL(blob);
