@@ -559,6 +559,7 @@ async function handleListMedia(request, env, user) {
   const url    = new URL(request.url);
   const search = url.searchParams.get('search') || '';
   const folderId = url.searchParams.get('folder_id') || null;
+  const driveId  = url.searchParams.get('drive_id') || null;
   const sortBy   = url.searchParams.get('sort_by') || 'title';
   const sortDir  = (url.searchParams.get('sort_dir') || 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
   const page     = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
@@ -570,6 +571,11 @@ async function handleListMedia(request, env, user) {
 
   let whereClause = 'WHERE v.user_id = ?';
   const bindings = [user.sub];
+
+  if (driveId) {
+    whereClause += ' AND v.drive_id = ?';
+    bindings.push(parseInt(driveId));
+  }
 
   if (folderId) {
     whereClause += ' AND v.folder_id = ?';

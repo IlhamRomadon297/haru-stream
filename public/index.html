@@ -668,22 +668,34 @@
 
         <!-- Folder Tree Sidebar -->
         <div class="flex-shrink-0 w-52 p-3 overflow-y-auto" style="border-right:1px solid #1e1e38;background:#0c0c1e">
-          <div class="flex items-center justify-between mb-3">
-            <span class="text-xs font-semibold uppercase tracking-wider" style="color:#475569">Folders</span>
-            <button onclick="openNewFolderModal()" class="w-6 h-6 rounded-lg flex items-center justify-center text-xs transition-colors hover:bg-brand-500/20" style="color:#6366f1;background:none;border:none;cursor:pointer" title="New Folder">
-              <i class="fas fa-plus"></i>
-            </button>
+          
+          <!-- DRIVES -->
+          <div class="mb-5">
+            <div class="text-xs font-semibold mb-2 px-3 flex items-center justify-between" style="color:#64748b;letter-spacing:1px">
+              <span>DRIVES</span>
+            </div>
+            <div class="folder-tree-item active" id="drive-all" onclick="selectDrive(null)">
+              <i class="fab fa-google-drive w-5 text-center" style="color:#10b981"></i>All Drives
+            </div>
+            <div id="drive-tree" class="mt-1 space-y-0.5"></div>
           </div>
-          <!-- All videos root -->
-          <div class="folder-tree-item active" id="folder-all" onclick="selectFolder(null)">
-            <i class="fas fa-layer-group text-xs" style="color:#6366f1"></i>
-            <span>All Videos</span>
+
+          <!-- FOLDERS -->
+          <div class="mb-4">
+            <div class="flex items-center justify-between mb-3 px-3">
+              <span class="text-xs font-semibold uppercase tracking-wider" style="color:#475569">Folders</span>
+              <button onclick="openNewFolderModal()" class="w-6 h-6 rounded-lg flex items-center justify-center text-xs transition-colors hover:bg-brand-500/20" style="color:#6366f1;background:none;border:none;cursor:pointer" title="New Folder">
+                <i class="fas fa-plus"></i>
+              </button>
+            </div>
+            <div class="folder-tree-item active" id="folder-all" onclick="selectFolder(null)">
+              <i class="fas fa-layer-group w-5 text-center" style="color:#6366f1"></i>All Folders
+            </div>
+            <div class="folder-tree-item" id="folder-unsorted" onclick="selectFolder('null')">
+              <i class="far fa-folder w-5 text-center" style="color:#94a3b8"></i>Unsorted
+            </div>
+            <div id="folder-tree" class="mt-1 space-y-0.5"></div>
           </div>
-          <div class="folder-tree-item" id="folder-unsorted" onclick="selectFolder('null')">
-            <i class="fas fa-inbox text-xs" style="color:#94a3b8"></i>
-            <span>Unsorted</span>
-          </div>
-          <div id="folder-tree" class="mt-1 space-y-0.5"></div>
         </div>
 
         <!-- Media Content -->
@@ -1110,6 +1122,7 @@ const APP = {
   user:           null,
   currentView:    'dashboard',
   mediaView:      'list',  // 'list' | 'grid'
+  currentDrive:   null,    // null = all drives
   currentFolder:  undefined, // undefined = all, null = unsorted, number = folder id
   mediaData:      [],      // current sorted data set (mirrors DB order)
   selectedIds:    new Set(),
@@ -1442,13 +1455,13 @@ async function triggerSync(driveId) {
   }
 }
 
-// ── DRIVES ───────────────────────────────────────────────────
 async function loadDrives() {
   const { ok, data } = await apiFetch('/api/settings/drives');
   if (!ok) return;
   APP.drives = data.drives || [];
   renderDrivesList();
   populateDriveSelects();
+  renderDriveTree();
 }
 
 function renderDrivesList() {
@@ -1547,6 +1560,33 @@ async function loadFolders() {
   populateFolderSelects();
 }
 
+function renderDriveTree() {
+  const tree = $('drive-tree');
+  if (!APP.drives) { tree.innerHTML = ''; return; }
+  
+  const html = APP.drives.map(d => `
+    <div class="folder-tree-item ${APP.currentDrive === d.id ? 'active' : ''}" id="dtree-${d.id}" onclick="selectDrive(${d.id})" style="padding-left:10px">
+      <i class="fab fa-google-drive text-xs" style="color:#10b981"></i>
+      <span>${escHtml(d.drive_name)}</span>
+    </div>
+  `).join('');
+  tree.innerHTML = html;
+}
+
+function selectDrive(id) {
+  APP.currentDrive = id;
+  APP.page = 1;
+  // Update active states for drives
+  document.querySelectorAll('#drive-tree .folder-tree-item, #drive-all').forEach(el => el.classList.remove('active'));
+  if (id === null) { 
+    $('drive-all').classList.add('active'); 
+  } else {
+    const el = $(`dtree-${id}`);
+    if (el) el.classList.add('active');
+  }
+  loadMedia();
+}
+
 function renderFolderTree() {
   const tree = $('folder-tree');
   const buildItems = (parentId) => APP.folders
@@ -1565,8 +1605,8 @@ function renderFolderTree() {
 function selectFolder(id) {
   APP.currentFolder = id;
   APP.page = 1;
-  // Update active states
-  document.querySelectorAll('.folder-tree-item').forEach(el => el.classList.remove('active'));
+  // Update active states for folders
+  document.querySelectorAll('#folder-tree .folder-tree-item, #folder-all, #folder-unsorted').forEach(el => el.classList.remove('active'));
   if (id === null)    { $('folder-all').classList.add('active'); }
   else if (id === 'null') { $('folder-unsorted').classList.add('active'); }
   else if (id !== undefined) {
@@ -1583,6 +1623,11 @@ async function loadMedia() {
   const limit   = 50;
 
   let url = `/api/media?search=${encodeURIComponent(search)}&sort_by=${sortBy}&sort_dir=${sortDir}&page=${APP.page}&limit=${limit}`;
+  
+  if (APP.currentDrive) {
+    url += `&drive_id=${APP.currentDrive}`;
+  }
+
   if (APP.currentFolder === 'null') {
     url += '&folder_id=null'; // Unsorted
   } else if (APP.currentFolder !== null && APP.currentFolder !== undefined) {
