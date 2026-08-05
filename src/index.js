@@ -1063,7 +1063,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <script>
     function openExternal(player, streamUrl) {
       let absoluteUrl = new URL(streamUrl, window.location.origin).href;
-      let urlWithoutProto = absoluteUrl.replace(/^https?:\/\//, '');
+      let urlWithoutProto = absoluteUrl.split('://')[1] || absoluteUrl;
       if (player === 'potplayer') {
         window.location.href = 'potplayer://' + absoluteUrl;
       } else if (player === 'vlc') {
@@ -1137,8 +1137,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       <button class="warn-force-btn" onclick="dismissWarningAndPlay()">
         🧩 Tetap Paksa Putar di Browser (WASM)
       </button>
-      </div>
-    </div>` : ''}
+    </div>
+  </div>` : ''}
 
   <div id="artplayer-container" style="${isHeavy ? 'display:none;' : ''}"></div>
 
