@@ -80,8 +80,8 @@
 
     /* Sidebar nav item */
     .nav-item {
-      display: flex; align-items: center; gap: 10px;
-      padding: 10px 14px; border-radius: 10px;
+      display: flex; align-items: center; gap: 14px;
+      padding: 12px 22px; border-radius: 10px;
       color: #94a3b8; font-size: 14px; font-weight: 500;
       cursor: pointer; transition: all 0.2s; position: relative;
     }
@@ -182,10 +182,47 @@
     .badge-gray    { background: rgba(100,116,139,0.15); color: #94a3b8; }
 
     /* Sidebar */
-    #sidebar { width: 230px; min-width: 230px; transition: all 0.3s; }
-    #sidebar.collapsed { width: 64px; min-width: 64px; }
-    #sidebar.collapsed .nav-label, #sidebar.collapsed .sidebar-logo-text,
-    #sidebar.collapsed .sidebar-footer { display: none; }
+    #sidebar-container {
+      width: 64px;
+      min-width: 64px;
+      position: relative;
+      z-index: 50;
+      flex-shrink: 0;
+    }
+    #sidebar { 
+      position: absolute;
+      top: 0; left: 0; bottom: 0;
+      width: 64px; 
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s; 
+      overflow: hidden;
+      background: #0c0c1e;
+      border-right: 1px solid #1e1e38;
+      display: flex;
+      flex-direction: column;
+      white-space: nowrap;
+    }
+    #sidebar:hover, #sidebar.expanded { 
+      width: 240px; 
+      box-shadow: 10px 0 30px rgba(0,0,0,0.5);
+    }
+    
+    #sidebar .nav-label, 
+    #sidebar .sidebar-logo-text,
+    #sidebar .sidebar-footer-content { 
+      opacity: 0; 
+      transition: opacity 0.2s; 
+      pointer-events: none;
+    }
+    
+    #sidebar:hover .nav-label, 
+    #sidebar:hover .sidebar-logo-text,
+    #sidebar:hover .sidebar-footer-content,
+    #sidebar.expanded .nav-label,
+    #sidebar.expanded .sidebar-logo-text,
+    #sidebar.expanded .sidebar-footer-content { 
+      opacity: 1; 
+      pointer-events: auto;
+    }
 
     /* Floating bulk bar */
     #bulk-bar {
@@ -245,8 +282,7 @@
 
     /* Responsive */
     @media (max-width: 768px) {
-      #sidebar { width: 64px; }
-      #sidebar .nav-label, #sidebar .sidebar-logo-text { display: none; }
+      /* Mobile specific tweaks */
     }
 
     /* Filename tooltip — full name on hover */
@@ -367,7 +403,8 @@
 <div id="app" class="hidden flex h-screen overflow-hidden">
 
   <!-- SIDEBAR -->
-  <aside id="sidebar" class="flex flex-col h-screen" style="background:#0c0c1e;border-right:1px solid #1e1e38">
+  <div id="sidebar-container">
+    <aside id="sidebar">
     <!-- Logo -->
     <div class="flex items-center gap-3 px-4 py-5" style="border-bottom:1px solid #1e1e38">
       <div class="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">
@@ -405,16 +442,17 @@
         <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#3730a3,#4f46e5)">
           <i class="fas fa-user text-white text-xs"></i>
         </div>
-        <div class="flex-1 min-w-0">
+        <div class="flex-1 min-w-0 sidebar-footer-content">
           <div id="sidebar-username" class="text-xs font-semibold text-white truncate">—</div>
           <div id="sidebar-role"     class="text-xs" style="color:#475569">Loading...</div>
         </div>
-        <button onclick="handleLogout()" class="text-xs px-2 py-1 rounded-lg transition-colors" style="color:#475569;background:none;border:none;cursor:pointer" title="Logout">
+        <button onclick="handleLogout()" class="sidebar-footer-content text-xs px-2 py-1 rounded-lg transition-colors" style="color:#475569;background:none;border:none;cursor:pointer" title="Logout">
           <i class="fas fa-sign-out-alt"></i>
         </button>
       </div>
     </div>
-  </aside>
+    </aside>
+  </div>
 
   <!-- MAIN CONTENT -->
   <main class="flex-1 flex flex-col overflow-hidden">
@@ -1206,6 +1244,11 @@ function handleLogout() {
 function togglePasswordVisibility(inputId) {
   const inp = $(inputId);
   inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+// ── SIDEBAR & VIEWS ─────────────────────────────────────────────────────────
+function toggleSidebar() {
+  $('sidebar').classList.toggle('expanded');
 }
 
 // ── APP INIT ─────────────────────────────────────────────────
