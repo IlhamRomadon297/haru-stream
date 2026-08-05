@@ -708,6 +708,11 @@
               <input type="text" id="media-search" class="form-input pl-9 py-2 text-sm" style="padding-top:8px;padding-bottom:8px" placeholder="Search videos..." oninput="debounceSearch()" />
             </div>
 
+            <!-- Drive Filter -->
+            <select id="media-drive-filter" class="form-input w-auto text-sm py-2" style="padding-top:8px;padding-bottom:8px" onchange="loadMedia()">
+              <option value="">Semua Drive</option>
+            </select>
+
             <!-- Sort -->
             <select id="media-sort-by" class="form-input w-auto text-sm py-2" style="padding-top:8px;padding-bottom:8px" onchange="loadMedia()">
               <option value="title">A → Z</option>
@@ -1620,11 +1625,14 @@ async function loadMedia() {
   const search  = $('media-search')?.value || '';
   const sortBy  = $('media-sort-by')?.value || 'title';
   const sortDir = $('media-sort-dir')?.value || 'asc';
+  const driveFilter = $('media-drive-filter')?.value || '';
   const limit   = 50;
 
   let url = `/api/media?search=${encodeURIComponent(search)}&sort_by=${sortBy}&sort_dir=${sortDir}&page=${APP.page}&limit=${limit}`;
   
-  if (APP.currentDrive) {
+  if (driveFilter) {
+    url += `&drive_id=${driveFilter}`;
+  } else if (APP.currentDrive) {
     url += `&drive_id=${APP.currentDrive}`;
   }
 
@@ -1884,6 +1892,12 @@ function populateDriveSelects() {
     const el = $(id);
     if (el) el.innerHTML = opts;
   });
+
+  const mediaDriveFilter = $('media-drive-filter');
+  if (mediaDriveFilter) {
+    mediaDriveFilter.innerHTML = '<option value="">Semua Drive</option>' +
+      APP.drives.map(d => `<option value="${d.id}">${escHtml(d.drive_name)}</option>`).join('');
+  }
 }
 
 function populateFolderSelects() {
