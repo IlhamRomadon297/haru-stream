@@ -794,31 +794,48 @@ async function handleStream(fileId, request, env) {
 
   const driveStreamUrl = `${GOOGLE_DRIVE_API}/files/${video.drive_file_id}?alt=media&supportsAllDrives=true`;
 
-  // Proxy the request with the range header forwarded
+  // 1. Fetch from Google Drive API with redirect: 'manual'
   const rangeHeader = request.headers.get('Range');
-  const driveResp = await fetch(driveStreamUrl, {
-    redirect: 'manual', // Return the 302 directly to the client for direct CDN streaming
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...(rangeHeader ? { Range: rangeHeader } : {}),
-    },
+  const reqHeaders = { Authorization: `Bearer ${accessToken}` };
+  if (rangeHeader) reqHeaders['Range'] = rangeHeader;
+
+  let driveResp = await fetch(driveStreamUrl, {
+    headers: reqHeaders,
+    redirect: 'manual'
   });
 
+  // 2. Follow redirect manually without Authorization header to avoid 401 Unauthorized
+  if ([301, 302, 303, 307, 308].includes(driveResp.status)) {
+    const location = driveResp.headers.get('Location');
+    if (location) {
+      const redirectHeaders = {};
+      if (rangeHeader) redirectHeaders['Range'] = rangeHeader;
+      
+      driveResp = await fetch(location, {
+        headers: redirectHeaders,
+        redirect: 'follow'
+      });
+    }
+  }
+
+  // 3. Forward the response back to the client
   const responseHeaders = new Headers();
-  const copyHeaders = ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges', 'Location'];
+  const copyHeaders = ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges'];
   for (const h of copyHeaders) {
     const v = driveResp.headers.get(h);
     if (v) responseHeaders.set(h, v);
   }
-  
-  if (!driveResp.ok && driveResp.status !== 302 && driveResp.status !== 303) {
-    responseHeaders.set('Cache-Control', 'no-cache');
-  } else {
-    responseHeaders.set('Cache-Control', 'public, max-age=3600');
-  }
-  
+
+  // Must add CORP for WebAssembly / SharedArrayBuffer isolation
+  responseHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
   responseHeaders.set('Access-Control-Allow-Origin', '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+
+  if (driveResp.ok || driveResp.status === 206) {
+    responseHeaders.set('Cache-Control', 'public, max-age=3600');
+  } else {
+    responseHeaders.set('Cache-Control', 'no-cache');
+  }
 
   const url = new URL(request.url);
   if (url.searchParams.get('download') === '1') {
