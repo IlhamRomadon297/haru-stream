@@ -230,7 +230,7 @@ async function listDriveVideos(drive, db, pageToken = null) {
     : '';
   const query = encodeURIComponent(`${mimeFilter}${folderFilter} and trashed = false`);
   const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink)';
-  let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true`;
+  let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`;
   if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
 
   const resp = await fetch(url, {
@@ -238,6 +238,24 @@ async function listDriveVideos(drive, db, pageToken = null) {
   });
 
   if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
+  return await resp.json();
+}
+
+async function getStartPageToken(drive, db) {
+  const accessToken = await getAccessToken(drive, db);
+  const resp = await fetch(`${GOOGLE_DRIVE_API}/changes/startPageToken?supportsAllDrives=true`, {
+    headers: { Authorization: `Bearer ${accessToken}` }
+  });
+  if (!resp.ok) throw new Error('Failed to fetch startPageToken');
+  const data = await resp.json();
+  return data.startPageToken;
+}
+
+async function getDriveChanges(drive, db, pageToken) {
+  const accessToken = await getAccessToken(drive, db);
+  let url = `${GOOGLE_DRIVE_API}/changes?pageToken=${encodeURIComponent(pageToken)}&supportsAllDrives=true&includeItemsFromAllDrives=true&pageSize=1000&fields=nextPageToken,newStartPageToken,changes(fileId,removed,file(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents,trashed))`;
+  const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!resp.ok) throw new Error('Failed to fetch changes');
   return await resp.json();
 }
 
@@ -399,7 +417,6 @@ async function handleDeleteDrive(driveId, env, user) {
 async function handleSync(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const { drive_id } = body;
-  // force_full=true → skip incremental checks, INSERT OR REPLACE everything found in GDrive
   const forceFullScan = body.force_full === true || body.force === true;
 
   let drivesQuery;
@@ -416,46 +433,81 @@ async function handleSync(request, env, user) {
 
   let totalSynced  = 0;
   let totalSkipped = 0;
+  let totalRemoved = 0;
   const errors = [];
 
   for (const drive of drives) {
     try {
-      let pageToken = null;
-      do {
-        const data = await listDriveVideos(drive, env.DB, pageToken);
-        const files = data.files || [];
+      const isSmartSync = !forceFullScan && drive.sync_token;
 
-        if (files.length === 0) {
+      if (isSmartSync) {
+        // ── SMART SYNC (Changes API) ──────────────────
+        let pageToken = drive.sync_token;
+        let newStartToken = null;
+        
+        do {
+          const data = await getDriveChanges(drive, env.DB, pageToken);
+          const changes = data.changes || [];
+          
+          const insertStmts = [];
+          const deleteStmts = [];
+
+          for (const change of changes) {
+            if (change.removed || (change.file && change.file.trashed)) {
+              deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(change.fileId));
+              totalRemoved++;
+            } else if (change.file && change.file.mimeType && change.file.mimeType.startsWith('video/')) {
+              if (drive.root_folder_id && change.file.parents && !change.file.parents.includes(drive.root_folder_id)) {
+                continue;
+              }
+              const file = change.file;
+              const resolution = parseResolution(file.videoMediaMetadata);
+              const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
+              
+              insertStmts.push(
+                env.DB.prepare(
+                  `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now')`
+                ).bind(user.sub, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null)
+              );
+            }
+          }
+
+          if (deleteStmts.length > 0) await env.DB.batch(deleteStmts);
+          if (insertStmts.length > 0) {
+            await env.DB.batch(insertStmts);
+            totalSynced += insertStmts.length;
+          }
+
           pageToken = data.nextPageToken || null;
-          continue;
+          if (data.newStartPageToken) newStartToken = data.newStartPageToken;
+        } while (pageToken);
+
+        if (newStartToken) {
+          await env.DB.prepare('UPDATE drives SET sync_token = ? WHERE id = ?').bind(newStartToken, drive.id).run();
         }
 
-        if (forceFullScan) {
-          // ── FULL SCAN MODE: INSERT OR REPLACE everything — no incremental check ──
+      } else {
+        // ── FULL SCAN / LIST API ──────────────────
+        let pageToken = null;
+        do {
+          const data = await listDriveVideos(drive, env.DB, pageToken);
+          const files = data.files || [];
+
+          if (files.length === 0) {
+            pageToken = data.nextPageToken || null;
+            continue;
+          }
+
           const stmts = files.map(file => {
             const resolution = parseResolution(file.videoMediaMetadata);
-            const duration   = file.videoMediaMetadata?.durationMillis
-              ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000)
-              : 0;
+            const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
             return env.DB.prepare(
-              `INSERT INTO videos
-                (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+              `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(drive_file_id) DO UPDATE SET
-                 title             = excluded.title,
-                 size              = excluded.size,
-                 mime_type         = excluded.mime_type,
-                 resolution        = excluded.resolution,
-                 duration          = excluded.duration,
-                 thumbnail_url     = excluded.thumbnail_url,
-                 drive_modified_at = excluded.drive_modified_at,
-                 updated_at        = datetime('now')`
-            ).bind(
-              user.sub, drive.id, file.id, file.name,
-              parseInt(file.size || 0), file.mimeType,
-              resolution, duration,
-              file.thumbnailLink || null, file.modifiedTime || null
-            );
+               ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now')`
+            ).bind(user.sub, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null);
           });
 
           if (stmts.length > 0) {
@@ -463,84 +515,22 @@ async function handleSync(request, env, user) {
             totalSynced += stmts.length;
           }
 
-        } else {
-          // ── INCREMENTAL MODE: only write if new or actually changed ──────────
-          const existingMap = new Map();
-          const ids = files.map(f => f.id);
-          const chunkSize = 200;
-          for (let ci = 0; ci < ids.length; ci += chunkSize) {
-            const chunk = ids.slice(ci, ci + chunkSize);
-            const placeholders = chunk.map(() => '?').join(',');
-            const rows = await env.DB.prepare(
-              `SELECT drive_file_id, title, size, drive_modified_at FROM videos
-               WHERE drive_file_id IN (${placeholders})`
-            ).bind(...chunk).all();
-            for (const r of rows.results) existingMap.set(r.drive_file_id, r);
-          }
+          pageToken = data.nextPageToken || null;
+        } while (pageToken);
 
-          const insertStmts = [];
-          const updateStmts = [];
-
-          for (const file of files) {
-            const resolution = parseResolution(file.videoMediaMetadata);
-            const duration   = file.videoMediaMetadata?.durationMillis
-              ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000)
-              : 0;
-            const fileSize = parseInt(file.size || 0);
-            const existing = existingMap.get(file.id);
-
-            if (!existing) {
-              insertStmts.push(
-                env.DB.prepare(
-                  `INSERT OR IGNORE INTO videos
-                    (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-                ).bind(
-                  user.sub, drive.id, file.id, file.name, fileSize,
-                  file.mimeType, resolution, duration,
-                  file.thumbnailLink || null, file.modifiedTime || null
-                )
-              );
-            } else {
-              const modifiedChanged = existing.drive_modified_at !== (file.modifiedTime || null);
-              const sizeChanged     = existing.size !== fileSize;
-              const titleChanged    = existing.title !== file.name;
-              if (modifiedChanged || sizeChanged || titleChanged) {
-                updateStmts.push(
-                  env.DB.prepare(
-                    `UPDATE videos SET
-                       title = ?, size = ?, resolution = ?, duration = ?,
-                       thumbnail_url = ?, drive_modified_at = ?,
-                       updated_at = datetime('now')
-                     WHERE drive_file_id = ?`
-                  ).bind(
-                    file.name, fileSize, resolution, duration,
-                    file.thumbnailLink || null, file.modifiedTime || null,
-                    file.id
-                  )
-                );
-              } else {
-                totalSkipped++;
-                continue;
-              }
-            }
-          }
-
-          const allStmts = [...insertStmts, ...updateStmts];
-          if (allStmts.length > 0) {
-            await env.DB.batch(allStmts);
-            totalSynced += allStmts.length;
-          }
+        // Fetch and save startPageToken for next time
+        try {
+          const startToken = await getStartPageToken(drive, env.DB);
+          await env.DB.prepare('UPDATE drives SET sync_token = ? WHERE id = ?').bind(startToken, drive.id).run();
+        } catch (e) {
+          console.error("Failed to get start token", e);
         }
-
-        pageToken = data.nextPageToken || null;
-      } while (pageToken);
+      }
 
       // Update quota and last_synced_at
       const quota = await getDriveQuota(drive, env.DB);
-      await env.DB.prepare(
-        `UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
-      ).bind(quota.used, quota.total, drive.id).run();
+      await env.DB.prepare(`UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`)
+        .bind(quota.used, quota.total, drive.id).run();
 
     } catch (e) {
       errors.push({ drive_id: drive.id, drive_name: drive.drive_name, error: e.message });
@@ -549,11 +539,12 @@ async function handleSync(request, env, user) {
 
   return jsonResponse({
     success: true,
-    mode: forceFullScan ? 'full_scan' : 'incremental',
+    mode: forceFullScan ? 'full_scan' : 'smart_sync',
     synced: totalSynced,
     skipped: totalSkipped,
+    removed: totalRemoved,
     errors,
-    message: `${forceFullScan ? 'Full scan' : 'Incremental sync'} complete — ${totalSynced} files indexed, ${totalSkipped} skipped.`,
+    message: `${forceFullScan ? 'Full scan' : 'Smart sync'} complete — ${totalSynced} files indexed, ${totalRemoved} removed.`,
   });
 }
 
@@ -767,7 +758,13 @@ async function handleEmbed(fileId, request, env) {
   const streamUrl = `${baseUrl.origin}/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
 
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
-  return new Response(html, { headers: HTML_HEADERS });
+  return new Response(html, { 
+    headers: {
+      ...HTML_HEADERS,
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp'
+    } 
+  });
 }
 
 async function handleStream(fileId, request, env) {
@@ -1079,10 +1076,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
   <div id="artplayer-container"></div>
 
+  ${!isHeavy ? `
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
-
   <!-- SubtitlesOctopus (libass WASM) -->
   <script src="https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus.js"></script>
+  ` : `
+  <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.3.5/dist/element.js"></script>
+  `}
 
   <script>
     const videoTitle  = ${JSON.stringify(video.title)};
@@ -1095,6 +1095,12 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     let wasmPlayerActive = false;
 
     window.initPlayer = function() {
+      if (isHeavy) {
+        const container = document.getElementById('artplayer-container');
+        container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" autoplay></movi-player>';
+        return;
+      }
+
       if (art) {
         art.play().catch(e => console.error(e));
         return;

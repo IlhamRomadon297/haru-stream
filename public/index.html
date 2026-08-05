@@ -494,8 +494,8 @@
           <div class="lg:col-span-2 glass-card rounded-2xl p-5">
             <div class="flex items-center justify-between mb-4">
               <div>
-                <div class="font-semibold text-sm text-white">Play Activity</div>
-                <div class="text-xs mt-0.5" style="color:#475569">Views over the last 7 days</div>
+                <div class="font-semibold text-sm text-white">Top 7 Videos</div>
+                <div class="text-xs mt-0.5" style="color:#475569">Most viewed videos overall</div>
               </div>
             </div>
             <div class="chart-container">
@@ -1298,12 +1298,12 @@ async function loadDashboard() {
           <td><span class="font-mono text-xs" style="color:#64748b">${formatBytes(v.size)}</span></td>
         </tr>`).join('');
 
-  // Area Chart
-  buildAreaChart(data.recent_activity);
-  buildDonutChart();
+      // Render charts
+      buildBarChart(data.topVideos);
+      buildDonutChart(data.topVideos);
 }
 
-function buildAreaChart(activity) {
+function buildBarChart(topVideos) {
   const ctx = $('areaChart')?.getContext('2d');
   if (!ctx) return;
   if (APP.charts.area) APP.charts.area.destroy();
@@ -1538,8 +1538,10 @@ async function loadMedia() {
   const limit   = 50;
 
   let url = `/api/media?search=${encodeURIComponent(search)}&sort_by=${sortBy}&sort_dir=${sortDir}&page=${APP.page}&limit=${limit}`;
-  if (APP.currentFolder !== undefined) {
-    url += `&folder_id=${APP.currentFolder === null ? 'null' : APP.currentFolder}`;
+  if (APP.currentFolder === 'null') {
+    url += '&folder_id=null'; // Unsorted
+  } else if (APP.currentFolder !== null && APP.currentFolder !== undefined) {
+    url += `&folder_id=${APP.currentFolder}`; // Specific folder
   }
 
   const { ok, data } = await apiFetch(url);

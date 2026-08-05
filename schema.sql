@@ -57,6 +57,7 @@ CREATE TABLE drives (
     quota_used       INTEGER  DEFAULT 0,
     quota_total      INTEGER  DEFAULT 0,
     last_synced_at   DATETIME,
+    sync_token       TEXT,
     is_active        INTEGER  NOT NULL DEFAULT 1,
     created_at       DATETIME NOT NULL DEFAULT (datetime('now')),
     updated_at       DATETIME NOT NULL DEFAULT (datetime('now')),
