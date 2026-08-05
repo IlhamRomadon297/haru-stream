@@ -1086,6 +1086,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     function dismissWarningAndPlay() {
       const modal = document.getElementById('warn-modal');
       if (modal) modal.style.display = 'none';
+      const container = document.getElementById('artplayer-container');
+      if (container) container.style.display = 'block';
       if (typeof window.initPlayer === 'function') {
         window.initPlayer();
       }
@@ -1135,10 +1137,10 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       <button class="warn-force-btn" onclick="dismissWarningAndPlay()">
         🧩 Tetap Paksa Putar di Browser (WASM)
       </button>
-    </div>
-  </div>` : ''}
+      </div>
+    </div>` : ''}
 
-  <div id="artplayer-container"></div>
+  <div id="artplayer-container" style="${isHeavy ? 'display:none;' : ''}"></div>
 
   ${!isHeavy ? `
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
