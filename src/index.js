@@ -1139,6 +1139,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <script src="https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus.js"></script>
   
   ${isHeavy ? `
+  <script src="/mkv-fonts.js"></script>
   <script>
     // ── Monkey-patch WASM to intercept raw ASS subtitle packets for JASSUB ──
     window.assExtradata = "";
@@ -1201,13 +1202,20 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             return origDecode.apply(this, arguments);
         };
 
-        Object.defineProperty(result.instance, 'exports', {
-            value: newExports,
-            writable: false,
-            configurable: true
-        });
-        
-        return result;
+        return {
+            module: result.module,
+            instance: new Proxy(result.instance, {
+                get(target, prop) {
+                    if (prop === 'exports') {
+                        return newExports;
+                    }
+                    if (typeof target[prop] === 'function') {
+                        return target[prop].bind(target);
+                    }
+                    return target[prop];
+                }
+            })
+        };
     };
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.3.5/dist/element.js"></script>
