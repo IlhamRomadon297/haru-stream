@@ -1308,18 +1308,16 @@ function buildBarChart(topVideos) {
   if (!ctx) return;
   if (APP.charts.area) APP.charts.area.destroy();
 
-  const labels = activity.map(a => {
-    const d = new Date(a.created_at);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }).reverse();
-  const views = activity.map(a => a.views).reverse();
+  const data = topVideos.slice(0, 7);
+  const labels = data.map(v => v.title.length > 20 ? v.title.substring(0, 20) + '...' : v.title);
+  const views = data.map(v => v.views);
 
   const grad = ctx.createLinearGradient(0, 0, 0, 240);
   grad.addColorStop(0, 'rgba(99,102,241,0.35)');
   grad.addColorStop(1, 'rgba(99,102,241,0)');
 
   APP.charts.area = new Chart(ctx, {
-    type: 'line',
+    type: 'bar',
     data: {
       labels,
       datasets: [{
@@ -1327,12 +1325,8 @@ function buildBarChart(topVideos) {
         data: views,
         borderColor: '#6366f1',
         backgroundColor: grad,
-        borderWidth: 2.5,
-        pointBackgroundColor: '#6366f1',
-        pointRadius: 4,
-        pointHoverRadius: 6,
-        fill: true,
-        tension: 0.45,
+        borderWidth: 2,
+        borderRadius: 4
       }],
     },
     options: {
@@ -1346,13 +1340,22 @@ function buildBarChart(topVideos) {
   });
 }
 
-function buildDonutChart() {
+function buildDonutChart(topVideos) {
   const ctx = $('donutChart')?.getContext('2d');
   if (!ctx) return;
   if (APP.charts.donut) APP.charts.donut.destroy();
 
+  const resCounts = { '4K': 0, '1080p': 0, '720p': 0, '480p': 0, 'Other': 0 };
+  topVideos.forEach(v => {
+    if (v.resolution === '4K') resCounts['4K']++;
+    else if (v.resolution === '1080p') resCounts['1080p']++;
+    else if (v.resolution === '720p') resCounts['720p']++;
+    else if (v.resolution === '480p') resCounts['480p']++;
+    else resCounts['Other']++;
+  });
+  
   const labels  = ['4K', '1080p', '720p', '480p', 'Other'];
-  const data    = [12, 45, 23, 10, 10];
+  const data    = [resCounts['4K'], resCounts['1080p'], resCounts['720p'], resCounts['480p'], resCounts['Other']];
   const colors  = ['#6366f1', '#8b5cf6', '#a78bfa', '#c4b5fd', '#4338ca'];
 
   APP.charts.donut = new Chart(ctx, {
@@ -1373,7 +1376,7 @@ function buildDonutChart() {
         <div class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:${colors[i]}"></div>
         <span class="text-xs" style="color:#94a3b8">${l}</span>
       </div>
-      <span class="text-xs font-mono" style="color:#64748b">${data[i]}%</span>
+      <span class="text-xs font-mono" style="color:#64748b">${data[i]}</span>
     </div>`).join('');
 }
 

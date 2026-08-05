@@ -230,7 +230,7 @@ async function listDriveVideos(drive, db, pageToken = null) {
     : '';
   const query = encodeURIComponent(`${mimeFilter}${folderFilter} and trashed = false`);
   const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink)';
-  let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true`;
+  let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
   if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
 
   const resp = await fetch(url, {
@@ -890,7 +890,7 @@ async function handleStats(env, user) {
   `).bind(user.sub).first();
 
   const topVideos = await env.DB.prepare(
-    `SELECT drive_file_id, title, views, downloads, size, resolution
+    `SELECT id, drive_file_id, title, views, downloads, size, resolution
      FROM videos WHERE user_id = ? ORDER BY views DESC LIMIT 10`
   ).bind(user.sub).all();
 
@@ -1097,7 +1097,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     window.initPlayer = function() {
       if (isHeavy) {
         const container = document.getElementById('artplayer-container');
-        container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" autoplay></movi-player>';
+        container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" controls></movi-player>';
         return;
       }
 
@@ -1109,7 +1109,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         container: '#artplayer-container',
         url:       streamUrl,
         title:     videoTitle,
-        autoplay:  true, // Always autoplay when initPlayer is called (handles both direct load and user-forced play)
+        autoplay:  false, // Disabled per user request
         pip:       true,
         screenshot: true,
         setting:   true,
