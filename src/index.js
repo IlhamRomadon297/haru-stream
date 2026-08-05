@@ -751,11 +751,11 @@ async function handleEmbed(fileId, request, env) {
     return new Response('Video not found.', { status: 404, headers: HTML_HEADERS });
   }
 
-  // Build the proxy stream URL (served by this same Worker)
-  const baseUrl   = new URL(request.url);
+  // Build the proxy stream URL (relative path so it works seamlessly on Pages domain)
   // Include filename to make it readable in PotPlayer
   const cleanTitle = (video.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
-  const streamUrl = `${baseUrl.origin}/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
+  const streamUrl = `/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
+
 
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
   return new Response(html, { 
@@ -1150,7 +1150,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         hotkey: true,
         lock: true,
         fastForward: true,
-        autoSize: true,
+        autoSize: false,
         autoMini: false,
         theme: '#6366f1',
         lang: 'en',
