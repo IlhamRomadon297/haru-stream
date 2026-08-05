@@ -24,7 +24,11 @@ const CORS_HEADERS = (origin = '*') => ({
 });
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
-const HTML_HEADERS = { 'Content-Type': 'text/html;charset=UTF-8' };
+const HTML_HEADERS = { 
+  'Content-Type': 'text/html;charset=UTF-8',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Embedder-Policy': 'require-corp'
+};
 
 // JWT Secret key cached per isolate lifetime
 let cachedJwtKey = null;
