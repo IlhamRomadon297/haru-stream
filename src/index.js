@@ -1006,6 +1006,36 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     .ext-item:hover{background:rgba(99,102,241,0.18);color:#c7d2fe}
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    // These functions must be available immediately for the modal buttons
+    function openExternal(player, streamUrl) {
+      if (player === 'potplayer')  window.location.href = 'potplayer://' + streamUrl;
+      else if (player === 'vlc')   window.location.href = 'vlc://' + streamUrl;
+      else if (player === 'mx')    window.location.href = 'intent:' + streamUrl + '#Intent;package=com.mxtech.videoplayer.ad;type=video/*;end';
+    }
+
+    function toggleExtMenu() {
+      const d = document.getElementById('ext-dropdown');
+      if (d) d.classList.toggle('open');
+    }
+
+    // This will be called by the force button
+    function dismissWarningAndPlay() {
+      const modal = document.getElementById('warn-modal');
+      if (modal) modal.style.display = 'none';
+      if (typeof window.initPlayer === 'function') {
+        window.initPlayer();
+      }
+    }
+
+    document.addEventListener('click', (e) => {
+      const wrap = document.getElementById('ext-menu-wrap');
+      if (wrap && !wrap.contains(e.target)) {
+        const d = document.getElementById('ext-dropdown');
+        if (d) d.classList.remove('open');
+      }
+    });
+  </script>
 </head>
 <body>
 
@@ -1026,15 +1056,15 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         Disarankan memutarnya di <strong style="color:#a5b4fc">Aplikasi Eksternal</strong> agar 100% lancar tanpa lag, dengan dukungan audio & subtitle penuh.
       </div>
       <div class="warn-ext-group">
-        <button class="warn-ext-btn" onclick="openExternal('potplayer')">
+        <button class="warn-ext-btn" onclick="openExternal('potplayer', '${streamUrl}')">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
           Buka di PotPlayer (Windows)
         </button>
-        <button class="warn-ext-btn" onclick="openExternal('vlc')">
+        <button class="warn-ext-btn" onclick="openExternal('vlc', '${streamUrl}')">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
           Buka di VLC (Cross-platform)
         </button>
-        <button class="warn-ext-btn" onclick="openExternal('mx')">
+        <button class="warn-ext-btn" onclick="openExternal('mx', '${streamUrl}')">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
           Buka di MX Player (Android)
         </button>
@@ -1058,32 +1088,15 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     const driveFileId = ${JSON.stringify(driveFileId)};
     const isHeavy     = ${isHeavy ? 'true' : 'false'};
 
-    // ── External player deep-links ───────────────────────────
-    function openExternal(player) {
-      const url = streamUrl;
-      if (player === 'potplayer')  window.location.href = 'potplayer://' + url;
-      else if (player === 'vlc')   window.location.href = 'vlc://' + url;
-      else if (player === 'mx')    window.location.href = 'intent:' + url + '#Intent;package=com.mxtech.videoplayer.ad;type=video/*;end';
-    }
-
-    // ── Toggle external player dropdown ─────────────────────
-    function toggleExtMenu() {
-      const d = document.getElementById('ext-dropdown');
-      if (d) d.classList.toggle('open');
-    }
-    document.addEventListener('click', (e) => {
-      const wrap = document.getElementById('ext-menu-wrap');
-      if (wrap && !wrap.contains(e.target)) {
-        const d = document.getElementById('ext-dropdown');
-        if (d) d.classList.remove('open');
-      }
-    });
-
     // ── Initialize the player ────────────────────────────────
     let art = null;
     let wasmPlayerActive = false;
 
-    function initPlayer() {
+    window.initPlayer = function() {
+      if (art) {
+        art.play().catch(e => console.error(e));
+        return;
+      }
       art = new Artplayer({
         container: '#artplayer-container',
         url:       streamUrl,
@@ -1128,11 +1141,11 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                   '<button onclick="toggleExtMenu()" title="Buka di Aplikasi Eksternal" ' +
                   'style="color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);border-radius:8px;cursor:pointer;font-size:12px;padding:4px 10px;font-weight:600">▶ Eksternal</button>' +
                   '<div id="ext-dropdown">' +
-                  '<div class="ext-item" onclick="openExternal(\'potplayer\')">' +
+                  '<div class="ext-item" onclick="openExternal(\'potplayer\', \'' + streamUrl + '\')">' +
                   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>PotPlayer (Windows)</div>' +
-                  '<div class="ext-item" onclick="openExternal(\'vlc\')">' +
+                  '<div class="ext-item" onclick="openExternal(\'vlc\', \'' + streamUrl + '\')">' +
                   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>VLC (Cross-platform)</div>' +
-                  '<div class="ext-item" onclick="openExternal(\'mx\')">' +
+                  '<div class="ext-item" onclick="openExternal(\'mx\', \'' + streamUrl + '\')">' +
                   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>MX Player (Android)</div>' +
                   '</div></div>',
           },
@@ -1161,22 +1174,11 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       });
     }
 
-    // ── Warning Modal dismiss: initialize WASM + player ─────
-    function dismissWarningAndPlay() {
-      const modal = document.getElementById('warn-modal');
-      if (modal) modal.style.display = 'none';
-
-      // Initialize Artplayer first
-      initPlayer();
-
-      // Attempt to load the MKV via the native <video> element
-      // Modern Chromium can partially decode H.264 MKV natively
-      // For full AC3/multi-track support we hint the user to use external players.
-      // If you add an ffmpeg.wasm pipeline in the future, bootstrap it here.
-      if (art) {
-        art.play();
-      }
-    }
+      // ── Error tracking ───────────────────────────────────
+      art.on('error', (error, detail) => {
+        console.error('[HaruStream] ArtPlayer error:', error, detail);
+      });
+    }; // end initPlayer()
 
     // ── Startup logic ─────────────────────────────────────
     if (isHeavy) {
