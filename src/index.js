@@ -750,11 +750,12 @@ async function handleEmbed(driveFileId, request, env) {
     `UPDATE videos SET views = views + 1, updated_at = datetime('now') WHERE drive_file_id = ?`
   ).bind(driveFileId).run().catch(() => {});
 
-  // Find the drive credentials for this file
+async function handleEmbed(fileId, request, env) {
+  // Find the drive credentials for this file (supports both drive_file_id and v.id)
   const video = await env.DB.prepare(
     `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at, d.id as drive_row_id
-     FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ?`
-  ).bind(driveFileId).first();
+     FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ? OR v.id = ?`
+  ).bind(fileId, parseInt(fileId) || 0).first();
 
   if (!video) {
     return new Response('Video not found.', { status: 404, headers: HTML_HEADERS });
@@ -762,17 +763,19 @@ async function handleEmbed(driveFileId, request, env) {
 
   // Build the proxy stream URL (served by this same Worker)
   const baseUrl   = new URL(request.url);
-  const streamUrl = `${baseUrl.origin}/stream/${driveFileId}`;
+  // Include filename to make it readable in PotPlayer
+  const cleanTitle = (video.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
+  const streamUrl = `${baseUrl.origin}/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
 
-  const html = buildEmbedPage(video, streamUrl, driveFileId);
+  const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
   return new Response(html, { headers: HTML_HEADERS });
 }
 
-async function handleStream(driveFileId, request, env) {
+async function handleStream(fileId, request, env) {
   const video = await env.DB.prepare(
     `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at, d.id as drive_row_id
-     FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ?`
-  ).bind(driveFileId).first();
+     FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ? OR v.id = ?`
+  ).bind(fileId, parseInt(fileId) || 0).first();
 
   if (!video) return new Response('Video not found.', { status: 404 });
 
@@ -793,7 +796,7 @@ async function handleStream(driveFileId, request, env) {
     return new Response(`Auth error: ${e.message}`, { status: 502 });
   }
 
-  const driveStreamUrl = `${GOOGLE_DRIVE_API}/files/${driveFileId}?alt=media&supportsAllDrives=true`;
+  const driveStreamUrl = `${GOOGLE_DRIVE_API}/files/${video.drive_file_id}?alt=media&supportsAllDrives=true`;
 
   // Proxy the request with the range header forwarded
   const rangeHeader = request.headers.get('Range');
@@ -1141,11 +1144,11 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                   '<button onclick="toggleExtMenu()" title="Buka di Aplikasi Eksternal" ' +
                   'style="color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);border-radius:8px;cursor:pointer;font-size:12px;padding:4px 10px;font-weight:600">▶ Eksternal</button>' +
                   '<div id="ext-dropdown">' +
-                  '<div class="ext-item" onclick="openExternal(\'potplayer\', \'' + streamUrl + '\')">' +
+                  '<div class="ext-item" onclick="openExternal(&quot;potplayer&quot;, &quot;${streamUrl}&quot;)">' +
                   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>PotPlayer (Windows)</div>' +
-                  '<div class="ext-item" onclick="openExternal(\'vlc\', \'' + streamUrl + '\')">' +
+                  '<div class="ext-item" onclick="openExternal(&quot;vlc&quot;, &quot;${streamUrl}&quot;)">' +
                   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>VLC (Cross-platform)</div>' +
-                  '<div class="ext-item" onclick="openExternal(\'mx\', \'' + streamUrl + '\')">' +
+                  '<div class="ext-item" onclick="openExternal(&quot;mx&quot;, &quot;${streamUrl}&quot;)">' +
                   '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>MX Player (Android)</div>' +
                   '</div></div>',
           },
@@ -1399,13 +1402,15 @@ export default {
 
     // ── Static Embed & Stream (no auth) ─────────────────────
     if (method === 'GET' && path.startsWith('/embed/')) {
-      const fileId = path.slice('/embed/'.length);
-      return await handleEmbed(fileId, request, env);
+      const parts = path.split('/').filter(Boolean); // ['embed', '123']
+      if (parts.length < 2) return errorResponse('Not Found', 404);
+      return await handleEmbed(parts[1], request, env);
     }
 
     if (method === 'GET' && path.startsWith('/stream/')) {
-      const fileId = path.slice('/stream/'.length);
-      return await handleStream(fileId, request, env);
+      const parts = path.split('/').filter(Boolean); // ['stream', '123', 'filename.mkv']
+      if (parts.length < 2) return errorResponse('Not Found', 404);
+      return await handleStream(parts[1], request, env);
     }
 
     // ── Beacon (no auth) ────────────────────────────────────

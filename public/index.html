@@ -1290,7 +1290,7 @@ async function loadDashboard() {
     : data.top_videos.map(v => `
         <tr>
           <td>
-            <a href="/embed/${v.drive_file_id}" target="_blank" class="font-medium text-sm hover:text-brand-300 transition-colors" style="color:#c7d2fe">${escHtml(v.title)}</a>
+            <a href="/embed/${v.id}" target="_blank" class="font-medium text-sm hover:text-brand-300 transition-colors" style="color:#c7d2fe">${escHtml(v.title)}</a>
           </td>
           <td>${fmtResolutionBadge(v.resolution)}</td>
           <td><span class="font-mono text-sm" style="color:#94a3b8">${formatNumber(v.views)}</span></td>
@@ -1580,7 +1580,7 @@ function renderMediaTable() {
 
   tbody.innerHTML = APP.mediaData.map(v => {
     const isSelected = APP.selectedIds.has(v.id);
-    const embedLink  = `${BASE_URL}/embed/${v.drive_file_id}`;
+    const embedLink  = `${BASE_URL}/embed/${v.id}`;
     return `<tr class="${isSelected ? 'selected' : ''}" id="tr-${v.id}">
       <td><input type="checkbox" class="accent-brand-500 cursor-pointer" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
       <td>
@@ -1625,7 +1625,7 @@ function renderMediaGrid() {
   }
 
   grid.innerHTML = APP.mediaData.map(v => {
-    const embedLink = `${BASE_URL}/embed/${v.drive_file_id}`;
+    const embedLink = `${BASE_URL}/embed/${v.id}`;
     return `
       <div class="video-grid-card group" onclick="window.open('${embedLink}','_blank')">
         <div class="relative" style="padding-bottom:56.25%;background:#0f0f1a">
@@ -1903,9 +1903,11 @@ function openVideoDetail(videoId) {
 
 function _populateVideoDetailModal(v) {
   const base        = BASE_URL;
-  const embedLink   = `${base}/embed/${v.drive_file_id}`;
-  const streamLink  = `${base}/stream/${v.drive_file_id}`;
-  const dlLink      = `${base}/stream/${v.drive_file_id}?download=1`;
+  const cleanTitle  = (v.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
+  const streamUrl   = `${base}/stream/${v.id}/${encodeURIComponent(cleanTitle)}`;
+  const embedLink   = `${base}/embed/${v.id}`;
+  const streamLink  = streamUrl;
+  const dlLink      = `${streamUrl}?download=1`;
   const embedCode   = `<iframe src="${embedLink}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
 
   // Header
@@ -1929,7 +1931,7 @@ function _populateVideoDetailModal(v) {
   $('vd-open-tab').href = embedLink;
 
   // Drive info
-  $('vd-fileid').textContent = v.drive_file_id;
+  $('vd-fileid').textContent = v.id;
   $('vd-drive').textContent  = v.drive_name || '—';
 
   // Load iframe (use embed URL; player handles heavy/light detection itself)
@@ -2040,14 +2042,17 @@ function generateExportText() {
 
   const lines = data.map(v => {
     const parts = [];
+    const cleanTitle = (v.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
+    const streamUrl  = `${BASE_URL}/stream/${v.id}/${encodeURIComponent(cleanTitle)}`;
+
     if (fields.title)        parts.push(v.title);
-    if (fields.file_id)      parts.push(v.drive_file_id);
+    if (fields.file_id)      parts.push(v.id);
     if (fields.resolution)   parts.push(v.resolution || '');
     if (fields.size)         parts.push(formatBytes(v.size));
-    if (fields.embed_link)   parts.push(`${BASE_URL}/embed/${v.drive_file_id}`);
-    if (fields.embed_code)   parts.push(`<iframe src="${BASE_URL}/embed/${v.drive_file_id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`);
-    if (fields.stream_link)  parts.push(`${BASE_URL}/stream/${v.drive_file_id}`);
-    if (fields.download_link)parts.push(`${BASE_URL}/stream/${v.drive_file_id}?download=1`);
+    if (fields.embed_link)   parts.push(`${BASE_URL}/embed/${v.id}`);
+    if (fields.embed_code)   parts.push(`<iframe src="${BASE_URL}/embed/${v.id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`);
+    if (fields.stream_link)  parts.push(streamUrl);
+    if (fields.download_link)parts.push(`${streamUrl}?download=1`);
     if (fields.views)        parts.push(String(v.views));
     return APP.exportSeparator === 'newline' ? parts.join('\n') : parts.join(sep);
   });
