@@ -797,9 +797,6 @@ async function handleStream(fileId, request, env) {
   // 1. Fetch from Google Drive API with redirect: 'manual'
   let rangeHeader = request.headers.get('Range');
   
-  // FFmpeg (movi-player) relies on suffix byte ranges (e.g. bytes=-10000) to find the MKV index.
-  // Google Drive often ignores suffix ranges and returns the whole file (200 OK), causing Timeout at 0.
-  // We MUST translate suffix ranges to absolute ranges using video.size!
   if (rangeHeader && rangeHeader.startsWith('bytes=-')) {
     const suffixStr = rangeHeader.substring(7);
     const suffix = parseInt(suffixStr, 10);
@@ -810,37 +807,43 @@ async function handleStream(fileId, request, env) {
     }
   }
 
-  const reqHeaders = { Authorization: `Bearer ${accessToken}` };
+  let currentUrl = driveStreamUrl;
+  let driveResp;
+  let redirectCount = 0;
+  let reqHeaders = { Authorization: `Bearer ${accessToken}` };
   if (rangeHeader) reqHeaders['Range'] = rangeHeader;
 
-  let driveResp = await fetch(driveStreamUrl, {
-    method: request.method,
-    headers: reqHeaders,
-    redirect: 'manual'
-  });
+  // Manual redirect loop to preserve Range headers (fetch 'follow' drops them on 2nd redirect)
+  while (redirectCount < 5) {
+    driveResp = await fetch(currentUrl, {
+      method: request.method,
+      headers: reqHeaders,
+      redirect: 'manual'
+    });
 
-  // 2. Follow redirect manually without Authorization header to avoid 401 Unauthorized
-  if ([301, 302, 303, 307, 308].includes(driveResp.status)) {
-    const location = driveResp.headers.get('Location');
-    if (location) {
-      const redirectHeaders = {};
-      if (rangeHeader) redirectHeaders['Range'] = rangeHeader;
-      
-      driveResp = await fetch(location, {
-        method: request.method,
-        headers: redirectHeaders,
-        redirect: 'follow'
-      });
+    if ([301, 302, 303, 307, 308].includes(driveResp.status)) {
+      const location = driveResp.headers.get('Location');
+      if (location) {
+        currentUrl = location;
+        redirectCount++;
+        // Remove Authorization for googleusercontent.com to avoid 401
+        reqHeaders = {};
+        if (rangeHeader) reqHeaders['Range'] = rangeHeader;
+        continue;
+      }
     }
+    break; // Break if not a redirect or no Location header
   }
 
   // 3. Forward the response back to the client
   const responseHeaders = new Headers();
-  const copyHeaders = ['Content-Length', 'Content-Range', 'Accept-Ranges'];
+  const copyHeaders = ['Content-Length', 'Content-Range'];
   for (const h of copyHeaders) {
     const v = driveResp.headers.get(h);
     if (v) responseHeaders.set(h, v);
   }
+  // Force Accept-Ranges so FFmpeg knows it can seek (Google Drive sometimes omits this header)
+  responseHeaders.set('Accept-Ranges', 'bytes');
   responseHeaders.set('Content-Type', video.mime_type || driveResp.headers.get('Content-Type') || 'application/octet-stream');
 
   // Must add CORP for WebAssembly / SharedArrayBuffer isolation
@@ -990,22 +993,22 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     .warn-box {
       background:linear-gradient(135deg,#141428,#1a1a36);
       border:1px solid rgba(99,102,241,0.35);
-      border-radius:20px;padding:36px 32px;
-      max-width:480px;width:94%;text-align:center;
+      border-radius:16px;padding:24px 20px;
+      max-width:480px;width:94%;text-align:center;margin:auto;
       box-shadow:0 32px 80px rgba(0,0,0,0.9),0 0 0 1px rgba(99,102,241,0.1);
       animation:warnIn .35s cubic-bezier(.34,1.56,.64,1);
     }
     @keyframes warnIn{from{opacity:0;transform:scale(.88) translateY(24px)}to{opacity:1;transform:scale(1) translateY(0)}}
     .warn-icon{
-      width:64px;height:64px;border-radius:50%;
+      width:48px;height:48px;border-radius:50%;
       background:linear-gradient(135deg,rgba(239,68,68,.2),rgba(245,158,11,.15));
       border:2px solid rgba(239,68,68,.4);
       display:flex;align-items:center;justify-content:center;
-      margin:0 auto 20px;
+      margin:0 auto 16px;
     }
-    .warn-title{font-size:18px;font-weight:700;color:#fff;margin-bottom:10px;font-family:Inter,sans-serif}
-    .warn-body{font-size:13.5px;line-height:1.65;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:28px}
-    .warn-ext-group{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+    .warn-title{font-size:16px;font-weight:700;color:#fff;margin-bottom:8px;font-family:Inter,sans-serif}
+    .warn-body{font-size:12.5px;line-height:1.6;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:20px}
+    .warn-ext-group{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
     .warn-ext-btn{
       display:flex;align-items:center;gap:10px;
       padding:11px 16px;border-radius:12px;border:1px solid rgba(99,102,241,0.35);
