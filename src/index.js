@@ -797,6 +797,7 @@ async function handleStream(fileId, request, env) {
   // Proxy the request with the range header forwarded
   const rangeHeader = request.headers.get('Range');
   const driveResp = await fetch(driveStreamUrl, {
+    redirect: 'manual', // Return the 302 directly to the client for direct CDN streaming
     headers: {
       Authorization: `Bearer ${accessToken}`,
       ...(rangeHeader ? { Range: rangeHeader } : {}),
@@ -804,12 +805,18 @@ async function handleStream(fileId, request, env) {
   });
 
   const responseHeaders = new Headers();
-  const copyHeaders = ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges'];
+  const copyHeaders = ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges', 'Location'];
   for (const h of copyHeaders) {
     const v = driveResp.headers.get(h);
     if (v) responseHeaders.set(h, v);
   }
-  responseHeaders.set('Cache-Control', 'public, max-age=3600');
+  
+  if (!driveResp.ok && driveResp.status !== 302 && driveResp.status !== 303) {
+    responseHeaders.set('Cache-Control', 'no-cache');
+  } else {
+    responseHeaders.set('Cache-Control', 'public, max-age=3600');
+  }
+  
   responseHeaders.set('Access-Control-Allow-Origin', '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
 
