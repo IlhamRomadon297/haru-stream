@@ -81,9 +81,10 @@
     /* Sidebar nav item */
     .nav-item {
       display: flex; align-items: center; gap: 14px;
-      padding: 12px 22px; border-radius: 10px;
+      padding: 12px 10px; border-radius: 10px;
       color: #94a3b8; font-size: 14px; font-weight: 500;
       cursor: pointer; transition: all 0.2s; position: relative;
+      overflow: hidden;
     }
     .nav-item:hover { background: rgba(99,102,241,0.12); color: #c7d2fe; }
     .nav-item.active {
@@ -406,8 +407,8 @@
   <div id="sidebar-container">
     <aside id="sidebar">
     <!-- Logo -->
-    <div class="flex items-center gap-3 px-4 py-5" style="border-bottom:1px solid #1e1e38">
-      <div class="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">
+      <div class="flex items-center gap-3 pl-[14px] pr-4 py-5" style="border-bottom:1px solid #1e1e38; overflow:hidden; white-space:nowrap;">
+        <div class="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center" style="background:linear-gradient(135deg,#6366f1,#8b5cf6)">
         <i class="fas fa-play text-white text-sm"></i>
       </div>
       <div class="sidebar-logo-text">
@@ -417,7 +418,7 @@
     </div>
 
     <!-- Nav -->
-    <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
+    <nav class="flex-1 p-3 space-y-1 overflow-y-auto overflow-x-hidden">
       <div class="nav-item active" onclick="showView('dashboard')" id="nav-dashboard">
         <i class="fas fa-chart-line w-5 text-center"></i>
         <span class="nav-label">Dashboard</span>
@@ -437,9 +438,9 @@
     </nav>
 
     <!-- Footer -->
-    <div class="sidebar-footer p-3" style="border-top:1px solid #1e1e38">
-      <div class="flex items-center gap-2 p-2 rounded-xl" style="background:#141428">
-        <div class="w-8 h-8 rounded-lg flex items-center justify-center" style="background:linear-gradient(135deg,#3730a3,#4f46e5)">
+    <div class="sidebar-footer p-3" style="border-top:1px solid #1e1e38; overflow:hidden; white-space:nowrap;">
+      <div class="flex items-center gap-3 p-1 rounded-xl" style="background:#141428; overflow:hidden;">
+        <div class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center" style="background:linear-gradient(135deg,#3730a3,#4f46e5)">
           <i class="fas fa-user text-white text-xs"></i>
         </div>
         <div class="flex-1 min-w-0 sidebar-footer-content">
