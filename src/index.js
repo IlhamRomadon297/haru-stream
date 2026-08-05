@@ -1295,21 +1295,27 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         
         initJassub();
 
-        // Extract MKV fonts in the background for 100% full styling!
+        // Extract MKV fonts in the background, delayed to avoid rate limits
         if (window.MkvFontExtractor) {
-            const fontHeaders = {};
-            // If using standard streamUrl with CF Worker proxy:
-            const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
-            extractor.extractFonts().then(fontsData => {
-                if (fontsData && fontsData.length > 0) {
-                    console.log("[JASSUB] Successfully extracted " + fontsData.length + " fonts! Re-initializing renderer...");
-                    const fontUrls = fontsData.map(uint8 => {
-                        const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
-                        return URL.createObjectURL(blob);
-                    });
-                    initJassub(fontUrls);
-                }
-            }).catch(e => console.error("Font extraction failed:", e));
+            const extractFonts = () => {
+                const fontHeaders = {};
+                const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
+                extractor.extractFonts().then(fontsData => {
+                    if (fontsData && fontsData.length > 0) {
+                        console.log("[JASSUB] Successfully extracted " + fontsData.length + " fonts! Re-initializing renderer...");
+                        const fontUrls = fontsData.map(uint8 => {
+                            const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
+                            return URL.createObjectURL(blob);
+                        });
+                        initJassub(fontUrls);
+                    }
+                }).catch(e => console.error("Font extraction failed:", e));
+            };
+            
+            playerEl.addEventListener('playing', function onPlaying() {
+                playerEl.removeEventListener('playing', onPlaying);
+                setTimeout(extractFonts, 1500); // 1.5 second delay after playback starts
+            });
         }
 
         return;
