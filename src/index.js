@@ -832,6 +832,7 @@ async function handleStream(fileId, request, env) {
   responseHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
   responseHeaders.set('Access-Control-Allow-Origin', '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  responseHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
   if (driveResp.ok || driveResp.status === 206) {
     responseHeaders.set('Cache-Control', 'public, max-age=3600');
@@ -960,9 +961,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <meta name="robots" content="noindex">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    html,body{width:100%;height:100%;background:#000;overflow:hidden}
-    #artplayer-container{width:100%;height:100vh}
-    .art-video-player{background:#000}
+    html,body{width:100vw;height:100vh;background:#000;overflow:hidden;margin:0;padding:0;}
+    #artplayer-container{position:absolute;top:0;left:0;width:100vw;height:100vh;display:block;}
+    .art-video-player{background:#000;width:100%;height:100%;}
 
     /* ── Warning Modal ─────────────────────────────────── */
     #warn-modal {
