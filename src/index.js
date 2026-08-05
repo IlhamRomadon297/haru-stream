@@ -1175,7 +1175,10 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             if (extradata && size > 0) {
                 const memory = result.instance.exports.memory;
                 const extra = new Uint8Array(memory.buffer, extradata, size);
-                window.assExtradata = new TextDecoder('utf-8').decode(extra);
+                const str = new TextDecoder('utf-8').decode(extra);
+                if (str.includes('[Script Info]')) {
+                    window.assExtradata = str;
+                }
             }
             return origEnable.apply(this, arguments);
         };
