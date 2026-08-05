@@ -1133,11 +1133,86 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
   ${!isHeavy ? `
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
-  <!-- SubtitlesOctopus (libass WASM) -->
+  ` : ''}
+
+  <!-- SubtitlesOctopus (libass WASM) loaded for both Artplayer and MoviPlayer -->
   <script src="https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus.js"></script>
-  ` : `
+  
+  ${isHeavy ? `
+  <script>
+    // ── Monkey-patch WASM to intercept raw ASS subtitle packets for JASSUB ──
+    window.assExtradata = "";
+    window.assEvents = new Set();
+    window.jassubInstance = null;
+    
+    window.formatAssTime = function(ptsSeconds) {
+        const hours = Math.floor(ptsSeconds / 3600);
+        const minutes = Math.floor((ptsSeconds % 3600) / 60);
+        const seconds = Math.floor(ptsSeconds % 60);
+        const ms = Math.floor((ptsSeconds % 1) * 100);
+        return \`\${hours}:\${String(minutes).padStart(2, '0')}:\${String(seconds).padStart(2, '0')}.\${String(ms).padStart(2, '0')}\`;
+    };
+    
+    window.updateJassubTrack = function() {
+        if (!window.jassubInstance || !window.assExtradata) return;
+        const header = window.assExtradata;
+        const eventsSection = "\\n[Events]\\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\\n" + Array.from(window.assEvents).join('\\n');
+        window.jassubInstance.setTrack(header + eventsSection);
+    };
+
+    const origInstantiateStreaming = WebAssembly.instantiateStreaming;
+    WebAssembly.instantiateStreaming = async function(response, imports) {
+        const result = await origInstantiateStreaming(response, imports);
+        if (!result.instance.exports.movi_decode_subtitle) return result; // Not movi-player WASM
+        
+        const origDecode = result.instance.exports.movi_decode_subtitle;
+        const origEnable = result.instance.exports.movi_enable_decoder;
+        
+        const newExports = Object.create(result.instance.exports);
+        
+        newExports.movi_enable_decoder = function(ctx, stream_index, extradata, size) {
+            if (extradata && size > 0) {
+                const memory = result.instance.exports.memory;
+                const extra = new Uint8Array(memory.buffer, extradata, size);
+                window.assExtradata = new TextDecoder('utf-8').decode(extra);
+            }
+            return origEnable.apply(this, arguments);
+        };
+
+        newExports.movi_decode_subtitle = function(ctx, stream_index, data, size, pts, duration) {
+            if (data && size > 0 && window.assExtradata) {
+                const memory = result.instance.exports.memory;
+                const packet = new Uint8Array(memory.buffer, data, size);
+                const str = new TextDecoder('utf-8').decode(packet);
+                const parts = str.split(',');
+                if (parts.length >= 3) {
+                    const layer = parts[1]; // Usually ReadOrder is parts[0], Layer is parts[1]
+                    const startStr = window.formatAssTime(pts);
+                    const endStr = window.formatAssTime(pts + duration);
+                    const rest = parts.slice(2).join(',');
+                    const dialogue = \`Dialogue: \${layer},\${startStr},\${endStr},\${rest}\`;
+                    if (!window.assEvents.has(dialogue)) {
+                        window.assEvents.add(dialogue);
+                        clearTimeout(window.jassubDebounce);
+                        window.jassubDebounce = setTimeout(window.updateJassubTrack, 50);
+                    }
+                }
+            }
+            return origDecode.apply(this, arguments);
+        };
+
+        Object.defineProperty(result.instance, 'exports', {
+            value: newExports,
+            writable: false,
+            configurable: true
+        });
+        
+        return result;
+    };
+  </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.3.5/dist/element.js"></script>
-  `}
+  ` : ''}
+
 
   <script>
     const videoTitle  = ${JSON.stringify(video.title)};
@@ -1153,6 +1228,47 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       if (isHeavy) {
         const container = document.getElementById('artplayer-container');
         container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" controls></movi-player>';
+        
+        // Hide native movi-player subtitles and setup JASSUB
+        const playerEl = container.querySelector('movi-player');
+        
+        // Give movi-player a moment to attach its shadow DOM
+        setTimeout(() => {
+          if (playerEl.shadowRoot) {
+            const style = document.createElement('style');
+            style.textContent = '.movi-subtitle-canvas { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+            playerEl.shadowRoot.appendChild(style);
+          }
+        }, 100);
+
+        // SubtitlesOctopus overlay container
+        const subContainer = document.createElement('div');
+        subContainer.style.position = 'absolute';
+        subContainer.style.top = '0';
+        subContainer.style.left = '0';
+        subContainer.style.width = '100%';
+        subContainer.style.height = '100%';
+        subContainer.style.pointerEvents = 'none';
+        subContainer.style.zIndex = '999';
+        container.style.position = 'relative'; // Ensure container is relative
+        container.appendChild(subContainer);
+
+        // Initialize SubtitlesOctopus with an empty track
+        window.jassubInstance = new SubtitlesOctopus({
+            video: playerEl, // movi-player implements HTMLMediaElement interface (currentTime, events)
+            subContent: "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]",
+            fonts: [], // We don't have MKV attachments yet, fallback to system fonts
+            workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
+            canvas: (function() {
+                const c = document.createElement('canvas');
+                c.style.width = '100%';
+                c.style.height = '100%';
+                c.style.position = 'absolute';
+                subContainer.appendChild(c);
+                return c;
+            })()
+        });
+
         return;
       }
 
