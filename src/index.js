@@ -1103,7 +1103,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         container: '#artplayer-container',
         url:       streamUrl,
         title:     videoTitle,
-        autoplay:  !isHeavy, // Only autoplay if NOT heavy (heavy requires user gesture after modal)
+        autoplay:  true, // Always autoplay when initPlayer is called (handles both direct load and user-forced play)
         pip:       true,
         screenshot: true,
         setting:   true,
@@ -1174,8 +1174,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           event: 'complete'
         }));
       });
-    }
-
       // ── Error tracking ───────────────────────────────────
       art.on('error', (error, detail) => {
         console.error('[HaruStream] ArtPlayer error:', error, detail);
