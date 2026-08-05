@@ -800,6 +800,7 @@ async function handleStream(fileId, request, env) {
   if (rangeHeader) reqHeaders['Range'] = rangeHeader;
 
   let driveResp = await fetch(driveStreamUrl, {
+    method: request.method,
     headers: reqHeaders,
     redirect: 'manual'
   });
@@ -812,6 +813,7 @@ async function handleStream(fileId, request, env) {
       if (rangeHeader) redirectHeaders['Range'] = rangeHeader;
       
       driveResp = await fetch(location, {
+        method: request.method,
         headers: redirectHeaders,
         redirect: 'follow'
       });
@@ -1434,7 +1436,7 @@ export default {
       return await handleEmbed(parts[1], request, env);
     }
 
-    if (method === 'GET' && path.startsWith('/stream/')) {
+    if ((method === 'GET' || method === 'HEAD') && path.startsWith('/stream/')) {
       const parts = path.split('/').filter(Boolean); // ['stream', '123', 'filename.mkv']
       if (parts.length < 2) return errorResponse('Not Found', 404);
       return await handleStream(parts[1], request, env);
