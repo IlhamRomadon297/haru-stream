@@ -1156,8 +1156,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     
     window.updateJassubTrack = function() {
         if (!window.jassubInstance || !window.assExtradata) return;
-        const header = window.assExtradata;
-        const eventsSection = "\\n[Events]\\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\\n" + Array.from(window.assEvents).join('\\n');
+        let header = window.assExtradata;
+        let eventsSection = Array.from(window.assEvents).join('\\n');
+        if (!header.includes('[Events]')) {
+            header += "\\n[Events]\\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\\n";
+        } else {
+            if (!header.endsWith('\\n')) header += '\\n';
+        }
         window.jassubInstance.setTrack(header + eventsSection);
     };
 
