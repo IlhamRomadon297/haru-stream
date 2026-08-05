@@ -1261,21 +1261,48 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         container.style.position = 'relative'; // Ensure container is relative
         container.appendChild(subContainer);
 
-        // Initialize SubtitlesOctopus with an empty track
-        window.jassubInstance = new SubtitlesOctopus({
-            video: playerEl, // movi-player implements HTMLMediaElement interface (currentTime, events)
-            subContent: "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]",
-            fonts: [], // We don't have MKV attachments yet, fallback to system fonts
-            workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
-            canvas: (function() {
-                const c = document.createElement('canvas');
-                c.style.width = '100%';
-                c.style.height = '100%';
-                c.style.position = 'absolute';
-                subContainer.appendChild(c);
-                return c;
-            })()
-        });
+        // Initialize SubtitlesOctopus with an empty track (fallback fonts initially)
+        function initJassub(fonts = []) {
+            if (window.jassubInstance) {
+                try { window.jassubInstance.dispose(); } catch(e){}
+            }
+            window.jassubInstance = new SubtitlesOctopus({
+                video: playerEl, // movi-player implements HTMLMediaElement interface (currentTime, events)
+                subContent: "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]",
+                fonts: fonts, // Automatically falls back to system fonts if empty
+                workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
+                canvas: (function() {
+                    subContainer.innerHTML = ''; // clear previous canvas
+                    const c = document.createElement('canvas');
+                    c.style.width = '100%';
+                    c.style.height = '100%';
+                    c.style.position = 'absolute';
+                    subContainer.appendChild(c);
+                    return c;
+                })()
+            });
+            // Restore any events that were already collected
+            if (window.assExtradata) window.updateJassubTrack();
+        }
+        
+        initJassub();
+
+        // Extract MKV fonts in the background for 100% full styling!
+        if (window.MkvFontExtractor) {
+            const fontHeaders = {};
+            // If using standard streamUrl with CF Worker proxy:
+            const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
+            extractor.extractFonts().then(fontsData => {
+                if (fontsData && fontsData.length > 0) {
+                    console.log(`[JASSUB] Successfully extracted ${fontsData.length} fonts! Re-initializing renderer...`);
+                    const fontUrls = fontsData.map(uint8 => {
+                        const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
+                        return URL.createObjectURL(blob);
+                    });
+                    initJassub(fontUrls);
+                }
+            }).catch(e => console.error("Font extraction failed:", e));
+        }
 
         return;
       }
