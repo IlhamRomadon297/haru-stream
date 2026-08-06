@@ -819,6 +819,50 @@ async function handleRemoteUpload(request, env, user) {
   return jsonResponse({ success: true, results });
 }
 
+async function handleUploadSession(request, env, user, driveId) {
+  const { filename, mimeType, folder_id, contentLength } = await request.json().catch(() => ({}));
+  if (!filename || !mimeType) return errorResponse('filename and mimeType are required');
+
+  const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?')
+    .bind(driveId, user.sub).first();
+  if (!drive) return errorResponse('Drive not found.', 404);
+
+  const accessToken = await getAccessToken(drive, env.DB);
+
+  const initResp = await fetch(`${GOOGLE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+      'X-Upload-Content-Type': mimeType,
+      ...(contentLength ? { 'X-Upload-Content-Length': contentLength } : {}),
+    },
+    body: JSON.stringify({
+      name: filename,
+      mimeType: mimeType,
+      ...(folder_id ? { parents: [folder_id] } : (drive.root_folder_id ? { parents: [drive.root_folder_id] } : {})),
+    }),
+  });
+
+  if (!initResp.ok) return errorResponse(`GDrive resumable init failed: ${await initResp.text()}`);
+  const uploadUrl = initResp.headers.get('Location');
+  
+  return jsonResponse({ success: true, uploadUrl });
+}
+
+async function handleUploadComplete(request, env, user, driveId) {
+  const { drive_file_id, folder_id, title, mime_type } = await request.json().catch(() => ({}));
+  if (!drive_file_id || !title) return errorResponse('drive_file_id and title are required');
+
+  await env.DB.prepare(
+    `INSERT INTO videos (user_id, drive_id, folder_id, drive_file_id, title, mime_type)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(drive_file_id) DO NOTHING`
+  ).bind(user.sub, driveId, folder_id || null, drive_file_id, title, mime_type).run();
+
+  return jsonResponse({ success: true });
+}
+
 // ── EMBED / STREAM ───────────────────────────────────────────
 
 async function handleEmbed(fileId, request, env) {
@@ -1070,6 +1114,20 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         }
         return origAttachShadow.call(this, init);
     };
+    
+    // Watermark script
+    const wm = document.createElement('img');
+    wm.src = '/logo.png';
+    wm.style.cssText = 'position:absolute;top:20px;left:20px;width:120px;z-index:999999;pointer-events:none;opacity:0.85;';
+    document.addEventListener('DOMContentLoaded', () => document.body.appendChild(wm));
+    
+    const appendWm = () => {
+      const fsElement = document.fullscreenElement || document.webkitFullscreenElement;
+      if (fsElement) fsElement.appendChild(wm);
+      else document.body.appendChild(wm);
+    };
+    document.addEventListener('fullscreenchange', appendWm);
+    document.addEventListener('webkitfullscreenchange', appendWm);
   </script>
   <meta name="robots" content="noindex">
   <style>
@@ -1679,6 +1737,17 @@ export default {
     // Remote upload
     else if (path === '/api/media/upload/remote' && method === 'POST') {
       res = await handleRemoteUpload(request, env, user);
+    }
+    
+    // Device upload session
+    else if (path.match(/^\/api\/drives\/\d+\/upload-session$/) && method === 'POST') {
+      const driveId = parseInt(path.split('/')[3]);
+      res = await handleUploadSession(request, env, user, driveId);
+    }
+    // Device upload complete
+    else if (path.match(/^\/api\/drives\/\d+\/upload-complete$/) && method === 'POST') {
+      const driveId = parseInt(path.split('/')[3]);
+      res = await handleUploadComplete(request, env, user, driveId);
     }
 
     // Stats

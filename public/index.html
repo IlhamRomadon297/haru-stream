@@ -590,10 +590,20 @@
         <!-- Device Upload -->
         <div id="upload-device-panel">
           <div class="glass-card rounded-2xl p-6">
-            <div class="text-sm font-semibold text-white mb-4">Upload Target Drive</div>
-            <select id="device-drive-select" class="form-input mb-5 w-auto min-w-48">
-              <option value="">Select Drive...</option>
-            </select>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+              <div>
+                <label class="block text-xs font-semibold mb-2" style="color:#64748b">TARGET DRIVE</label>
+                <select id="device-drive-select" class="form-input">
+                  <option value="">Select Drive...</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold mb-2" style="color:#64748b">TARGET FOLDER (optional)</label>
+                <select id="device-folder-select" class="form-input" onchange="if(this.value==='NEW_FOLDER'){this.value=''; openNewFolderModal();}">
+                  <option value="">— Root (No folder) —</option>
+                </select>
+              </div>
+            </div>
 
             <label id="drop-zone" class="block cursor-pointer rounded-2xl border-2 border-dashed p-12 text-center transition-all hover:border-brand-500"
                    style="border-color:#2a2a4a" ondrop="handleDropZoneDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)">
@@ -617,7 +627,8 @@
               <button onclick="startDeviceUpload()" class="btn-gradient px-5 py-2 rounded-xl text-sm font-semibold text-white">
                 <i class="fas fa-upload mr-2"></i>Upload All
               </button>
-            </div>
+            <!-- Device upload progress -->
+            <div id="device-progress" class="mt-5 hidden space-y-2"></div>
           </div>
         </div>
 
@@ -633,7 +644,7 @@
               </div>
               <div>
                 <label class="block text-xs font-semibold mb-2" style="color:#64748b">TARGET FOLDER (optional)</label>
-                <select id="remote-folder-select" class="form-input">
+                <select id="remote-folder-select" class="form-input" onchange="if(this.value==='NEW_FOLDER'){this.value=''; openNewFolderModal();}">
                   <option value="">— Root (No folder) —</option>
                 </select>
               </div>
@@ -1905,8 +1916,9 @@ function populateDriveSelects() {
 
 function populateFolderSelects() {
   const opts = '<option value="">— Root (No folder) —</option>' +
+    '<option value="NEW_FOLDER" style="color:#10b981;font-weight:bold;">＋ Create New Folder...</option>' +
     APP.folders.map(f => `<option value="${f.id}">${escHtml(f.name)}</option>`).join('');
-  ['remote-folder-select', 'folder-parent-select'].forEach(id => {
+  ['device-folder-select', 'remote-folder-select', 'folder-parent-select'].forEach(id => {
     const el = $(id);
     if (el) el.innerHTML = opts;
   });
@@ -1946,12 +1958,120 @@ function clearUploadQueue() { uploadQueue = []; renderUploadQueue(); $('file-inp
 
 async function startDeviceUpload() {
   const driveId = $('device-drive-select').value;
+  const folderId = $('device-folder-select').value;
   if (!driveId) { showToast('Please select a target drive.', 'error'); return; }
   if (!uploadQueue.length) { showToast('No files in queue.', 'error'); return; }
-  showToast(`Upload started for ${uploadQueue.length} file(s). This may take a while.`, 'info', 6000);
-  // Note: Direct file upload to GDrive via Worker requires multipart streaming.
-  // For production, initiate a resumable upload session from the frontend directly.
-  showToast('Device upload: initiate resumable GDrive session from client-side for large files.', 'info', 5000);
+
+  const files = [...uploadQueue];
+  uploadQueue = [];
+  renderUploadQueue();
+
+  const progressArea = $('device-progress');
+  progressArea.classList.remove('hidden');
+  progressArea.innerHTML = '';
+
+  const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const id = 'dev-up-' + i;
+    progressArea.insertAdjacentHTML('beforeend', `
+      <div id="${id}" class="flex items-center gap-3 p-3 rounded-xl" style="background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05)">
+        <i class="fas fa-spinner fa-spin text-brand-400"></i>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm font-medium text-white truncate">${escHtml(file.name)}</div>
+          <div class="w-full bg-slate-800 rounded-full h-1.5 mt-2">
+            <div id="${id}-bar" class="bg-brand-500 h-1.5 rounded-full" style="width: 0%"></div>
+          </div>
+        </div>
+        <div id="${id}-pct" class="text-xs font-semibold text-brand-400">0%</div>
+      </div>
+    `);
+
+    const updateUI = (pct, color, iconClass) => {
+      if (pct !== null) {
+        $(`${id}-bar`).style.width = pct + '%';
+        $(`${id}-pct`).textContent = pct + '%';
+      }
+      if (color) $(`${id}-pct`).style.color = color;
+      if (iconClass) {
+        const icon = $(id).querySelector('i');
+        icon.className = iconClass;
+        if (color) icon.style.color = color;
+      }
+    };
+
+    try {
+      // 1. Get Session URL
+      updateUI(0, null, 'fas fa-spinner fa-spin');
+      const sessRes = await apiFetch(`/api/drives/${driveId}/upload-session`, {
+        method: 'POST',
+        body: {
+          filename: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          folder_id: folderId || null,
+          contentLength: file.size
+        }
+      });
+      if (!sessRes.ok) throw new Error(sessRes.data.error || 'Failed to initialize session');
+      const uploadUrl = sessRes.data.uploadUrl;
+
+      // 2. Chunked Upload
+      let uploadedBytes = 0;
+      let driveFileId = null;
+
+      for (let start = 0; start < file.size; start += CHUNK_SIZE) {
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        const chunkRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Content-Range': \`bytes \${start}-\${end - 1}/\${file.size}\`
+          },
+          body: chunk
+        });
+
+        if (chunkRes.status === 308) {
+          // Resume incomplete, continue
+          uploadedBytes = end;
+          const pct = Math.round((uploadedBytes / file.size) * 100);
+          updateUI(pct);
+        } else if (chunkRes.status === 200 || chunkRes.status === 201) {
+          // Done
+          const result = await chunkRes.json();
+          driveFileId = result.id;
+          updateUI(100);
+          break;
+        } else {
+          throw new Error('Upload failed with status ' + chunkRes.status);
+        }
+      }
+
+      if (!driveFileId) throw new Error('Failed to retrieve file ID');
+
+      // 3. Finalize
+      const finalizeRes = await apiFetch(`/api/drives/${driveId}/upload-complete`, {
+        method: 'POST',
+        body: {
+          drive_file_id: driveFileId,
+          folder_id: folderId || null,
+          title: file.name,
+          mime_type: file.type || 'application/octet-stream'
+        }
+      });
+      if (!finalizeRes.ok) throw new Error(finalizeRes.data.error || 'Failed to index file');
+
+      updateUI(100, '#10b981', 'fas fa-check-circle');
+    } catch (e) {
+      updateUI(null, '#ef4444', 'fas fa-times-circle');
+      $(`${id}-pct`).textContent = 'Failed';
+      console.error('Device upload failed:', e);
+    }
+  }
+
+  showToast('Upload process completed.', 'success');
+  loadMedia(); // refresh library
 }
 
 function updateUrlCount() {
