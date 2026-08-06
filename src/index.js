@@ -271,7 +271,7 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
   let results = [];
 
   if (!drive.root_folder_id) {
-    const query = encodeURIComponent(`'me' in owners and (mimeType contains 'video/' or fileExtension='mkv' or fileExtension='mp4' or fileExtension='avi' or fileExtension='webm' or fileExtension='mov' or fileExtension='flv' or fileExtension='wmv' or fileExtension='m4v' or fileExtension='ts') and trashed = false`);
+    const query = encodeURIComponent(`(mimeType contains 'video/' or fileExtension='mkv' or fileExtension='mp4' or fileExtension='avi' or fileExtension='webm' or fileExtension='mov' or fileExtension='flv' or fileExtension='wmv' or fileExtension='m4v' or fileExtension='ts') and trashed = false`);
     let pageToken = null;
     do {
       let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
