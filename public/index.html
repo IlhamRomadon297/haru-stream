@@ -1875,27 +1875,27 @@ function renderMediaTable() {
               title="${escHtml(v.title)}">${escHtml(v.title)}</div>
             
             <!-- Subtitle Actions Toolbar Under Title -->
-            <div class="flex items-center gap-3.5 mt-2 text-xs flex-wrap" style="color:#64748b">
+            <div class="flex items-center gap-2 mt-1.5 text-xs flex-wrap" style="color:#64748b;font-size:11.5px">
               <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
-                <i class="fas fa-info-circle"></i> Detail
+                <i class="fas fa-info-circle text-[10px]"></i> Detail
               </button>
               <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
-                <i class="fas fa-external-link-alt"></i> Open
+                <i class="fas fa-external-link-alt text-[10px]"></i> Open
               </a>
               <button type="button" onclick="copyEmbedLink(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
-                <i class="fas fa-link"></i> Embed Link
+                <i class="fas fa-link text-[10px]"></i> Embed Link
               </button>
               <button type="button" onclick="copyEmbedCode(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy iFrame HTML Code">
-                <i class="fas fa-code"></i> Embed Code
+                <i class="fas fa-code text-[10px]"></i> Embed Code
               </button>
               <a href="${streamLink}" target="_blank" download class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="Direct Download / Stream Link">
-                <i class="fas fa-download"></i> Download
+                <i class="fas fa-download text-[10px]"></i> Download
               </a>
               <button type="button" onclick="openMoveModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-emerald-400/90 hover:text-emerald-400" title="Move to Folder">
-                <i class="fas fa-folder-open"></i> Move
+                <i class="fas fa-folder-open text-[10px]"></i> Move
               </button>
               <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
-                <i class="fas fa-trash"></i> Delete
+                <i class="fas fa-trash text-[10px]"></i> Delete
               </button>
             </div>
           </div>
