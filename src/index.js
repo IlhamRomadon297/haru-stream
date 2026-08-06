@@ -306,7 +306,12 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
         if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
         const data = await resp.json();
         if (data.files) {
-          const videos = data.files.filter(f => f.mimeType && f.mimeType.startsWith('video/'));
+          const videos = data.files.filter(f => {
+            if (f.mimeType && f.mimeType.startsWith('video/')) return true;
+            if (!f.name) return false;
+            const ext = f.name.split('.').pop().toLowerCase();
+            return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
+          });
           results.push(...videos);
         }
         pageToken = data.nextPageToken;
