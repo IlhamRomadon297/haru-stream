@@ -1861,6 +1861,8 @@ function renderMediaTable() {
   tbody.innerHTML = APP.mediaData.map(v => {
     const isSelected = APP.selectedIds.has(v.id);
     const embedLink  = `${BASE_URL}/embed/${v.id}`;
+    const cleanTitle = (v.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
+    const streamLink = `${BASE_URL}/stream/${v.id}/${encodeURIComponent(cleanTitle)}`;
     return `<tr class="${isSelected ? 'selected' : ''}" id="tr-${v.id}">
       <td class="align-top py-3" style="width:40px"><input type="checkbox" class="accent-brand-500 cursor-pointer mt-1" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
       <td class="align-top py-3" style="width:auto">
@@ -1874,16 +1876,22 @@ function renderMediaTable() {
               title="${escHtml(v.title)}">${escHtml(v.title)}</div>
             
             <!-- Subtitle Actions Toolbar Under Title -->
-            <div class="flex items-center gap-4 mt-2 text-xs flex-wrap" style="color:#64748b">
+            <div class="flex items-center gap-3.5 mt-2 text-xs flex-wrap" style="color:#64748b">
               <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
                 <i class="fas fa-info-circle"></i> Detail
               </button>
               <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
                 <i class="fas fa-external-link-alt"></i> Open
               </a>
-              <button type="button" onclick="copyToClipboard('${embedLink}')" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
-                <i class="fas fa-copy"></i> Copy Link
+              <button type="button" onclick="copyEmbedLink(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
+                <i class="fas fa-link"></i> Embed Link
               </button>
+              <button type="button" onclick="copyEmbedCode(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy iFrame HTML Code">
+                <i class="fas fa-code"></i> Embed Code
+              </button>
+              <a href="${streamLink}" target="_blank" download class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="Direct Download / Stream Link">
+                <i class="fas fa-download"></i> Download
+              </a>
               <button type="button" onclick="openMoveModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-emerald-400/90 hover:text-emerald-400" title="Move to Folder">
                 <i class="fas fa-folder-open"></i> Move
               </button>
@@ -2730,8 +2738,24 @@ function closeModal(id) {
   }
 }
 
-function copyToClipboard(text) {
-  navigator.clipboard.writeText(text).then(() => showToast('Copied!', 'success'));
+function copyToClipboard(text, msg = 'Copied!') {
+  navigator.clipboard.writeText(text).then(() => showToast(msg, 'success'));
+}
+
+function copyEmbedLink(id) {
+  const link = `${BASE_URL}/embed/${id}`;
+  copyToClipboard(link, 'Embed Link copied!');
+}
+
+function copyEmbedCode(id) {
+  const code = `<iframe src="${BASE_URL}/embed/${id}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`;
+  copyToClipboard(code, 'Embed Code HTML copied!');
+}
+
+function copyDownloadLink(id, title) {
+  const cleanTitle = (title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
+  const link = `${BASE_URL}/stream/${id}/${encodeURIComponent(cleanTitle)}`;
+  copyToClipboard(link, 'Download Link copied!');
 }
 
 function escHtml(str) {
