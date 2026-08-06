@@ -1256,29 +1256,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>${escapeHtml(video.title)} — HaruStream PRO</title>
-  <script>
-    const origAttachShadow = Element.prototype.attachShadow;
-    Element.prototype.attachShadow = function(init) {
-        if (init && init.mode === 'closed') {
-            init.mode = 'open'; // Force open so we can read error state
-        }
-        return origAttachShadow.call(this, init);
-    };
-    
-    // Watermark script
-    const wm = document.createElement('img');
-    wm.src = '/watermark.png';
-    wm.style.cssText = 'position:absolute;top:20px;left:20px;width:120px;z-index:999999;pointer-events:none;opacity:0.85;';
-    document.addEventListener('DOMContentLoaded', () => document.body.appendChild(wm));
-    
-    const appendWm = () => {
-      const fsElement = document.fullscreenElement || document.webkitFullscreenElement;
-      if (fsElement) fsElement.appendChild(wm);
-      else document.body.appendChild(wm);
-    };
-    document.addEventListener('fullscreenchange', appendWm);
-    document.addEventListener('webkitfullscreenchange', appendWm);
-  </script>
   <meta name="robots" content="noindex">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
