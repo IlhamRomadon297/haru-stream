@@ -289,7 +289,7 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
     for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
       const chunk = folderArray.slice(i, i + CHUNK_SIZE);
       const parentQuery = chunk.map(id => `'${id}' in parents`).join(' or ');
-      const query = encodeURIComponent(`mimeType contains 'video/' and trashed = false and (${parentQuery})`);
+      const query = encodeURIComponent(`trashed = false and (${parentQuery})`);
       
       let pageToken = null;
       do {
@@ -298,7 +298,10 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
         const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
         if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
         const data = await resp.json();
-        if (data.files) results.push(...data.files);
+        if (data.files) {
+          const videos = data.files.filter(f => f.mimeType && f.mimeType.startsWith('video/'));
+          results.push(...videos);
+        }
         pageToken = data.nextPageToken;
       } while (pageToken);
     }
@@ -535,7 +538,7 @@ async function handleSync(request, env, user) {
                 env.DB.prepare(
                   `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                   ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now')`
+                   ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now'), drive_id=excluded.drive_id`
                 ).bind(user.sub, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null)
               );
             }
@@ -571,7 +574,7 @@ async function handleSync(request, env, user) {
           return env.DB.prepare(
             `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now')`
+             ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now'), drive_id=excluded.drive_id`
           ).bind(user.sub, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null);
         });
 
@@ -1522,10 +1525,10 @@ async function runAutoSync(env) {
           if (changed) {
             updateStmts.push(
               env.DB.prepare(
-                `UPDATE videos SET title=?,size=?,resolution=?,duration=?,thumbnail_url=?,drive_modified_at=?,updated_at=datetime('now')
+                `UPDATE videos SET title=?,size=?,resolution=?,duration=?,thumbnail_url=?,drive_modified_at=?,updated_at=datetime('now'), drive_id=?
                  WHERE drive_file_id=?`
               ).bind(file.name, fileSize, resolution, duration,
-                     file.thumbnailLink || null, file.modifiedTime || null, file.id)
+                     file.thumbnailLink || null, file.modifiedTime || null, drive.id, file.id)
             );
           }
         }
