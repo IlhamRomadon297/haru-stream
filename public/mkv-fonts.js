@@ -13,45 +13,66 @@ window.MkvFontExtractor = class MkvFontExtractor {
     async extractFonts() {
         console.log("[MKV Font Extractor] Starting extraction...");
         try {
-            const resp = await this.fetchRange(0, 1024 * 1024);
+            // First try: 1MB chunk, then try up to 10MB chunk if fonts are large
+            const resp = await this.fetchRange(0, 1024 * 1024 * 5); // 5MB to be safe for large fonts
             const data = new Uint8Array(await resp.arrayBuffer());
 
             const segmentIdx = this.indexOfSequence(data, [0x18, 0x53, 0x80, 0x67]);
             if (segmentIdx === -1) {
-                console.warn("[MKV Font Extractor] Segment not found in first 1MB.");
+                console.warn("[MKV Font Extractor] Segment not found in first chunk.");
                 return [];
             }
             
             let offset = segmentIdx + 4;
             const sizeVint = this.readVint(data, offset);
-            offset += sizeVint.length;
+            if (sizeVint) offset += sizeVint.length;
             this.segmentOffset = offset;
             console.log("[MKV Font Extractor] Segment payload starts at", this.segmentOffset);
 
-            let attachmentsIdx = this.indexOfSequence(data, [0x19, 0x41, 0xA4, 0x69], offset);
+            let allFonts = [];
+            let currentOffset = offset;
             
-            if (attachmentsIdx === -1) {
-                console.log("[MKV Font Extractor] Attachments not found directly, looking for SeekHead...");
-                const seekHeadIdx = this.indexOfSequence(data, [0x11, 0x4D, 0x9B, 0x74], offset);
-                if (seekHeadIdx !== -1) {
-                    const attachmentsOffset = this.parseSeekHead(data, seekHeadIdx);
-                    if (attachmentsOffset !== -1) {
-                        const absOffset = this.segmentOffset + attachmentsOffset;
-                        console.log("[MKV Font Extractor] Found Attachments via SeekHead at absolute offset", absOffset);
-                        const attResp = await this.fetchRange(absOffset, absOffset + 4 * 1024 * 1024);
-                        const attData = new Uint8Array(await attResp.arrayBuffer());
-                        attachmentsIdx = this.indexOfSequence(attData, [0x19, 0x41, 0xA4, 0x69]);
-                        if (attachmentsIdx !== -1) {
-                            return this.parseAttachments(attData, attachmentsIdx);
-                        }
-                    }
+            while (currentOffset < data.length) {
+                let attachmentsIdx = this.indexOfSequence(data, [0x19, 0x41, 0xA4, 0x69], currentOffset);
+                if (attachmentsIdx === -1) break;
+                
+                console.log("[MKV Font Extractor] Found Attachments block at offset", attachmentsIdx);
+                const blockFonts = this.parseAttachments(data, attachmentsIdx);
+                if (blockFonts.length > 0) {
+                    allFonts = allFonts.concat(blockFonts);
                 }
-            } else {
-                console.log("[MKV Font Extractor] Found Attachments directly in the first 1MB!");
-                return this.parseAttachments(data, attachmentsIdx);
+                
+                // Move currentOffset past the ID
+                const attSizeVint = this.readVint(data, attachmentsIdx + 4);
+                if (attSizeVint) {
+                    currentOffset = attachmentsIdx + 4 + attSizeVint.length + attSizeVint.value;
+                } else {
+                    currentOffset = attachmentsIdx + 4;
+                }
+            }
+
+            if (allFonts.length > 0) {
+                console.log("[MKV Font Extractor] Successfully accumulated fonts directly!");
+                return allFonts;
             }
             
-            console.log("[MKV Font Extractor] No attachments found.");
+            console.log("[MKV Font Extractor] Attachments not found directly, looking for SeekHead...");
+            const seekHeadIdx = this.indexOfSequence(data, [0x11, 0x4D, 0x9B, 0x74], offset);
+            if (seekHeadIdx !== -1) {
+                const attachmentsOffset = this.parseSeekHead(data, seekHeadIdx);
+                if (attachmentsOffset !== -1) {
+                    const absOffset = this.segmentOffset + attachmentsOffset;
+                    console.log("[MKV Font Extractor] Found Attachments via SeekHead at absolute offset", absOffset);
+                    const attResp = await this.fetchRange(absOffset, absOffset + 5 * 1024 * 1024);
+                    const attData = new Uint8Array(await attResp.arrayBuffer());
+                    let attIdx = this.indexOfSequence(attData, [0x19, 0x41, 0xA4, 0x69]);
+                    if (attIdx !== -1) {
+                        return this.parseAttachments(attData, attIdx);
+                    }
+                }
+            }
+            
+            console.log("[MKV Font Extractor] No fonts found.");
             return [];
         } catch (err) {
             console.error("[MKV Font Extractor] Error:", err);

@@ -1150,7 +1150,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <script src="https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus.js"></script>
   
   ${isHeavy ? `
-  <script src="/mkv-fonts.js"></script>
+  <script src="/mkv-fonts.js?v=${Date.now()}"></script>
   <script>
     // ── Monkey-patch WASM to intercept raw ASS subtitle packets for JASSUB ──
     window.assExtradataMap = new Map();
@@ -1274,14 +1274,33 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         let shadowPoll = setInterval(() => {
             if (playerEl.shadowRoot) {
                 clearInterval(shadowPoll);
-                // Hide native movi-player subtitles
-                const style = document.createElement('style');
-                style.textContent = '.movi-subtitle-canvas { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
-                playerEl.shadowRoot.appendChild(style);
-                // Inject overlay inside shadow root for fullscreen support
-                playerEl.shadowRoot.appendChild(subContainer);
+                // Hide native movi-player subtitles persistently
+                const ensureHidden = () => {
+                    if (!playerEl.shadowRoot.querySelector('#hide-native-subs')) {
+                        const style = document.createElement('style');
+                        style.id = 'hide-native-subs';
+                        style.textContent = '.movi-subtitle-canvas, canvas[style*="z-index: 2"] { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+                        playerEl.shadowRoot.appendChild(style);
+                    }
+                };
+                ensureHidden();
+                const observer = new MutationObserver(ensureHidden);
+                observer.observe(playerEl.shadowRoot, { childList: true, subtree: true });
             }
         }, 50);
+
+        container.style.position = 'relative';
+        container.appendChild(subContainer);
+
+        // Intercept movi-player fullscreen so subtitles go fullscreen too
+        const origRequestFullscreen = playerEl.requestFullscreen;
+        if (origRequestFullscreen) {
+            playerEl.requestFullscreen = function(options) {
+                if (container.requestFullscreen) return container.requestFullscreen(options);
+                if (container.webkitRequestFullscreen) return container.webkitRequestFullscreen(options);
+                return origRequestFullscreen.call(this, options);
+            };
+        }
 
         // Initialize SubtitlesOctopus
         function initJassub(fonts = []) {
