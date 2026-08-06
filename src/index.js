@@ -1303,7 +1303,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         }
 
         // Initialize SubtitlesOctopus
-        function initJassub(fonts = []) {
+        function initJassub(fonts = [], subContent = "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]") {
             if (window.jassubInstance) {
                 try { window.jassubInstance.dispose(); } catch(e){}
             }
@@ -1330,16 +1330,22 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             const extractFonts = () => {
                 const fontHeaders = {};
                 const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
-                extractor.extractFonts().then(fontsData => {
-                    if (fontsData && fontsData.length > 0) {
-                        console.log("[JASSUB] Successfully extracted " + fontsData.length + " fonts! Re-initializing renderer...");
+                extractor.extractFonts().then(result => {
+                    const fontsData = result?.fonts || [];
+                    let subContent = result?.subContent || "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]";
+                    
+                    if (fontsData.length > 0 || subContent.includes('[V4+ Styles]')) {
+                        if (!subContent.includes('[Events]')) {
+                            subContent += '\\n\\n[Events]';
+                        }
+                        console.log("[JASSUB] Extracted " + fontsData.length + " fonts and styles! Re-initializing renderer...");
                         const fontUrls = fontsData.map(uint8 => {
                             const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
                             return URL.createObjectURL(blob);
                         });
-                        initJassub(fontUrls);
+                        initJassub(fontUrls, subContent);
                     }
-                }).catch(e => console.error("Font extraction failed:", e));
+                }).catch(e => console.error("Font/Style extraction failed:", e));
             };
             
             playerEl.addEventListener('playing', function onPlaying() {

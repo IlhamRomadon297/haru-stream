@@ -16,11 +16,36 @@ window.MkvFontExtractor = class MkvFontExtractor {
             // First try: 1MB chunk, then try up to 10MB chunk if fonts are large
             const resp = await this.fetchRange(0, 1024 * 1024 * 5); // 5MB to be safe for large fonts
             const data = new Uint8Array(await resp.arrayBuffer());
+            
+            let extractedSubContent = null;
+            // Try to extract CodecPrivate (ASS Styles)
+            const tracksIdx = this.indexOfSequence(data, [0x16, 0x54, 0xAE, 0x6B]);
+            if (tracksIdx !== -1) {
+                let offset = tracksIdx + 4;
+                const sizeVint = this.readVint(data, offset);
+                if (sizeVint) {
+                    offset += sizeVint.length;
+                    const end = offset + sizeVint.value;
+                    let pIdIdx = this.indexOfSequence(data, [0x63, 0xA2], tracksIdx);
+                    while (pIdIdx !== -1 && pIdIdx < end) {
+                        let pSizeVint = this.readVint(data, pIdIdx + 2);
+                        if (pSizeVint) {
+                            let pData = new TextDecoder().decode(data.slice(pIdIdx + 2 + pSizeVint.length, pIdIdx + 2 + pSizeVint.length + pSizeVint.value));
+                            if (pData.includes('[V4+ Styles]')) {
+                                extractedSubContent = pData;
+                                console.log("[MKV Font Extractor] Successfully extracted ASS CodecPrivate (Styles)");
+                                break;
+                            }
+                        }
+                        pIdIdx = this.indexOfSequence(data, [0x63, 0xA2], pIdIdx + 2);
+                    }
+                }
+            }
 
             const segmentIdx = this.indexOfSequence(data, [0x18, 0x53, 0x80, 0x67]);
             if (segmentIdx === -1) {
                 console.warn("[MKV Font Extractor] Segment not found in first chunk.");
-                return [];
+                return { fonts: [], subContent: extractedSubContent };
             }
             
             let offset = segmentIdx + 4;
@@ -53,7 +78,7 @@ window.MkvFontExtractor = class MkvFontExtractor {
 
             if (allFonts.length > 0) {
                 console.log("[MKV Font Extractor] Successfully accumulated fonts directly!");
-                return allFonts;
+                return { fonts: allFonts, subContent: extractedSubContent };
             }
             
             console.log("[MKV Font Extractor] Attachments not found directly, looking for SeekHead...");
@@ -67,16 +92,16 @@ window.MkvFontExtractor = class MkvFontExtractor {
                     const attData = new Uint8Array(await attResp.arrayBuffer());
                     let attIdx = this.indexOfSequence(attData, [0x19, 0x41, 0xA4, 0x69]);
                     if (attIdx !== -1) {
-                        return this.parseAttachments(attData, attIdx);
+                        return { fonts: this.parseAttachments(attData, attIdx), subContent: extractedSubContent };
                     }
                 }
             }
             
             console.log("[MKV Font Extractor] No fonts found.");
-            return [];
+            return { fonts: [], subContent: extractedSubContent };
         } catch (err) {
             console.error("[MKV Font Extractor] Error:", err);
-            return [];
+            return { fonts: [], subContent: null };
         }
     }
 
