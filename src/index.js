@@ -224,26 +224,92 @@ async function getAccessToken(drive, db) {
 }
 
 /**
- * List video files from a Google Drive account.
- * Paginates automatically through all results.
+ * Get all descendant folder IDs (including root_folder_id) to support recursive syncing.
  */
-async function listDriveVideos(drive, db, pageToken = null) {
+async function getDescendantFolders(drive, db) {
+  if (!drive.root_folder_id) return null;
   const accessToken = await getAccessToken(drive, db);
-  const mimeFilter = "mimeType contains 'video/'";
-  const folderFilter = drive.root_folder_id
-    ? ` and '${drive.root_folder_id}' in parents`
-    : '';
-  const query = encodeURIComponent(`${mimeFilter}${folderFilter} and trashed = false`);
-  const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink)';
-  let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
-  if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+  let pageToken = null;
+  const folders = [];
+  do {
+    const query = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+    let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=nextPageToken,files(id,parents)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!resp.ok) break;
+    const data = await resp.json();
+    if (data.files) folders.push(...data.files);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
 
-  const resp = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const childrenMap = {};
+  for (const f of folders) {
+    if (f.parents) {
+      for (const p of f.parents) {
+        if (!childrenMap[p]) childrenMap[p] = [];
+        childrenMap[p].push(f.id);
+      }
+    }
+  }
 
-  if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
-  return await resp.json();
+  const validSet = new Set([drive.root_folder_id]);
+  const queue = [drive.root_folder_id];
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    const children = childrenMap[curr] || [];
+    for (const c of children) {
+      if (!validSet.has(c)) {
+        validSet.add(c);
+        queue.push(c);
+      }
+    }
+  }
+  return validSet;
+}
+
+/**
+ * Fetch all videos in the drive, or only within descendant folders if root_folder_id is set.
+ */
+async function fetchAllDriveVideos(drive, db, validFolderIds) {
+  const accessToken = await getAccessToken(drive, db);
+  const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents)';
+  let results = [];
+
+  if (!drive.root_folder_id) {
+    const query = encodeURIComponent(`mimeType contains 'video/' and trashed = false`);
+    let pageToken = null;
+    do {
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
+      const data = await resp.json();
+      if (data.files) results.push(...data.files);
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+  } else {
+    if (!validFolderIds || validFolderIds.size === 0) return [];
+    const folderArray = Array.from(validFolderIds);
+    const CHUNK_SIZE = 30; // max ~2048 chars for query
+    for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
+      const chunk = folderArray.slice(i, i + CHUNK_SIZE);
+      const parentQuery = chunk.map(id => `'${id}' in parents`).join(' or ');
+      const query = encodeURIComponent(`mimeType contains 'video/' and trashed = false and (${parentQuery})`);
+      
+      let pageToken = null;
+      do {
+        let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+        if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+        const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
+        const data = await resp.json();
+        if (data.files) results.push(...data.files);
+        pageToken = data.nextPageToken;
+      } while (pageToken);
+    }
+  }
+  return results;
 }
 
 async function getStartPageToken(drive, db) {
@@ -443,6 +509,7 @@ async function handleSync(request, env, user) {
 
   for (const drive of drives) {
     try {
+      const validFolderIds = await getDescendantFolders(drive, env.DB);
       const isSmartSync = !forceFullScan && drive.sync_token;
 
       if (isSmartSync) {
@@ -462,8 +529,9 @@ async function handleSync(request, env, user) {
               deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(change.fileId));
               totalRemoved++;
             } else if (change.file && change.file.mimeType && change.file.mimeType.startsWith('video/')) {
-              if (drive.root_folder_id && change.file.parents && !change.file.parents.includes(drive.root_folder_id)) {
-                continue;
+              if (validFolderIds && change.file.parents) {
+                const inFolder = change.file.parents.some(p => validFolderIds.has(p));
+                if (!inFolder) continue;
               }
               const file = change.file;
               const resolution = parseResolution(file.videoMediaMetadata);
@@ -501,35 +569,24 @@ async function handleSync(request, env, user) {
 
       } else {
         // ── FULL SCAN / LIST API ──────────────────
-        let pageToken = null;
-        do {
-          const data = await listDriveVideos(drive, env.DB, pageToken);
-          const files = data.files || [];
+        const files = await fetchAllDriveVideos(drive, env.DB, validFolderIds);
 
-          if (files.length === 0) {
-            pageToken = data.nextPageToken || null;
-            continue;
+        const stmts = files.map(file => {
+          const resolution = parseResolution(file.videoMediaMetadata);
+          const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
+          return env.DB.prepare(
+            `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now')`
+          ).bind(user.sub, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null);
+        });
+
+        if (stmts.length > 0) {
+          for (let i = 0; i < stmts.length; i += 50) {
+            await env.DB.batch(stmts.slice(i, i + 50));
           }
-
-          const stmts = files.map(file => {
-            const resolution = parseResolution(file.videoMediaMetadata);
-            const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
-            return env.DB.prepare(
-              `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-               ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=excluded.drive_modified_at, updated_at=datetime('now')`
-            ).bind(user.sub, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null);
-          });
-
-          if (stmts.length > 0) {
-            for (let i = 0; i < stmts.length; i += 50) {
-              await env.DB.batch(stmts.slice(i, i + 50));
-            }
-            totalSynced += stmts.length;
-          }
-
-          pageToken = data.nextPageToken || null;
-        } while (pageToken);
+          totalSynced += stmts.length;
+        }
 
         // Fetch and save startPageToken for next time
         try {
