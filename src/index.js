@@ -1420,7 +1420,49 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 </head>
 <body>
 
-  <div id="artplayer-container"></div>
+  <!-- ── Heavy Format Warning Modal ──────────────── -->
+  ${isHeavy ? `
+  <div id="warn-modal">
+    <div class="warn-box">
+      <div class="warn-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/>
+          <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+      </div>
+      <div class="warn-title">⚠ Format Berat Terdeteksi (MKV/Multi-track)</div>
+      
+      <div class="warn-body" style="text-align: left; margin-bottom: 12px; font-size: 13px;">
+        Pilih mode pemutaran di bawah ini:
+      </div>
+
+      <div class="warn-ext-group">
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-bottom:4px; font-weight:600;">Opsi 1: Aplikasi Eksternal (100% Lancar)</div>
+        <button class="warn-ext-btn" onclick="copyStreamLink('${streamUrl}')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          <span id="copy-txt">Copy Link Streaming (Untuk VLC Desktop CTRL+N)</span>
+        </button>
+        <div style="display:flex; gap:6px;">
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('potplayer', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">PotPlayer</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('vlc', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">VLC Mobile</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">MX Player</button>
+        </div>
+
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 2: Movi-Player (Multi-Audio & Subs Native)</div>
+        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4);" onclick="dismissWarningAndPlay('movi')">
+          ▶ Putar (Tanpa Style ASS Berat)
+        </button>
+        
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Artplayer (Video & Audio Utama)</div>
+        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.2);" onclick="dismissWarningAndPlay('art')">
+          ▶ Putar (Tanpa Subtitle ASS & Multi-Audio)
+        </button>
+      </div>
+    </div>
+  </div>` : ''}
+
+  <div id="artplayer-container" style="${isHeavy ? 'display:none;' : ''}"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
   ${isHeavy ? `
@@ -1556,8 +1598,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       });
     }; // end initPlayer()
 
-    // ── Startup logic: initialize player immediately for all video formats ──
-    initPlayer();
+    // ── Startup logic ─────────────────────────────────────
+    if (isHeavy) {
+      // Heavy format: show the warning modal with 3 options
+    } else {
+      // Lightweight MP4/AVC: initialize player immediately
+      initPlayer();
+    }
   </script>
 </body>
 </html>`;
