@@ -1190,6 +1190,49 @@
   </div>
 </div>
 
+<!-- MOVE FOLDER MODAL -->
+<div id="modal-move-folder" class="modal-overlay hidden">
+  <div class="modal-box w-full max-w-md">
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(99,102,241,0.15)">
+          <i class="fas fa-folder-open text-brand-400"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-white text-base">Move Videos</h3>
+          <p id="move-modal-subtitle" class="text-xs text-slate-400">Select target virtual folder</p>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-move-folder')" class="text-slate-400 hover:text-white transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <form onsubmit="submitMoveFolder(event)" class="space-y-4">
+      <div>
+        <div class="flex items-center justify-between mb-2">
+          <label class="block text-xs font-semibold" style="color:#64748b">TARGET FOLDER</label>
+          <button type="button" onclick="openNewFolderModal()" class="text-xs font-semibold flex items-center gap-1 hover:underline cursor-pointer" style="color:#10b981">
+            <i class="fas fa-folder-plus"></i>＋ Create Folder
+          </button>
+        </div>
+        <select id="move-folder-select" class="form-input" onchange="if(this.value==='NEW_FOLDER'){this.value=''; openNewFolderModal();}">
+          <option value="">— Root (No folder) —</option>
+        </select>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-3">
+        <button type="button" onclick="closeModal('modal-move-folder')" class="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+          Cancel
+        </button>
+        <button type="submit" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white">
+          <i class="fas fa-check mr-2"></i>Move Now
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- ============================================================
      JAVASCRIPT APPLICATION
      ============================================================ -->
@@ -1914,20 +1957,42 @@ async function bulkDelete() {
   else    showToast(data.error || 'Delete failed.', 'error');
 }
 
-async function bulkMove() {
-  if (!APP.selectedIds.size || !APP.folders.length) {
-    showToast('No folders available. Create a folder first.', 'info'); return;
+let pendingMoveVideoIds = [];
+
+function openMoveModal(videoIds = null) {
+  pendingMoveVideoIds = videoIds ? (Array.isArray(videoIds) ? videoIds : [videoIds]) : [...APP.selectedIds];
+  if (!pendingMoveVideoIds.length) {
+    showToast('No videos selected to move.', 'error');
+    return;
   }
-  const folderList = APP.folders.map(f => `${f.id}: ${f.name}`).join('\n');
-  const input = prompt(`Enter the target folder ID:\n\n${folderList}\n\n(Leave blank to move to root)`);
-  if (input === null) return;
-  const fid = input.trim() ? parseInt(input.trim()) : null;
+  populateFolderSelects();
+  const sub = $('move-modal-subtitle');
+  if (sub) sub.textContent = `Moving ${pendingMoveVideoIds.length} video${pendingMoveVideoIds.length > 1 ? 's' : ''}`;
+  $('modal-move-folder').classList.remove('hidden');
+}
+
+async function submitMoveFolder(e) {
+  e.preventDefault();
+  const folderVal = $('move-folder-select').value;
+  const fid = folderVal ? parseInt(folderVal) : null;
+
   const { ok, data } = await apiFetch('/api/media/move', {
     method: 'POST',
-    body: { video_ids: [...APP.selectedIds], folder_id: fid },
+    body: { video_ids: pendingMoveVideoIds, folder_id: fid },
   });
-  if (ok) { showToast(`Moved ${data.moved} videos.`, 'success'); clearSelection(); loadMedia(); }
-  else    showToast(data.error || 'Move failed.', 'error');
+
+  if (ok) {
+    showToast(`Successfully moved ${data.moved} video(s)!`, 'success');
+    closeModal('modal-move-folder');
+    clearSelection();
+    loadMedia();
+  } else {
+    showToast(data.error || 'Failed to move videos.', 'error');
+  }
+}
+
+function bulkMove() {
+  openMoveModal();
 }
 
 async function deleteVideo(id) {
@@ -2376,7 +2441,7 @@ function downloadExport() {
 
 async function exportToTelegraph() {
   const originalSep = APP.exportSeparator;
-  // Force newline separator for Telegraph
+  // Force newline separator for Telegraph & Katbin
   APP.exportSeparator = 'newline';
   const text = generateExportText();
   APP.exportSeparator = originalSep;
@@ -2392,24 +2457,24 @@ async function exportToTelegraph() {
     if (!token) {
       const accRes = await fetch('https://api.telegra.ph/createAccount?short_name=HaruStream&author_name=HaruStream');
       const accJson = await accRes.json();
-      token = accJson.result.access_token;
-      localStorage.setItem('telegraph_token', token);
+      if (accJson.ok) {
+        token = accJson.result.access_token;
+        localStorage.setItem('telegraph_token', token);
+      }
     }
     
     // 2. Format content into Telegraph nodes
     const content = [];
     text.split('\n').forEach(line => {
-      if (!line.trim()) {
+      const trimmed = line.trim();
+      if (!trimmed) {
         content.push({ tag: 'br' });
-      } else if (line.startsWith('http://') || line.startsWith('https://')) {
-        content.push({ tag: 'a', attrs: { href: line, target: '_blank' }, children: [line] });
-        content.push({ tag: 'br' });
-      } else if (line.startsWith('<iframe')) {
-        // Just text for iframe code
-        content.push({ tag: 'code', children: [line] });
-        content.push({ tag: 'br' });
+      } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+        content.push({ tag: 'p', children: [{ tag: 'a', attrs: { href: trimmed }, children: [trimmed] }] });
+      } else if (trimmed.startsWith('<iframe')) {
+        content.push({ tag: 'code', children: [trimmed] });
       } else {
-        content.push({ tag: 'p', children: [line] });
+        content.push({ tag: 'h4', children: [trimmed] });
       }
     });
     
@@ -2426,21 +2491,30 @@ async function exportToTelegraph() {
     });
     
     const pageJson = await pageRes.json();
-    if (pageJson.ok) {
+    if (pageJson.ok && pageJson.result && pageJson.result.url) {
       window.open(pageJson.result.url, '_blank');
       closeModal('modal-export');
+      return;
     } else {
-      throw new Error(pageJson.error);
+      throw new Error(pageJson.error || 'Telegra.ph API returned error');
     }
   } catch (e) {
-    console.error(e);
-    // Fallback to katb.in if telegraph fails
+    console.error('Telegra.ph failed:', e);
+    // Fallback to katb.in with Markdown links
     try {
-      showToast('Telegra.ph failed. Trying katb.in...', 'info', 2000);
+      showToast('Telegra.ph unavailable. Trying katb.in...', 'info', 2000);
+      const katbinMarkdown = text.split('\n').map(line => {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+          return `[${trimmed}](${trimmed})`;
+        }
+        return line;
+      }).join('\n');
+
       const kRes = await fetch('https://katb.in/api/paste', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paste: { content: text } })
+        body: JSON.stringify({ paste: { content: katbinMarkdown } })
       });
       const kJson = await kRes.json();
       if (kJson.id) {
