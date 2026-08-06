@@ -1177,7 +1177,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     
     window.updateJassubTrack = function() {
         if (!window.jassubInstance || window.currentSubtitleStream === -1) return;
-        let header = window.assExtradataMap.get(window.currentSubtitleStream);
+        let header = window.assExtradataMap.get(window.currentSubtitleStream) || window.currentSubContent;
         if (!header) return;
         let eventsSection = Array.from(window.assEvents).join('\\n');
         if (!header.includes('[Events]')) {
@@ -1313,12 +1313,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
         // Initialize SubtitlesOctopus
         function initJassub(fonts = [], subContent = "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]") {
+            window.currentSubContent = subContent;
             if (window.jassubInstance) {
                 try { window.jassubInstance.dispose(); } catch(e){}
             }
             window.jassubInstance = new SubtitlesOctopus({
                 video: playerEl,
-                subContent: "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]",
+                subContent: subContent,
                 fonts: fonts,
                 workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
                 canvas: (function() {
