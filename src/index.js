@@ -1244,9 +1244,11 @@ async function handleStats(env, user) {
 function buildEmbedPage(video, streamUrl, driveFileId) {
   const mime     = (video.mime_type || '').toLowerCase();
   const titleLow = (video.title    || '').toLowerCase();
-  const isHeavy  = mime.includes('x-matroska') || mime.includes('mkv') ||
-                   titleLow.endsWith('.mkv') || titleLow.endsWith('.hevc') ||
-                   titleLow.endsWith('.av1');
+  const isMp4    = (mime === 'video/mp4' || mime === 'video/m4v') && !titleLow.includes('.mkv');
+  const isHeavy  = !isMp4 ||
+                   mime.includes('matroska') || mime.includes('mkv') || mime.includes('octet-stream') ||
+                   titleLow.includes('mkv') || titleLow.includes('hevc') || titleLow.includes('x265') ||
+                   titleLow.includes('h.265') || titleLow.includes('10bit') || titleLow.includes('av1');
 
   return `<!DOCTYPE html>
 <html lang="en">
