@@ -229,41 +229,35 @@ async function getAccessToken(drive, db) {
 async function getDescendantFolders(drive, db) {
   if (!drive.root_folder_id) return null;
   const accessToken = await getAccessToken(drive, db);
-  let pageToken = null;
-  const folders = [];
-  do {
-    const query = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
-    let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=nextPageToken,files(id,parents)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
-    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
-    
-    const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!resp.ok) break;
-    const data = await resp.json();
-    if (data.files) folders.push(...data.files);
-    pageToken = data.nextPageToken;
-  } while (pageToken);
-
-  const childrenMap = {};
-  for (const f of folders) {
-    if (f.parents) {
-      for (const p of f.parents) {
-        if (!childrenMap[p]) childrenMap[p] = [];
-        childrenMap[p].push(f.id);
-      }
-    }
-  }
-
+  
   const validSet = new Set([drive.root_folder_id]);
   const queue = [drive.root_folder_id];
+  const CHUNK_SIZE = 25; // max ~1800 chars for query to stay under 2048 URL limit
+
   while (queue.length > 0) {
-    const curr = queue.shift();
-    const children = childrenMap[curr] || [];
-    for (const c of children) {
-      if (!validSet.has(c)) {
-        validSet.add(c);
-        queue.push(c);
+    const batch = queue.splice(0, CHUNK_SIZE);
+    const parentQuery = batch.map(id => `'${id}' in parents`).join(' or ');
+    const query = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and trashed = false and (${parentQuery})`);
+    
+    let pageToken = null;
+    do {
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=nextPageToken,files(id)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!resp.ok) throw new Error(`GDrive folder fetch failed: ${await resp.text()}`);
+      
+      const data = await resp.json();
+      if (data.files) {
+        for (const f of data.files) {
+          if (!validSet.has(f.id)) {
+            validSet.add(f.id);
+            queue.push(f.id);
+          }
+        }
       }
-    }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
   }
   return validSet;
 }
@@ -291,7 +285,7 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
   } else {
     if (!validFolderIds || validFolderIds.size === 0) return [];
     const folderArray = Array.from(validFolderIds);
-    const CHUNK_SIZE = 30; // max ~2048 chars for query
+    const CHUNK_SIZE = 25; // max safe size for query string
     for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
       const chunk = folderArray.slice(i, i + CHUNK_SIZE);
       const parentQuery = chunk.map(id => `'${id}' in parents`).join(' or ');
