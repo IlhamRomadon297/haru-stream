@@ -601,6 +601,11 @@ async function handleSync(request, env, user) {
     }
   }
 
+  let message = `${forceFullScan ? 'Full scan' : 'Smart sync'} complete — ${totalSynced} files indexed, ${totalRemoved} removed.`;
+  if (errors.length > 0) {
+    message = `Error: ${errors[0].error.substring(0, 150)}`;
+  }
+
   return jsonResponse({
     success: true,
     mode: forceFullScan ? 'full_scan' : 'smart_sync',
@@ -608,7 +613,7 @@ async function handleSync(request, env, user) {
     skipped: totalSkipped,
     removed: totalRemoved,
     errors,
-    message: `${forceFullScan ? 'Full scan' : 'Smart sync'} complete — ${totalSynced} files indexed, ${totalRemoved} removed.`,
+    message
   });
 }
 
