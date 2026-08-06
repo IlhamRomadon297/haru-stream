@@ -479,9 +479,15 @@ async function handleSync(request, env, user) {
             }
           }
 
-          if (deleteStmts.length > 0) await env.DB.batch(deleteStmts);
+          if (deleteStmts.length > 0) {
+            for (let i = 0; i < deleteStmts.length; i += 50) {
+              await env.DB.batch(deleteStmts.slice(i, i + 50));
+            }
+          }
           if (insertStmts.length > 0) {
-            await env.DB.batch(insertStmts);
+            for (let i = 0; i < insertStmts.length; i += 50) {
+              await env.DB.batch(insertStmts.slice(i, i + 50));
+            }
             totalSynced += insertStmts.length;
           }
 
@@ -516,7 +522,9 @@ async function handleSync(request, env, user) {
           });
 
           if (stmts.length > 0) {
-            await env.DB.batch(stmts);
+            for (let i = 0; i < stmts.length; i += 50) {
+              await env.DB.batch(stmts.slice(i, i + 50));
+            }
             totalSynced += stmts.length;
           }
 
@@ -764,7 +772,7 @@ async function handleEmbed(fileId, request, env) {
 
   // Build the proxy stream URL (absolute path to bypass the slow Pages Proxy)
   // We use the direct Worker origin from request.url to avoid the 30s Pages limit
-  const cleanTitle = (video.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
+  const cleanTitle = (video.title || 'video.mp4').replace(/[/\\]/g, '_');
   const workerOrigin = new URL(request.url).origin;
   const streamUrl = `${workerOrigin}/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
 
@@ -1172,9 +1180,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           ▶ Putar (Tanpa Style ASS Berat)
         </button>
         
-        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Artplayer (Khusus Render Subtitle ASS)</div>
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Artplayer (Video & Audio Utama)</div>
         <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.2);" onclick="dismissWarningAndPlay('art')">
-          ▶ Putar (Dengan Jassub, Audio Utama Saja)
+          ▶ Putar (Tanpa Subtitle ASS & Multi-Audio)
         </button>
       </div>
     </div>
@@ -1183,34 +1191,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <div id="artplayer-container" style="${isHeavy ? 'display:none;' : ''}"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus.js"></script>
-  
   ${isHeavy ? `
-  <script src="/mkv-fonts.js?v=${Date.now()}"></script>
-                                    clearTimeout(window.jassubDebounce);
-                                    window.jassubDebounce = setTimeout(window.updateJassubTrack, 50);
-                                }
-                            }
-                        }
-                        return origDecode.apply(target, arguments);
-                    };
-                }
-                return target[prop];
-            }
-        });
-
-        Object.defineProperty(result.instance, 'exports', {
-            value: proxiedExports,
-            writable: false,
-            configurable: true
-        });
-
-        return result;
-    };
-  </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.3.5/dist/element.js"></script>
   ` : ''}
-
 
   <script>
     const videoTitle  = ${JSON.stringify(video.title)};
@@ -1317,62 +1300,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       art.on('ready', () => {
         console.log('[HaruStream] Player ready:', videoTitle, '| Heavy:', isHeavy);
         
-        // If mode === 'art', initialize Jassub
-        if (mode === 'art' && isHeavy) {
-            const playerEl = art.video;
-            const subContainer = document.createElement('div');
-            subContainer.style.position = 'absolute';
-            subContainer.style.top = '0';
-            subContainer.style.left = '0';
-            subContainer.style.width = '100%';
-            subContainer.style.height = '100%';
-            subContainer.style.pointerEvents = 'none';
-            subContainer.style.zIndex = '999';
-            document.getElementById('artplayer-container').appendChild(subContainer);
-            
-            function initJassub(fonts = [], subContent = "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]") {
-                window.currentSubContent = subContent;
-                if (window.jassubInstance) {
-                    try { window.jassubInstance.dispose(); } catch(e){}
-                }
-                window.jassubInstance = new SubtitlesOctopus({
-                    video: playerEl,
-                    subContent: subContent,
-                    fonts: fonts,
-                    workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
-                    canvas: (function() {
-                        subContainer.innerHTML = '';
-                        const c = document.createElement('canvas');
-                        c.style.width = '100%';
-                        c.style.height = '100%';
-                        c.style.position = 'absolute';
-                        subContainer.appendChild(c);
-                        return c;
-                    })()
-                });
-            }
-            initJassub();
 
-            if (window.MkvFontExtractor) {
-                const fontHeaders = {};
-                const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
-                extractor.extractFonts().then(result => {
-                    const fontsData = result?.fonts || [];
-                    let subContent = result?.subContent || "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]";
-                    
-                    if (fontsData.length > 0 || subContent.includes('[V4+ Styles]')) {
-                        if (!subContent.includes('[Events]')) {
-                            subContent += '\\n\\n[Events]';
-                        }
-                        const fontUrls = fontsData.map(uint8 => {
-                            const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
-                            return URL.createObjectURL(blob);
-                        });
-                        initJassub(fontUrls, subContent);
-                    }
-                }).catch(e => console.error("Font/Style extraction failed:", e));
-            }
-        }
       });
 
       // ── F-key fullscreen ─────────────────────────────────
