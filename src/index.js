@@ -1153,7 +1153,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <script src="/mkv-fonts.js"></script>
   <script>
     // ── Monkey-patch WASM to intercept raw ASS subtitle packets for JASSUB ──
-    window.assExtradata = "";
+    window.assExtradataMap = new Map();
+    window.currentSubtitleStream = -1;
     window.assEvents = new Set();
     window.jassubInstance = null;
     
@@ -1166,8 +1167,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     };
     
     window.updateJassubTrack = function() {
-        if (!window.jassubInstance || !window.assExtradata) return;
-        let header = window.assExtradata;
+        if (!window.jassubInstance || window.currentSubtitleStream === -1) return;
+        let header = window.assExtradataMap.get(window.currentSubtitleStream);
+        if (!header) return;
         let eventsSection = Array.from(window.assEvents).join('\\n');
         if (!header.includes('[Events]')) {
             header += "\\n[Events]\\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\\n";
@@ -1180,7 +1182,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     const origInstantiateStreaming = WebAssembly.instantiateStreaming;
     WebAssembly.instantiateStreaming = async function(response, imports) {
         const result = await origInstantiateStreaming(response, imports);
-        if (!result.instance.exports.movi_decode_subtitle) return result; // Not movi-player WASM
+        if (!result.instance.exports.movi_decode_subtitle) return result; 
         
         const origDecode = result.instance.exports.movi_decode_subtitle;
         const origEnable = result.instance.exports.movi_enable_decoder;
@@ -1193,8 +1195,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                             const memory = target.memory;
                             const extra = new Uint8Array(memory.buffer, extradata, size);
                             const str = new TextDecoder('utf-8').decode(extra);
-                            if (str.includes('[Script Info]')) {
-                                window.assExtradata = str;
+                            if (str.includes('[Script Info]') || str.includes('[V4+ Styles]')) {
+                                window.assExtradataMap.set(stream_index, str);
                             }
                         }
                         return origEnable.apply(target, arguments);
@@ -1202,7 +1204,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                 }
                 if (prop === 'movi_decode_subtitle') {
                     return function(ctx, stream_index, data, size, pts, duration) {
-                        if (data && size > 0 && window.assExtradata) {
+                        window.currentSubtitleStream = stream_index;
+                        let header = window.assExtradataMap.get(stream_index);
+                        if (data && size > 0 && header) {
                             const memory = target.memory;
                             const packet = new Uint8Array(memory.buffer, data, size);
                             const str = new TextDecoder('utf-8').decode(packet);
@@ -1255,17 +1259,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         const container = document.getElementById('artplayer-container');
         container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" controls></movi-player>';
         
-        // Hide native movi-player subtitles and setup JASSUB
         const playerEl = container.querySelector('movi-player');
-        
-        // Give movi-player a moment to attach its shadow DOM
-        setTimeout(() => {
-          if (playerEl.shadowRoot) {
-            const style = document.createElement('style');
-            style.textContent = '.movi-subtitle-canvas { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
-            playerEl.shadowRoot.appendChild(style);
-          }
-        }, 100);
 
         // SubtitlesOctopus overlay container
         const subContainer = document.createElement('div');
@@ -1276,21 +1270,31 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         subContainer.style.height = '100%';
         subContainer.style.pointerEvents = 'none';
         subContainer.style.zIndex = '999';
-        container.style.position = 'relative'; // Ensure container is relative
-        container.appendChild(subContainer);
+        
+        let shadowPoll = setInterval(() => {
+            if (playerEl.shadowRoot) {
+                clearInterval(shadowPoll);
+                // Hide native movi-player subtitles
+                const style = document.createElement('style');
+                style.textContent = '.movi-subtitle-canvas { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+                playerEl.shadowRoot.appendChild(style);
+                // Inject overlay inside shadow root for fullscreen support
+                playerEl.shadowRoot.appendChild(subContainer);
+            }
+        }, 50);
 
-        // Initialize SubtitlesOctopus with an empty track (fallback fonts initially)
+        // Initialize SubtitlesOctopus
         function initJassub(fonts = []) {
             if (window.jassubInstance) {
                 try { window.jassubInstance.dispose(); } catch(e){}
             }
             window.jassubInstance = new SubtitlesOctopus({
-                video: playerEl, // movi-player implements HTMLMediaElement interface (currentTime, events)
+                video: playerEl,
                 subContent: "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]",
-                fonts: fonts, // Automatically falls back to system fonts if empty
+                fonts: fonts,
                 workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
                 canvas: (function() {
-                    subContainer.innerHTML = ''; // clear previous canvas
+                    subContainer.innerHTML = '';
                     const c = document.createElement('canvas');
                     c.style.width = '100%';
                     c.style.height = '100%';
@@ -1299,12 +1303,10 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                     return c;
                 })()
             });
-            // Restore any events that were already collected
-            if (window.assExtradata) window.updateJassubTrack();
+            window.updateJassubTrack();
         }
         initJassub();
 
-        // Extract MKV fonts in the background, delayed to avoid rate limits
         if (window.MkvFontExtractor) {
             const extractFonts = () => {
                 const fontHeaders = {};
