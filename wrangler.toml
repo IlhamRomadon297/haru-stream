@@ -1,5 +1,6 @@
 name = "haru-stream"
 main = "src/index.js"
+account_id = "11b88ee6fb0a7509cabc91b5b5cd64de"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
