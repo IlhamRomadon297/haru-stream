@@ -714,6 +714,45 @@ async function handleCreateFolder(request, env, user) {
   return jsonResponse({ success: true, folder_id: result.meta?.last_row_id }, 201);
 }
 
+async function handleUpdateFolder(folderId, request, env, user) {
+  const { name, parent_id, color } = await request.json().catch(() => ({}));
+  if (!name) return errorResponse('Folder name is required.');
+
+  const folder = await env.DB.prepare('SELECT id FROM folders WHERE id = ? AND user_id = ?')
+    .bind(folderId, user.sub).first();
+  if (!folder) return errorResponse('Folder not found.', 404);
+
+  if (parent_id && parent_id === folderId) {
+    return errorResponse('Folder cannot be its own parent.');
+  }
+
+  await env.DB.prepare(
+    `UPDATE folders SET name = ?, parent_id = ?, color = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
+  ).bind(name, parent_id || null, color || '#6366f1', folderId, user.sub).run();
+
+  return jsonResponse({ success: true });
+}
+
+async function handleDeleteFolder(folderId, env, user) {
+  const folder = await env.DB.prepare('SELECT id FROM folders WHERE id = ? AND user_id = ?')
+    .bind(folderId, user.sub).first();
+  if (!folder) return errorResponse('Folder not found.', 404);
+
+  // Unlink videos in this folder
+  await env.DB.prepare('UPDATE videos SET folder_id = NULL WHERE folder_id = ? AND user_id = ?')
+    .bind(folderId, user.sub).run();
+
+  // Reset parent_id for any subfolders of this folder to NULL
+  await env.DB.prepare('UPDATE folders SET parent_id = NULL WHERE parent_id = ? AND user_id = ?')
+    .bind(folderId, user.sub).run();
+
+  // Delete folder
+  await env.DB.prepare('DELETE FROM folders WHERE id = ? AND user_id = ?')
+    .bind(folderId, user.sub).run();
+
+  return jsonResponse({ success: true });
+}
+
 async function handleMoveVideo(request, env, user) {
   const { video_ids, folder_id } = await request.json().catch(() => ({}));
   if (!video_ids || !Array.isArray(video_ids)) return errorResponse('video_ids array is required.');
@@ -1795,6 +1834,14 @@ export default {
     // Folders
     else if (path === '/api/folders' && method === 'POST') {
       res = await handleCreateFolder(request, env, user);
+    }
+    else if (path.startsWith('/api/folders/') && method === 'PUT') {
+      const folderId = parseInt(path.split('/').pop());
+      res = await handleUpdateFolder(folderId, request, env, user);
+    }
+    else if (path.startsWith('/api/folders/') && method === 'DELETE') {
+      const folderId = parseInt(path.split('/').pop());
+      res = await handleDeleteFolder(folderId, env, user);
     }
 
     // Remote upload

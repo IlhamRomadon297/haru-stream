@@ -1190,6 +1190,60 @@
   </div>
 </div>
 
+<!-- EDIT FOLDER MODAL -->
+<div id="modal-edit-folder" class="modal-overlay hidden">
+  <div class="modal-box w-full max-w-md">
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(99,102,241,0.15)">
+          <i class="fas fa-folder text-brand-400"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-white text-base">Edit Virtual Folder</h3>
+          <p class="text-xs text-slate-400">Rename, move, or delete folder</p>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-edit-folder')" class="text-slate-400 hover:text-white transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <form onsubmit="submitEditFolder(event)" class="space-y-4">
+      <input type="hidden" id="edit-folder-id" />
+      <div>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">FOLDER NAME</label>
+        <input id="edit-folder-name" type="text" class="form-input" placeholder="Folder name..." required />
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">PARENT FOLDER (MOVE FOLDER)</label>
+        <select id="edit-folder-parent" class="form-input">
+          <option value="">— None (Root level) —</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">ACCENT COLOR</label>
+        <input id="edit-folder-color" type="color" value="#6366f1" class="h-10 w-full rounded-xl bg-slate-900 border border-slate-800 cursor-pointer px-1 py-1" />
+      </div>
+
+      <div class="flex items-center justify-between pt-3">
+        <button type="button" onclick="confirmDeleteFolder()" class="px-4 py-2.5 rounded-xl text-xs font-semibold transition-all text-red-400 hover:bg-red-500/20" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2)">
+          <i class="fas fa-trash mr-1.5"></i>Delete Folder
+        </button>
+        <div class="flex gap-2">
+          <button type="button" onclick="closeModal('modal-edit-folder')" class="px-4 py-2.5 rounded-xl text-xs font-semibold transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+            Cancel
+          </button>
+          <button type="submit" class="btn-gradient px-5 py-2.5 rounded-xl text-xs font-semibold text-white">
+            <i class="fas fa-save mr-1.5"></i>Save Changes
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- MOVE FOLDER MODAL -->
 <div id="modal-move-folder" class="modal-overlay hidden">
   <div class="modal-box w-full max-w-md">
@@ -1714,16 +1768,20 @@ function renderFolderTree() {
     .filter(f => (f.parent_id || null) === parentId)
     .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
     .map(f => `
-      <div class="folder-tree-item ${APP.currentFolder === f.id ? 'active' : ''}" id="ftree-${f.id}" onclick="selectFolder(${f.id})" style="padding-left:${f.parent_id ? '20px' : '10px'}">
-        <i class="fas fa-folder text-xs" style="color:${f.color || '#6366f1'}"></i>
-        <span>${escHtml(f.name)}</span>
+      <div class="folder-tree-item group ${APP.currentFolder === f.id ? 'active' : ''}" id="ftree-${f.id}" onclick="selectFolder(${f.id}, event)" style="padding-left:${f.parent_id ? '20px' : '10px'}">
+        <i class="fas fa-folder text-xs flex-shrink-0" style="color:${f.color || '#6366f1'}"></i>
+        <span class="flex-1 truncate min-w-0">${escHtml(f.name)}</span>
+        <button type="button" onclick="openEditFolderModal(${f.id}, event)" class="folder-action-btn opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all flex-shrink-0" title="Edit / Move / Delete Folder">
+          <i class="fas fa-ellipsis-v text-xs"></i>
+        </button>
       </div>
       ${buildItems(f.id)}
     `).join('');
   tree.innerHTML = buildItems(null);
 }
 
-function selectFolder(id) {
+function selectFolder(id, event) {
+  if (event && event.target.closest('.folder-action-btn')) return;
   APP.currentFolder = id;
   APP.page = 1;
   // Update active states for folders
@@ -2569,6 +2627,73 @@ async function submitNewFolder(e) {
     loadFolders();
   } else {
     showToast(data.error || 'Failed to create folder.', 'error');
+  }
+}
+
+function openEditFolderModal(folderId, event) {
+  if (event) event.stopPropagation();
+  const f = APP.folders.find(x => x.id === folderId);
+  if (!f) return;
+
+  $('edit-folder-id').value    = f.id;
+  $('edit-folder-name').value  = f.name;
+  $('edit-folder-color').value = f.color || '#6366f1';
+
+  // Build parent options excluding current folder and its descendants
+  const parentSelect = $('edit-folder-parent');
+  const buildOpts = (parentId = null, depth = 0) => {
+    return APP.folders
+      .filter(item => item.id !== f.id && (item.parent_id || null) === parentId)
+      .map(item => {
+        const indent = '  '.repeat(depth) + (depth > 0 ? '└ ' : '');
+        return `<option value="${item.id}">${indent}${escHtml(item.name)}</option>` + buildOpts(item.id, depth + 1);
+      }).join('');
+  };
+  parentSelect.innerHTML = '<option value="">— None (Root level) —</option>' + buildOpts(null);
+  parentSelect.value = f.parent_id || '';
+
+  $('modal-edit-folder').classList.remove('hidden');
+}
+
+async function submitEditFolder(e) {
+  e.preventDefault();
+  const fid = parseInt($('edit-folder-id').value);
+  const name = $('edit-folder-name').value;
+  const parentVal = $('edit-folder-parent').value;
+  const parent_id = parentVal ? parseInt(parentVal) : null;
+  const color = $('edit-folder-color').value;
+
+  const { ok, data } = await apiFetch(`/api/folders/${fid}`, {
+    method: 'PUT',
+    body: { name, parent_id, color },
+  });
+
+  if (ok) {
+    showToast('Folder updated!', 'success');
+    closeModal('modal-edit-folder');
+    loadFolders();
+  } else {
+    showToast(data.error || 'Failed to update folder.', 'error');
+  }
+}
+
+async function confirmDeleteFolder() {
+  const fid = parseInt($('edit-folder-id').value);
+  const f = APP.folders.find(x => x.id === fid);
+  if (!f) return;
+
+  if (!confirm(`Delete folder "${f.name}"? Videos inside will be moved to Unsorted.`)) return;
+
+  const { ok, data } = await apiFetch(`/api/folders/${fid}`, { method: 'DELETE' });
+
+  if (ok) {
+    showToast('Folder deleted!', 'success');
+    closeModal('modal-edit-folder');
+    if (APP.currentFolder === fid) APP.currentFolder = null;
+    loadFolders();
+    loadMedia();
+  } else {
+    showToast(data.error || 'Failed to delete folder.', 'error');
   }
 }
 
