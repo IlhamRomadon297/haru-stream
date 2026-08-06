@@ -871,7 +871,8 @@ async function handleStream(fileId, request, env) {
   const url = new URL(request.url);
   if (url.searchParams.get('download') === '1') {
     const filename = video.title.replace(/"/g, '\\"');
-    responseHeaders.set('Content-Disposition', `attachment; filename="${filename}"`);
+    const encodedFilename = encodeURIComponent(video.title);
+    responseHeaders.set('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodedFilename}`);
   }
 
   return new Response(driveResp.body, {
