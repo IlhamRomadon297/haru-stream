@@ -2027,7 +2027,7 @@ async function startDeviceUpload() {
         const chunkRes = await fetch(uploadUrl, {
           method: 'PUT',
           headers: {
-            'Content-Range': \`bytes \${start}-\${end - 1}/\${file.size}\`
+            'Content-Range': `bytes ${start}-${end - 1}/${file.size}`
           },
           body: chunk
         });
