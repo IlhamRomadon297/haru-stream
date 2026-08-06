@@ -1288,8 +1288,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     /* ── Warning Modal ─────────────────────────────────── */
     #warn-modal {
       position:fixed;inset:0;z-index:9999;
-      background:rgba(0,0,0,0.88);
-      backdrop-filter:blur(12px);
+      background:#0b0b14;
       display:flex;align-items:center;justify-content:center;
       padding:10px;
     }
