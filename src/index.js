@@ -862,11 +862,9 @@ async function handleStream(fileId, request, env) {
   responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
   responseHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
 
-  if (driveResp.ok || driveResp.status === 206) {
-    responseHeaders.set('Cache-Control', 'public, max-age=3600');
-  } else {
-    responseHeaders.set('Cache-Control', 'no-cache');
-  }
+  // Disable caching entirely for the stream proxy to prevent Cloudflare from buffering
+  // large files and prematurely terminating the connection with "Timeout at 0"
+  responseHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
 
   const url = new URL(request.url);
   if (url.searchParams.get('download') === '1') {
@@ -1302,7 +1300,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             // Restore any events that were already collected
             if (window.assExtradata) window.updateJassubTrack();
         }
-        
         initJassub();
 
         // Extract MKV fonts in the background, delayed to avoid rate limits
