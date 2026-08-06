@@ -689,7 +689,7 @@
       <div id="view-media" class="hidden animate-slide-in flex h-full">
 
         <!-- Folder Tree Sidebar -->
-        <div class="flex-shrink-0 w-52 p-3 overflow-y-auto" style="border-right:1px solid #1e1e38;background:#0c0c1e">
+        <div class="flex-shrink-0 w-64 p-3 overflow-y-auto" style="border-right:1px solid #1e1e38;background:#0c0c1e">
           
           <!-- DRIVES -->
           <div class="mb-5">
@@ -784,16 +784,14 @@
                     <thead>
                       <tr>
                         <th style="width:40px"><input type="checkbox" id="check-all" class="accent-brand-500 cursor-pointer" onchange="toggleAllCheckboxes()" /></th>
-                        <th onclick="sortByColumn('title')" id="th-title">Title <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
+                        <th onclick="sortByColumn('title')" id="th-title">Title & Actions <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
                         <th id="th-resolution" onclick="sortByColumn('resolution')">Resolution <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
                         <th id="th-size" onclick="sortByColumn('size')">Size <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
                         <th id="th-views" onclick="sortByColumn('views')">Views <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
-                        <th id="th-links">Links</th>
-                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody id="media-tbody">
-                      <tr><td colspan="7" class="text-center py-12" style="color:#475569">
+                      <tr><td colspan="5" class="text-center py-12" style="color:#475569">
                         <i class="fas fa-circle-notch fa-spin text-lg mb-3 block" style="color:#6366f1"></i>
                         Loading media...
                       </td></tr>
@@ -1740,9 +1738,9 @@ function renderDriveTree() {
   if (!APP.drives) { tree.innerHTML = ''; return; }
   
   const html = APP.drives.map(d => `
-    <div class="folder-tree-item ${APP.currentDrive === d.id ? 'active' : ''}" id="dtree-${d.id}" onclick="selectDrive(${d.id})" style="padding-left:10px">
-      <i class="fab fa-google-drive text-xs" style="color:#10b981"></i>
-      <span>${escHtml(d.drive_name)}</span>
+    <div class="folder-tree-item ${APP.currentDrive === d.id ? 'active' : ''}" id="dtree-${d.id}" onclick="selectDrive(${d.id})" style="padding-left:10px" title="${escHtml(d.drive_name)}">
+      <i class="fab fa-google-drive text-xs flex-shrink-0" style="color:#10b981"></i>
+      <span class="flex-1 truncate min-w-0" title="${escHtml(d.drive_name)}">${escHtml(d.drive_name)}</span>
     </div>
   `).join('');
   tree.innerHTML = html;
@@ -1768,10 +1766,10 @@ function renderFolderTree() {
     .filter(f => (f.parent_id || null) === parentId)
     .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
     .map(f => `
-      <div class="folder-tree-item group ${APP.currentFolder === f.id ? 'active' : ''}" id="ftree-${f.id}" onclick="selectFolder(${f.id}, event)" style="padding-left:${f.parent_id ? '20px' : '10px'}">
+      <div class="folder-tree-item group ${APP.currentFolder === f.id ? 'active' : ''}" id="ftree-${f.id}" onclick="selectFolder(${f.id}, event)" style="padding-left:${f.parent_id ? '20px' : '10px'}" title="${escHtml(f.name)}">
         <i class="fas fa-folder text-xs flex-shrink-0" style="color:${f.color || '#6366f1'}"></i>
-        <span class="flex-1 truncate min-w-0">${escHtml(f.name)}</span>
-        <button type="button" onclick="openEditFolderModal(${f.id}, event)" class="folder-action-btn opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all flex-shrink-0" title="Edit / Move / Delete Folder">
+        <span class="flex-1 truncate min-w-0" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+        <button type="button" onclick="openEditFolderModal(${f.id}, event)" class="folder-action-btn opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all flex-shrink-0 ml-1" title="Edit / Move / Delete Folder">
           <i class="fas fa-ellipsis-v text-xs"></i>
         </button>
       </div>
@@ -1835,17 +1833,15 @@ function renderMediaTable() {
   const showResolution = $('col-resolution')?.checked;
   const showSize       = $('col-size')?.checked;
   const showViews      = $('col-views')?.checked;
-  const showLinks      = $('col-links')?.checked;
 
   // Toggle header visibility
   $('th-resolution').style.display = showResolution ? '' : 'none';
   $('th-size').style.display       = showSize ? '' : 'none';
   $('th-views').style.display      = showViews ? '' : 'none';
-  $('th-links').style.display      = showLinks ? '' : 'none';
 
   const tbody = $('media-tbody');
   if (!APP.mediaData.length) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-14" style="color:#475569">
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-14" style="color:#475569">
       <i class="fas fa-film text-3xl mb-3 block" style="color:#1e1e38"></i>
       No videos found. Try syncing a drive or adjusting your search.
     </td></tr>`;
@@ -1856,34 +1852,41 @@ function renderMediaTable() {
     const isSelected = APP.selectedIds.has(v.id);
     const embedLink  = `${BASE_URL}/embed/${v.id}`;
     return `<tr class="${isSelected ? 'selected' : ''}" id="tr-${v.id}">
-      <td><input type="checkbox" class="accent-brand-500 cursor-pointer" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
-      <td>
-        <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center" style="background:rgba(99,102,241,0.1)">
-            <i class="fas fa-play-circle text-xs" style="color:#6366f1"></i>
+      <td class="align-top py-3"><input type="checkbox" class="accent-brand-500 cursor-pointer mt-1" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
+      <td class="align-top py-3">
+        <div class="flex items-start gap-3">
+          <div class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.2)">
+            <i class="fas fa-play text-xs" style="color:#818cf8"></i>
           </div>
-          <div class="filename-cell">
-            <span class="fname text-sm font-medium transition-colors" style="color:#c7d2fe"
+          <div class="filename-cell flex-1 min-w-0">
+            <div class="fname text-sm font-semibold text-white transition-colors hover:text-indigo-300 cursor-pointer break-all"
               onclick="openVideoDetail(${v.id})"
-              title="${escHtml(v.title)}">${escHtml(v.title)}</span>
+              title="${escHtml(v.title)}">${escHtml(v.title)}</div>
+            
+            <!-- Subtitle Actions Toolbar Under Title -->
+            <div class="flex flex-wrap items-center gap-3 mt-1.5 text-xs" style="color:#64748b">
+              <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
+                <i class="fas fa-info-circle"></i> Detail
+              </button>
+              <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
+                <i class="fas fa-external-link-alt"></i> Open
+              </a>
+              <button type="button" onclick="copyToClipboard('${embedLink}')" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
+                <i class="fas fa-copy"></i> Copy Link
+              </button>
+              <button type="button" onclick="openMoveModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-emerald-400/90 hover:text-emerald-400" title="Move to Folder">
+                <i class="fas fa-folder-open"></i> Move
+              </button>
+              <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
+                <i class="fas fa-trash"></i> Delete
+              </button>
+            </div>
           </div>
         </div>
       </td>
-      <td style="display:${showResolution ? '' : 'none'}">${fmtResolutionBadge(v.resolution)}</td>
-      <td style="display:${showSize ? '' : 'none'}"><span class="text-xs font-mono" style="color:#64748b">${formatBytes(v.size)}</span></td>
-      <td style="display:${showViews ? '' : 'none'}"><span class="text-xs font-mono" style="color:#94a3b8">${formatNumber(v.views)}</span></td>
-      <td style="display:${showLinks ? '' : 'none'}">
-        <div class="flex items-center gap-1.5">
-          <button onclick="openVideoDetail(${v.id})" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-brand-500/20" style="color:#a5b4fc;background:none;border:none;cursor:pointer" title="Video Detail"><i class="fas fa-info-circle"></i></button>
-          <a href="${embedLink}" target="_blank" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-brand-500/20" style="color:#6366f1" title="Open in new tab"><i class="fas fa-external-link-alt"></i></a>
-          <button onclick="copyToClipboard('${embedLink}')" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-white/5" style="color:#64748b;background:none;border:none;cursor:pointer" title="Copy Embed URL"><i class="fas fa-copy"></i></button>
-        </div>
-      </td>
-      <td>
-        <div class="flex items-center gap-1">
-          <button onclick="deleteVideo(${v.id})" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-red-500/20" style="color:#f87171;background:none;border:none;cursor:pointer" title="Delete"><i class="fas fa-trash"></i></button>
-        </div>
-      </td>
+      <td class="align-top py-3" style="display:${showResolution ? '' : 'none'}">${fmtResolutionBadge(v.resolution)}</td>
+      <td class="align-top py-3" style="display:${showSize ? '' : 'none'}"><span class="text-xs font-mono" style="color:#64748b">${formatBytes(v.size)}</span></td>
+      <td class="align-top py-3" style="display:${showViews ? '' : 'none'}"><span class="text-xs font-mono" style="color:#94a3b8">${formatNumber(v.views)}</span></td>
     </tr>`;
   }).join('');
 }
