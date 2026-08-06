@@ -227,11 +227,11 @@ async function getAccessToken(drive, db) {
  * Get all descendant folder IDs (including root_folder_id) to support recursive syncing.
  */
 async function getDescendantFolders(drive, db) {
-  if (!drive.root_folder_id) return null;
+  const rootId = drive.root_folder_id || 'root';
   const accessToken = await getAccessToken(drive, db);
   
-  const validSet = new Set([drive.root_folder_id]);
-  const queue = [drive.root_folder_id];
+  const validSet = new Set([rootId]);
+  const queue = [rootId];
   const CHUNK_SIZE = 25; // max ~1800 chars for query to stay under 2048 URL limit
 
   while (queue.length > 0) {
@@ -270,8 +270,18 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
   const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents)';
   let results = [];
 
-  if (!drive.root_folder_id) {
-    const query = encodeURIComponent(`(mimeType contains 'video/' or fileExtension='mkv' or fileExtension='mp4' or fileExtension='avi' or fileExtension='webm' or fileExtension='mov' or fileExtension='flv' or fileExtension='wmv' or fileExtension='m4v' or fileExtension='ts') and trashed = false`);
+  const actualRootId = drive.root_folder_id || 'root';
+  if (!validFolderIds || validFolderIds.size === 0) {
+    validFolderIds = new Set([actualRootId]);
+  }
+  
+  const folderArray = Array.from(validFolderIds);
+  const CHUNK_SIZE = 25; // max safe size for query string
+  for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
+    const chunk = folderArray.slice(i, i + CHUNK_SIZE);
+    const parentQuery = chunk.map(id => `'${id}' in parents`).join(' or ');
+    const query = encodeURIComponent(`trashed = false and (${parentQuery})`);
+    
     let pageToken = null;
     do {
       let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
@@ -282,6 +292,7 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
       if (data.files) {
         const videos = data.files.filter(f => {
           if (f.mimeType && f.mimeType.startsWith('video/')) return true;
+          if (!f.name) return false;
           const ext = f.name.split('.').pop().toLowerCase();
           return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
         });
@@ -289,34 +300,6 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
       }
       pageToken = data.nextPageToken;
     } while (pageToken);
-  } else {
-    if (!validFolderIds || validFolderIds.size === 0) return [];
-    const folderArray = Array.from(validFolderIds);
-    const CHUNK_SIZE = 25; // max safe size for query string
-    for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
-      const chunk = folderArray.slice(i, i + CHUNK_SIZE);
-      const parentQuery = chunk.map(id => `'${id}' in parents`).join(' or ');
-      const query = encodeURIComponent(`trashed = false and (${parentQuery})`);
-      
-      let pageToken = null;
-      do {
-        let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
-        if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
-        const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
-        const data = await resp.json();
-        if (data.files) {
-          const videos = data.files.filter(f => {
-            if (f.mimeType && f.mimeType.startsWith('video/')) return true;
-            if (!f.name) return false;
-            const ext = f.name.split('.').pop().toLowerCase();
-            return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
-          });
-          results.push(...videos);
-        }
-        pageToken = data.nextPageToken;
-      } while (pageToken);
-    }
   }
   return results;
 }
