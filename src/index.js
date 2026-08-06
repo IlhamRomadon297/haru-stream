@@ -761,10 +761,11 @@ async function handleEmbed(fileId, request, env) {
     return new Response('Video not found.', { status: 404, headers: HTML_HEADERS });
   }
 
-  // Build the proxy stream URL (relative path so it works seamlessly on Pages domain)
-  // Include filename to make it readable in PotPlayer
+  // Build the proxy stream URL (absolute path to bypass the slow Pages Proxy)
+  // We use the direct Worker origin from request.url to avoid the 30s Pages limit
   const cleanTitle = (video.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
-  const streamUrl = `/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
+  const workerOrigin = new URL(request.url).origin;
+  const streamUrl = `${workerOrigin}/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
 
 
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
@@ -1324,6 +1325,22 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                 setTimeout(extractFonts, 1500); // 1.5 second delay after playback starts
             });
         }
+
+        // Add Retry button on error
+        function showRetry() {
+            if (document.getElementById('retry-btn')) return;
+            const errDiv = document.createElement('div');
+            errDiv.id = 'retry-btn';
+            errDiv.style.position = 'absolute';
+            errDiv.style.top = '65%';
+            errDiv.style.left = '50%';
+            errDiv.style.transform = 'translate(-50%, -50%)';
+            errDiv.style.zIndex = '999999';
+            errDiv.innerHTML = '<button onclick="window.location.reload()" style="padding:12px 24px; background:#e74c3c; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">🔄 Timeout - Klik Untuk Retry</button>';
+            container.appendChild(errDiv);
+        }
+        playerEl.addEventListener('error', showRetry);
+        playerEl.addEventListener('abort', showRetry);
 
         return;
       }
