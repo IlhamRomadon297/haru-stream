@@ -19,13 +19,14 @@
 const CORS_HEADERS = (origin = '*') => ({
   'Access-Control-Allow-Origin': origin,
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, Range',
   'Access-Control-Max-Age': '86400',
 });
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const HTML_HEADERS = { 
   'Content-Type': 'text/html;charset=UTF-8',
+  'Cache-Control': 'no-cache, no-store, must-revalidate',
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Embedder-Policy': 'require-corp'
 };
