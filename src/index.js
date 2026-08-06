@@ -654,8 +654,24 @@ async function handleListMedia(request, env, user) {
   }
 
   if (folderId) {
-    whereClause += ' AND v.folder_id = ?';
-    bindings.push(parseInt(folderId));
+    const targetFid = parseInt(folderId);
+    const allUserFolders = await env.DB.prepare(
+      'SELECT id, parent_id FROM folders WHERE user_id = ?'
+    ).bind(user.sub).all();
+
+    const getFolderAndSubfolderIds = (rootId) => {
+      let ids = [rootId];
+      const children = (allUserFolders.results || []).filter(f => f.parent_id === rootId);
+      for (const child of children) {
+        ids = ids.concat(getFolderAndSubfolderIds(child.id));
+      }
+      return ids;
+    };
+
+    const targetFolderIds = getFolderAndSubfolderIds(targetFid);
+    const placeholders = targetFolderIds.map(() => '?').join(',');
+    whereClause += ` AND v.folder_id IN (${placeholders})`;
+    bindings.push(...targetFolderIds);
   } else if (url.searchParams.get('folder_id') === 'null') {
     whereClause += ' AND v.folder_id IS NULL';
   }
