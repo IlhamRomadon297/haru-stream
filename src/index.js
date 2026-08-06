@@ -1227,20 +1227,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             }
         });
 
-        return {
-            module: result.module,
-            instance: new Proxy(result.instance, {
-                get(target, prop) {
-                    if (prop === 'exports') {
-                        return proxiedExports;
-                    }
-                    if (typeof target[prop] === 'function') {
-                        return target[prop].bind(target);
-                    }
-                    return target[prop];
-                }
-            })
-        };
+        Object.defineProperty(result.instance, 'exports', {
+            value: proxiedExports,
+            writable: false,
+            configurable: true
+        });
+
+        return result;
     };
   </script>
   <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.3.5/dist/element.js"></script>
