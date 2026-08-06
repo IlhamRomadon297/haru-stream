@@ -286,12 +286,12 @@
       /* Mobile specific tweaks */
     }
 
-    /* Filename tooltip — full name on hover */
+    /* Filename — full width & readable */
     .filename-cell {
-      position: relative; max-width: 280px;
+      position: relative; width: 100%;
     }
     .filename-cell .fname {
-      display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      display: block; word-break: break-word; line-height: 1.4;
       cursor: pointer;
     }
     .filename-cell .fname:hover { color: #a5b4fc; }
@@ -1863,21 +1863,21 @@ function renderMediaTable() {
               onclick="openVideoDetail(${v.id})"
               title="${escHtml(v.title)}">${escHtml(v.title)}</div>
             
-            <!-- Subtitle Actions Toolbar Under Title (All on 1 single row) -->
-            <div class="flex items-center gap-3 mt-1.5 text-xs whitespace-nowrap overflow-x-auto" style="color:#64748b">
-              <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors whitespace-nowrap" title="Video Detail">
+            <!-- Subtitle Actions Toolbar Under Title -->
+            <div class="flex items-center gap-4 mt-2 text-xs flex-wrap" style="color:#64748b">
+              <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
                 <i class="fas fa-info-circle"></i> Detail
               </button>
-              <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors whitespace-nowrap" style="color:#818cf8" title="Open Player">
+              <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
                 <i class="fas fa-external-link-alt"></i> Open
               </a>
-              <button type="button" onclick="copyToClipboard('${embedLink}')" class="hover:text-indigo-300 flex items-center gap-1 transition-colors whitespace-nowrap" title="Copy Embed URL">
+              <button type="button" onclick="copyToClipboard('${embedLink}')" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
                 <i class="fas fa-copy"></i> Copy Link
               </button>
-              <button type="button" onclick="openMoveModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-emerald-400/90 hover:text-emerald-400 whitespace-nowrap" title="Move to Folder">
+              <button type="button" onclick="openMoveModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-emerald-400/90 hover:text-emerald-400" title="Move to Folder">
                 <i class="fas fa-folder-open"></i> Move
               </button>
-              <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80 whitespace-nowrap" title="Delete Video">
+              <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
                 <i class="fas fa-trash"></i> Delete
               </button>
             </div>
