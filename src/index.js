@@ -1269,46 +1269,55 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       position:fixed;inset:0;z-index:9999;
       background:#0b0b14;
       display:flex;align-items:center;justify-content:center;
-      padding:10px;
+      padding:8px;
     }
     .warn-box {
       background:linear-gradient(135deg,#141428,#1a1a36);
       border:1px solid rgba(99,102,241,0.35);
-      border-radius:16px;padding:20px;
-      max-width:540px;width:100%;text-align:center;margin:auto;
-      box-shadow:0 32px 80px rgba(0,0,0,0.9),0 0 0 1px rgba(99,102,241,0.1);
-      animation:warnIn .35s cubic-bezier(.34,1.56,.64,1);
-      max-height: 98vh;
-      overflow-y: auto;
+      border-radius:14px;padding:12px 16px;
+      max-width:500px;width:96%;text-align:center;margin:auto;
+      box-shadow:0 24px 60px rgba(0,0,0,0.9);
+      animation:warnIn .3s ease-out;
+      box-sizing:border-box;
     }
-    @keyframes warnIn{from{opacity:0;transform:scale(.88) translateY(24px)}to{opacity:1;transform:scale(1) translateY(0)}}
+    @keyframes warnIn{from{opacity:0;transform:scale(.92) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
     .warn-icon{
-      width:48px;height:48px;border-radius:50%;
+      width:36px;height:36px;border-radius:50%;
       background:linear-gradient(135deg,rgba(239,68,68,.2),rgba(245,158,11,.15));
-      border:2px solid rgba(239,68,68,.4);
+      border:1.5px solid rgba(239,68,68,.4);
       display:flex;align-items:center;justify-content:center;
-      margin:0 auto 12px;
+      margin:0 auto 6px;
     }
-    .warn-title{font-size:16px;font-weight:700;color:#fff;margin-bottom:8px;font-family:Inter,sans-serif}
-    .warn-body{font-size:12.5px;line-height:1.6;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:20px}
-    .warn-ext-group{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .warn-icon svg{width:20px;height:20px;}
+    .warn-title{font-size:14px;font-weight:700;color:#fff;margin-bottom:4px;font-family:Inter,sans-serif}
+    .warn-body{font-size:11.5px;line-height:1.4;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:8px}
+    .warn-ext-group{display:flex;flex-direction:column;gap:4px}
     .warn-ext-btn{
-      display:flex;align-items:center;gap:10px;
-      padding:11px 16px;border-radius:12px;border:1px solid rgba(99,102,241,0.35);
+      display:flex;align-items:center;gap:8px;
+      padding:6px 12px;border-radius:8px;border:1px solid rgba(99,102,241,0.35);
       background:rgba(99,102,241,0.12);color:#a5b4fc;
-      font-size:13px;font-weight:600;cursor:pointer;
-      text-align:left;transition:all .18s;
+      font-size:11.5px;font-weight:600;cursor:pointer;
+      text-align:left;transition:all .15s;
       font-family:Inter,sans-serif;
     }
-    .warn-ext-btn:hover{background:rgba(99,102,241,0.28);border-color:rgba(99,102,241,0.6);color:#c7d2fe;transform:translateY(-1px)}
-    .warn-ext-btn svg{flex-shrink:0;opacity:.8}
+    .warn-ext-btn:hover{background:rgba(99,102,241,0.28);color:#c7d2fe}
+    .warn-ext-btn svg{width:14px;height:14px;flex-shrink:0;opacity:.85}
     .warn-force-btn{
-      width:100%;padding:11px 16px;border-radius:12px;
+      width:100%;padding:6px 12px;border-radius:8px;
       background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);
-      color:#64748b;font-size:12.5px;font-weight:600;cursor:pointer;
-      transition:all .18s;font-family:Inter,sans-serif;
+      color:#64748b;font-size:11.5px;font-weight:600;cursor:pointer;
+      transition:all .15s;font-family:Inter,sans-serif;
     }
     .warn-force-btn:hover{background:rgba(255,255,255,0.08);color:#94a3b8}
+
+    @media (max-height: 440px), (max-width: 480px) {
+      .warn-box { padding: 8px 10px; border-radius: 10px; }
+      .warn-icon { width: 28px; height: 28px; margin-bottom: 4px; }
+      .warn-icon svg { width: 16px; height: 16px; }
+      .warn-title { font-size: 12px; margin-bottom: 2px; }
+      .warn-body { font-size: 10px; margin-bottom: 4px; }
+      .warn-ext-btn, .warn-force-btn { padding: 4px 8px; font-size: 10px; border-radius: 6px; }
+    }
 
     /* ── External player dropdown ──────────────────────── */
     #ext-menu-wrap{position:relative;display:inline-block}
