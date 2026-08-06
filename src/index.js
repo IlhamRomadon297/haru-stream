@@ -1008,14 +1008,17 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       background:rgba(0,0,0,0.88);
       backdrop-filter:blur(12px);
       display:flex;align-items:center;justify-content:center;
+      padding:10px;
     }
     .warn-box {
       background:linear-gradient(135deg,#141428,#1a1a36);
       border:1px solid rgba(99,102,241,0.35);
-      border-radius:16px;padding:24px 20px;
-      max-width:480px;width:94%;text-align:center;margin:auto;
+      border-radius:16px;padding:20px;
+      max-width:540px;width:100%;text-align:center;margin:auto;
       box-shadow:0 32px 80px rgba(0,0,0,0.9),0 0 0 1px rgba(99,102,241,0.1);
       animation:warnIn .35s cubic-bezier(.34,1.56,.64,1);
+      max-height: 98vh;
+      overflow-y: auto;
     }
     @keyframes warnIn{from{opacity:0;transform:scale(.88) translateY(24px)}to{opacity:1;transform:scale(1) translateY(0)}}
     .warn-icon{
@@ -1023,7 +1026,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       background:linear-gradient(135deg,rgba(239,68,68,.2),rgba(245,158,11,.15));
       border:2px solid rgba(239,68,68,.4);
       display:flex;align-items:center;justify-content:center;
-      margin:0 auto 16px;
+      margin:0 auto 12px;
     }
     .warn-title{font-size:16px;font-weight:700;color:#fff;margin-bottom:8px;font-family:Inter,sans-serif}
     .warn-body{font-size:12.5px;line-height:1.6;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:20px}
@@ -1070,19 +1073,40 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    function openExternal(player, streamUrl) {
+    async function copyStreamLink(url) {
+      const absoluteUrl = new URL(url, window.location.origin).href;
+      try {
+        await navigator.clipboard.writeText(absoluteUrl);
+        const txt = document.getElementById('copy-txt');
+        if (txt) {
+            const old = txt.innerText;
+            txt.innerText = 'Tersalin!';
+            setTimeout(() => txt.innerText = old, 2000);
+        }
+      } catch (e) {
+        alert('Gagal menyalin link: ' + absoluteUrl);
+      }
+    }
+
+    function openExternal(player, streamUrl, title) {
       let absoluteUrl = new URL(streamUrl, window.location.origin).href;
+      const encodedTitle = encodeURIComponent(title || 'video.mkv');
+      // Tambahkan param download=1 agar Content-Disposition memunculkan nama file
+      if (!absoluteUrl.includes('download=1')) {
+          absoluteUrl += (absoluteUrl.includes('?') ? '&' : '?') + 'download=1';
+      }
+
       let urlWithoutProto = absoluteUrl.split('://')[1] || absoluteUrl;
       if (player === 'potplayer') {
         window.location.href = 'potplayer://' + absoluteUrl;
       } else if (player === 'vlc') {
         if (/android/i.test(navigator.userAgent)) {
-          window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=org.videolan.vlc;type=video/*;end';
+          window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=org.videolan.vlc;S.title=' + encodedTitle + ';type=video/*;end';
         } else {
           window.location.href = 'vlc://' + absoluteUrl;
         }
       } else if (player === 'mx') {
-        window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=video/*;end';
+        window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;S.title=' + encodedTitle + ';type=video/*;end';
       }
     }
 
@@ -1092,13 +1116,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     }
 
     // This will be called by the force button
-    function dismissWarningAndPlay() {
+    function dismissWarningAndPlay(mode) {
       const modal = document.getElementById('warn-modal');
       if (modal) modal.style.display = 'none';
       const container = document.getElementById('artplayer-container');
       if (container) container.style.display = 'block';
       if (typeof window.initPlayer === 'function') {
-        window.initPlayer();
+        window.initPlayer(mode);
       }
     }
 
@@ -1124,110 +1148,44 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           <line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
       </div>
-      <div class="warn-title">⚠ Peringatan: Format Berat Terdeteksi</div>
-      <div class="warn-body">
-        Video ini menggunakan format berkualitas tinggi <strong style="color:#fbbf24">(MKV/AV1/Multi-track)</strong> yang sangat berat untuk browser.<br><br>
-        Disarankan memutarnya di <strong style="color:#a5b4fc">Aplikasi Eksternal</strong> agar 100% lancar tanpa lag, dengan dukungan audio & subtitle penuh.
+      <div class="warn-title">⚠ Format Berat Terdeteksi (MKV/Multi-track)</div>
+      
+      <div class="warn-body" style="text-align: left; margin-bottom: 12px; font-size: 13px;">
+        Pilih mode pemutaran di bawah ini:
       </div>
+
       <div class="warn-ext-group">
-        <button class="warn-ext-btn" onclick="openExternal('potplayer', '${streamUrl}')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
-          Buka di PotPlayer (Windows)
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-bottom:4px; font-weight:600;">Opsi 1: Aplikasi Eksternal (100% Lancar)</div>
+        <button class="warn-ext-btn" onclick="copyStreamLink('${streamUrl}')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          <span id="copy-txt">Copy Link Streaming (Untuk VLC Desktop CTRL+N)</span>
         </button>
-        <button class="warn-ext-btn" onclick="openExternal('vlc', '${streamUrl}')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
-          Buka di VLC (Cross-platform)
+        <div style="display:flex; gap:6px;">
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('potplayer', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">PotPlayer</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('vlc', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">VLC Mobile</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">MX Player</button>
+        </div>
+
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 2: Movi-Player (Multi-Audio & Subs Native)</div>
+        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4);" onclick="dismissWarningAndPlay('movi')">
+          ▶ Putar (Tanpa Style ASS Berat)
         </button>
-        <button class="warn-ext-btn" onclick="openExternal('mx', '${streamUrl}')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>
-          Buka di MX Player (Android)
+        
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Artplayer (Khusus Render Subtitle ASS)</div>
+        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.2);" onclick="dismissWarningAndPlay('art')">
+          ▶ Putar (Dengan Jassub, Audio Utama Saja)
         </button>
       </div>
-      <button class="warn-force-btn" onclick="dismissWarningAndPlay()">
-        🧩 Tetap Paksa Putar di Browser (WASM)
-      </button>
     </div>
   </div>` : ''}
 
   <div id="artplayer-container" style="${isHeavy ? 'display:none;' : ''}"></div>
 
-  ${!isHeavy ? `
   <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
-  ` : ''}
-
-  <!-- SubtitlesOctopus (libass WASM) loaded for both Artplayer and MoviPlayer -->
   <script src="https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus.js"></script>
   
   ${isHeavy ? `
   <script src="/mkv-fonts.js?v=${Date.now()}"></script>
-  <script>
-    // ── Monkey-patch WASM to intercept raw ASS subtitle packets for JASSUB ──
-    window.assExtradataMap = new Map();
-    window.currentSubtitleStream = -1;
-    window.assEvents = new Set();
-    window.jassubInstance = null;
-    
-    window.formatAssTime = function(ptsSeconds) {
-        const hours = Math.floor(ptsSeconds / 3600);
-        const minutes = Math.floor((ptsSeconds % 3600) / 60);
-        const seconds = Math.floor(ptsSeconds % 60);
-        const ms = Math.floor((ptsSeconds % 1) * 100);
-        return \`\${hours}:\${String(minutes).padStart(2, '0')}:\${String(seconds).padStart(2, '0')}.\${String(ms).padStart(2, '0')}\`;
-    };
-    
-    window.updateJassubTrack = function() {
-        if (!window.jassubInstance || window.currentSubtitleStream === -1) return;
-        let header = window.assExtradataMap.get(window.currentSubtitleStream) || window.currentSubContent;
-        if (!header) return;
-        let eventsSection = Array.from(window.assEvents).join('\\n');
-        if (!header.includes('[Events]')) {
-            header += "\\n[Events]\\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\\n";
-        } else {
-            if (!header.endsWith('\\n')) header += '\\n';
-        }
-        window.jassubInstance.setTrack(header + eventsSection);
-    };
-
-    const origInstantiateStreaming = WebAssembly.instantiateStreaming;
-    WebAssembly.instantiateStreaming = async function(response, imports) {
-        const result = await origInstantiateStreaming(response, imports);
-        if (!result.instance.exports.movi_decode_subtitle) return result; 
-        
-        const origDecode = result.instance.exports.movi_decode_subtitle;
-        const origEnable = result.instance.exports.movi_enable_decoder;
-        
-        const proxiedExports = new Proxy(result.instance.exports, {
-            get(target, prop) {
-                if (prop === 'movi_enable_decoder') {
-                    return function(ctx, stream_index, extradata, size) {
-                        if (extradata && size > 0) {
-                            const memory = target.memory;
-                            const extra = new Uint8Array(memory.buffer, extradata, size);
-                            const str = new TextDecoder('utf-8').decode(extra);
-                            if (str.includes('[Script Info]') || str.includes('[V4+ Styles]')) {
-                                window.assExtradataMap.set(stream_index, str);
-                            }
-                        }
-                        return origEnable.apply(target, arguments);
-                    };
-                }
-                if (prop === 'movi_decode_subtitle') {
-                    return function(ctx, stream_index, data, size, pts, duration) {
-                        window.currentSubtitleStream = stream_index;
-                        let header = window.assExtradataMap.get(stream_index);
-                        if (data && size > 0 && header) {
-                            const memory = target.memory;
-                            const packet = new Uint8Array(memory.buffer, data, size);
-                            const str = new TextDecoder('utf-8').decode(packet);
-                            const parts = str.split(',');
-                            if (parts.length >= 3) {
-                                const layer = parts[1];
-                                const startStr = window.formatAssTime(pts);
-                                const endStr = window.formatAssTime(pts + duration);
-                                const rest = parts.slice(2).join(',');
-                                const dialogue = 'Dialogue: ' + layer + ',' + startStr + ',' + endStr + ',' + rest;
-                                if (!window.assEvents.has(dialogue)) {
-                                    window.assEvents.add(dialogue);
                                     clearTimeout(window.jassubDebounce);
                                     window.jassubDebounce = setTimeout(window.updateJassubTrack, 50);
                                 }
@@ -1263,107 +1221,12 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     let art = null;
     let wasmPlayerActive = false;
 
-    window.initPlayer = function() {
-      if (isHeavy) {
+    window.initPlayer = function(mode) {
+      if (mode === 'movi') {
         const container = document.getElementById('artplayer-container');
         container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" controls></movi-player>';
-        
         const playerEl = container.querySelector('movi-player');
-
-        // SubtitlesOctopus overlay container
-        const subContainer = document.createElement('div');
-        subContainer.style.position = 'absolute';
-        subContainer.style.top = '0';
-        subContainer.style.left = '0';
-        subContainer.style.width = '100%';
-        subContainer.style.height = '100%';
-        subContainer.style.pointerEvents = 'none';
-        subContainer.style.zIndex = '999';
         
-        let shadowPoll = setInterval(() => {
-            if (playerEl.shadowRoot) {
-                clearInterval(shadowPoll);
-                // Hide native movi-player subtitles persistently
-                const ensureHidden = () => {
-                    if (!playerEl.shadowRoot.querySelector('#hide-native-subs')) {
-                        const style = document.createElement('style');
-                        style.id = 'hide-native-subs';
-                        style.textContent = '.movi-subtitle-canvas, .movi-subtitle-overlay, div[class*="subtitle"], canvas[style*="z-index: 2"] { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
-                        playerEl.shadowRoot.appendChild(style);
-                    }
-                };
-                ensureHidden();
-                const observer = new MutationObserver(ensureHidden);
-                observer.observe(playerEl.shadowRoot, { childList: true, subtree: true });
-            }
-        }, 50);
-
-        container.style.position = 'relative';
-        container.appendChild(subContainer);
-
-        // Intercept movi-player fullscreen so subtitles go fullscreen too
-        const origRequestFullscreen = playerEl.requestFullscreen;
-        if (origRequestFullscreen) {
-            playerEl.requestFullscreen = function(options) {
-                if (container.requestFullscreen) return container.requestFullscreen(options);
-                if (container.webkitRequestFullscreen) return container.webkitRequestFullscreen(options);
-                return origRequestFullscreen.call(this, options);
-            };
-        }
-
-        // Initialize SubtitlesOctopus
-        function initJassub(fonts = [], subContent = "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]") {
-            window.currentSubContent = subContent;
-            if (window.jassubInstance) {
-                try { window.jassubInstance.dispose(); } catch(e){}
-            }
-            window.jassubInstance = new SubtitlesOctopus({
-                video: playerEl,
-                subContent: subContent,
-                fonts: fonts,
-                workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
-                canvas: (function() {
-                    subContainer.innerHTML = '';
-                    const c = document.createElement('canvas');
-                    c.style.width = '100%';
-                    c.style.height = '100%';
-                    c.style.position = 'absolute';
-                    subContainer.appendChild(c);
-                    return c;
-                })()
-            });
-            window.updateJassubTrack();
-        }
-        initJassub();
-
-        if (window.MkvFontExtractor) {
-            const extractFonts = () => {
-                const fontHeaders = {};
-                const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
-                extractor.extractFonts().then(result => {
-                    const fontsData = result?.fonts || [];
-                    let subContent = result?.subContent || "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]";
-                    
-                    if (fontsData.length > 0 || subContent.includes('[V4+ Styles]')) {
-                        if (!subContent.includes('[Events]')) {
-                            subContent += '\\n\\n[Events]';
-                        }
-                        console.log("[JASSUB] Extracted " + fontsData.length + " fonts and styles! Re-initializing renderer...");
-                        const fontUrls = fontsData.map(uint8 => {
-                            const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
-                            return URL.createObjectURL(blob);
-                        });
-                        initJassub(fontUrls, subContent);
-                    }
-                }).catch(e => console.error("Font/Style extraction failed:", e));
-            };
-            
-            playerEl.addEventListener('playing', function onPlaying() {
-                playerEl.removeEventListener('playing', onPlaying);
-                setTimeout(extractFonts, 1500); // 1.5 second delay after playback starts
-            });
-        }
-
         // Add Retry button on error
         function showRetry() {
             if (document.getElementById('retry-btn')) return;
@@ -1387,7 +1250,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                 }
             }
         }, 1000);
-
         return;
       }
 
@@ -1453,6 +1315,63 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
       art.on('ready', () => {
         console.log('[HaruStream] Player ready:', videoTitle, '| Heavy:', isHeavy);
+        
+        // If mode === 'art', initialize Jassub
+        if (mode === 'art' && isHeavy) {
+            const playerEl = art.video;
+            const subContainer = document.createElement('div');
+            subContainer.style.position = 'absolute';
+            subContainer.style.top = '0';
+            subContainer.style.left = '0';
+            subContainer.style.width = '100%';
+            subContainer.style.height = '100%';
+            subContainer.style.pointerEvents = 'none';
+            subContainer.style.zIndex = '999';
+            document.getElementById('artplayer-container').appendChild(subContainer);
+            
+            function initJassub(fonts = [], subContent = "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]") {
+                window.currentSubContent = subContent;
+                if (window.jassubInstance) {
+                    try { window.jassubInstance.dispose(); } catch(e){}
+                }
+                window.jassubInstance = new SubtitlesOctopus({
+                    video: playerEl,
+                    subContent: subContent,
+                    fonts: fonts,
+                    workerUrl: 'https://cdn.jsdelivr.net/npm/libass-wasm@4/dist/js/subtitles-octopus-worker.js',
+                    canvas: (function() {
+                        subContainer.innerHTML = '';
+                        const c = document.createElement('canvas');
+                        c.style.width = '100%';
+                        c.style.height = '100%';
+                        c.style.position = 'absolute';
+                        subContainer.appendChild(c);
+                        return c;
+                    })()
+                });
+            }
+            initJassub();
+
+            if (window.MkvFontExtractor) {
+                const fontHeaders = {};
+                const extractor = new window.MkvFontExtractor(streamUrl, fontHeaders);
+                extractor.extractFonts().then(result => {
+                    const fontsData = result?.fonts || [];
+                    let subContent = result?.subContent || "[Script Info]\\nScriptType: v4.00+\\n[V4+ Styles]\\n[Events]";
+                    
+                    if (fontsData.length > 0 || subContent.includes('[V4+ Styles]')) {
+                        if (!subContent.includes('[Events]')) {
+                            subContent += '\\n\\n[Events]';
+                        }
+                        const fontUrls = fontsData.map(uint8 => {
+                            const blob = new Blob([uint8], { type: 'application/x-truetype-font' });
+                            return URL.createObjectURL(blob);
+                        });
+                        initJassub(fontUrls, subContent);
+                    }
+                }).catch(e => console.error("Font/Style extraction failed:", e));
+            }
+        }
       });
 
       // ── F-key fullscreen ─────────────────────────────────
