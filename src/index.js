@@ -27,8 +27,8 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 const HTML_HEADERS = { 
   'Content-Type': 'text/html;charset=UTF-8',
   'Cache-Control': 'no-cache, no-store, must-revalidate',
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Cross-Origin-Embedder-Policy': 'require-corp'
+  'Access-Control-Allow-Origin': '*',
+  'Content-Security-Policy': 'frame-ancestors *;',
 };
 
 // JWT Secret key cached per isolate lifetime
@@ -1009,9 +1009,10 @@ async function handleEmbed(fileId, request, env) {
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
   return new Response(html, { 
     headers: {
-      ...HTML_HEADERS,
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp'
+      'Content-Type': 'text/html;charset=UTF-8',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Access-Control-Allow-Origin': '*',
+      'Content-Security-Policy': 'frame-ancestors *;',
     } 
   });
 }
@@ -1041,7 +1042,7 @@ async function handleStream(fileId, request, env) {
     return new Response(`Auth error: ${e.message}`, { status: 502 });
   }
 
-  const driveStreamUrl = `${GOOGLE_DRIVE_API}/files/${video.drive_file_id}?alt=media&supportsAllDrives=true`;
+  const driveStreamUrl = `${GOOGLE_DRIVE_API}/files/${video.drive_file_id}?alt=media&confirm=t&acknowledgeAbuse=true&supportsAllDrives=true`;
 
   // 1. Fetch from Google Drive API with redirect: 'manual'
   let rangeHeader = request.headers.get('Range');
@@ -1065,7 +1066,7 @@ async function handleStream(fileId, request, env) {
   // Manual redirect loop to preserve Range headers (fetch 'follow' drops them on 2nd redirect)
   while (redirectCount < 5) {
     driveResp = await fetch(currentUrl, {
-      method: request.method,
+      method: request.method === 'HEAD' ? 'HEAD' : 'GET',
       headers: reqHeaders,
       redirect: 'manual'
     });
@@ -1082,6 +1083,35 @@ async function handleStream(fileId, request, env) {
       }
     }
     break; // Break if not a redirect or no Location header
+  }
+
+  // If GDrive returned 401 (token expired), force refresh token & retry stream
+  if (driveResp.status === 401) {
+    try {
+      const refreshedToken = await getAccessToken(fakeDrive, env.DB, true);
+      currentUrl = driveStreamUrl;
+      reqHeaders = { Authorization: `Bearer ${refreshedToken}` };
+      if (rangeHeader) reqHeaders['Range'] = rangeHeader;
+      redirectCount = 0;
+      while (redirectCount < 5) {
+        driveResp = await fetch(currentUrl, {
+          method: request.method === 'HEAD' ? 'HEAD' : 'GET',
+          headers: reqHeaders,
+          redirect: 'manual'
+        });
+        if ([301, 302, 303, 307, 308].includes(driveResp.status)) {
+          const loc = driveResp.headers.get('Location');
+          if (loc) {
+            currentUrl = loc;
+            redirectCount++;
+            reqHeaders = {};
+            if (rangeHeader) reqHeaders['Range'] = rangeHeader;
+            continue;
+          }
+        }
+        break;
+      }
+    } catch (_) {}
   }
 
   // 3. Forward the response back to the client
@@ -1253,6 +1283,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     html,body{width:100vw;height:100vh;background:#000;overflow:hidden;margin:0;padding:0;}
     #artplayer-container{position:absolute;top:0;left:0;width:100vw;height:100vh;display:block;}
     .art-video-player{background:#000;width:100%;height:100%;}
+    video{object-fit:contain !important;width:100% !important;height:100% !important;}
 
     /* ── Warning Modal ─────────────────────────────────── */
     #warn-modal {
