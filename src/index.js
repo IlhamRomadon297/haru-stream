@@ -984,8 +984,17 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>${escapeHtml(video.title)} — HaruStream PRO</title>
+  <script>
+    const origAttachShadow = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function(init) {
+        if (init && init.mode === 'closed') {
+            init.mode = 'open'; // Force open so we can read error state
+        }
+        return origAttachShadow.call(this, init);
+    };
+  </script>
   <meta name="robots" content="noindex">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
