@@ -999,11 +999,9 @@ async function handleEmbed(fileId, request, env) {
     return new Response('Video not found.', { status: 404, headers: HTML_HEADERS });
   }
 
-  // Build the proxy stream URL (absolute path to bypass the slow Pages Proxy)
-  // We use the direct Worker origin from request.url to avoid the 30s Pages limit
+  // Build relative proxy stream URL so it uses the current iframe origin (e.g. haru-stream.pages.dev)
   const cleanTitle = (video.title || 'video.mp4').replace(/[/\\]/g, '_');
-  const workerOrigin = new URL(request.url).origin;
-  const streamUrl = `${workerOrigin}/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
+  const streamUrl  = `/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
 
 
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
@@ -1343,18 +1341,43 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    async function copyStreamLink(url) {
+    function copyStreamLink(url) {
       const absoluteUrl = new URL(url, window.location.origin).href;
-      try {
-        await navigator.clipboard.writeText(absoluteUrl);
+      let copied = false;
+      const doSuccess = () => {
         const txt = document.getElementById('copy-txt');
         if (txt) {
-            const old = txt.innerText;
-            txt.innerText = 'Tersalin!';
-            setTimeout(() => txt.innerText = old, 2000);
+          const old = txt.innerText;
+          txt.innerText = '✔ Link Streaming Tersalin!';
+          setTimeout(() => txt.innerText = old, 2500);
         }
-      } catch (e) {
-        alert('Gagal menyalin link: ' + absoluteUrl);
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(absoluteUrl).then(doSuccess).catch(() => fallbackCopy(absoluteUrl));
+      } else {
+        fallbackCopy(absoluteUrl);
+      }
+
+      function fallbackCopy(text) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          ta.style.top = '-9999px';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          copied = document.execCommand('copy');
+          document.body.removeChild(ta);
+        } catch (err) {}
+
+        if (copied) {
+          doSuccess();
+        } else {
+          prompt('Salin link streaming di bawah ini (Ctrl+C):', text);
+        }
       }
     }
 
