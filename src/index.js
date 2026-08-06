@@ -1367,8 +1367,16 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             errDiv.innerHTML = '<button onclick="window.location.reload()" style="padding:12px 24px; background:#e74c3c; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">🔄 Timeout - Klik Untuk Retry</button>';
             container.appendChild(errDiv);
         }
-        playerEl.addEventListener('error', showRetry);
-        playerEl.addEventListener('abort', showRetry);
+        
+        let errorPoll = setInterval(() => {
+            if (playerEl.shadowRoot) {
+                const html = playerEl.shadowRoot.innerHTML;
+                if (html.includes('Failed to open media') || html.includes('Timeout') || html.includes('Initialization Failed')) {
+                    showRetry();
+                    clearInterval(errorPoll);
+                }
+            }
+        }, 1000);
 
         return;
       }
