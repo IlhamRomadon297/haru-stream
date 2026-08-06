@@ -1341,7 +1341,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    function copyStreamLink(url) {
+    function copyStreamLink(e, url) {
+      if (e && e.preventDefault) e.preventDefault();
       const absoluteUrl = new URL(url, window.location.origin).href;
       let copied = false;
       const doSuccess = () => {
@@ -1363,11 +1364,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         try {
           const ta = document.createElement('textarea');
           ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.left = '-9999px';
-          ta.style.top = '-9999px';
+          ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;z-index:-1;';
           document.body.appendChild(ta);
-          ta.focus();
+          ta.focus({ preventScroll: true });
           ta.select();
           copied = document.execCommand('copy');
           document.body.removeChild(ta);
@@ -1449,7 +1448,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
       <div class="warn-ext-group">
         <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-bottom:4px; font-weight:600;">Opsi 1: Aplikasi Eksternal (100% Lancar)</div>
-        <button class="warn-ext-btn" onclick="copyStreamLink('${streamUrl}')">
+        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event, '${streamUrl}')">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
           <span id="copy-txt">Copy Link Streaming (Untuk VLC Desktop CTRL+N)</span>
         </button>
