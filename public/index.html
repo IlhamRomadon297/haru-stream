@@ -1107,6 +1107,9 @@
     </div>
 
     <div class="flex justify-end gap-3">
+      <button onclick="exportToTelegraph()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white" style="background:linear-gradient(135deg, #2563eb, #3b82f6)">
+        <i class="fas fa-paper-plane mr-2"></i>Telegra.ph
+      </button>
       <button onclick="openExportBlob()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white">
         <i class="fas fa-external-link-alt mr-2"></i>Open in New Tab
       </button>
@@ -2163,7 +2166,7 @@ function generateExportText() {
     return APP.exportSeparator === 'newline' ? parts.join('\n') : parts.join(sep);
   });
 
-  const divider = '\n';
+  const divider = APP.exportSeparator === 'newline' ? '\n\n' : '\n';
   return lines.join(divider);
 }
 
@@ -2190,6 +2193,87 @@ function downloadExport() {
   a.href = URL.createObjectURL(blob);
   a.download = `harustream-export-${Date.now()}.txt`;
   a.click();
+}
+
+async function exportToTelegraph() {
+  const originalSep = APP.exportSeparator;
+  // Force newline separator for Telegraph
+  APP.exportSeparator = 'newline';
+  const text = generateExportText();
+  APP.exportSeparator = originalSep;
+  
+  if (!text.trim()) { showToast('No data to export.', 'error'); return; }
+  
+  showToast('Creating Telegra.ph page...', 'info', 2000);
+  try {
+    const title = 'HaruStream Export ' + new Date().toISOString().slice(0,10);
+    
+    // 1. Get or create Telegraph account
+    let token = localStorage.getItem('telegraph_token');
+    if (!token) {
+      const accRes = await fetch('https://api.telegra.ph/createAccount?short_name=HaruStream&author_name=HaruStream');
+      const accJson = await accRes.json();
+      token = accJson.result.access_token;
+      localStorage.setItem('telegraph_token', token);
+    }
+    
+    // 2. Format content into Telegraph nodes
+    const content = [];
+    text.split('\n').forEach(line => {
+      if (!line.trim()) {
+        content.push({ tag: 'br' });
+      } else if (line.startsWith('http://') || line.startsWith('https://')) {
+        content.push({ tag: 'a', attrs: { href: line, target: '_blank' }, children: [line] });
+        content.push({ tag: 'br' });
+      } else if (line.startsWith('<iframe')) {
+        // Just text for iframe code
+        content.push({ tag: 'code', children: [line] });
+        content.push({ tag: 'br' });
+      } else {
+        content.push({ tag: 'p', children: [line] });
+      }
+    });
+    
+    // 3. Create page
+    const pageRes = await fetch('https://api.telegra.ph/createPage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: token,
+        title: title,
+        content: content,
+        return_content: false
+      })
+    });
+    
+    const pageJson = await pageRes.json();
+    if (pageJson.ok) {
+      window.open(pageJson.result.url, '_blank');
+      closeModal('modal-export');
+    } else {
+      throw new Error(pageJson.error);
+    }
+  } catch (e) {
+    console.error(e);
+    // Fallback to katb.in if telegraph fails
+    try {
+      showToast('Telegra.ph failed. Trying katb.in...', 'info', 2000);
+      const kRes = await fetch('https://katb.in/api/paste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paste: { content: text } })
+      });
+      const kJson = await kRes.json();
+      if (kJson.id) {
+        window.open('https://katb.in/' + kJson.id, '_blank');
+        closeModal('modal-export');
+      } else {
+        throw new Error('Katb.in failed');
+      }
+    } catch(err) {
+      showToast('Export failed: ' + e.message, 'error');
+    }
+  }
 }
 
 // ── FOLDER MODALS ─────────────────────────────────────────────
