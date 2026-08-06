@@ -2355,11 +2355,9 @@ function openVideoDetail(videoId) {
 
 function _populateVideoDetailModal(v) {
   const base        = BASE_URL;
-  const cleanTitle  = (v.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
-  const streamUrl   = `${base}/stream/${v.id}/${encodeURIComponent(cleanTitle)}`;
   const embedLink   = `${base}/embed/${v.id}`;
-  const streamLink  = streamUrl;
-  const dlLink      = `${streamUrl}?download=1`;
+  const streamLink  = `${base}/stream/${v.id}`;
+  const dlLink      = `${base}/stream/${v.id}?download=1`;
   const embedCode   = `<iframe src="${embedLink}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
 
   // Header
