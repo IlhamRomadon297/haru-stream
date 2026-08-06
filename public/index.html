@@ -2039,13 +2039,30 @@ function populateDriveSelects() {
 }
 
 function populateFolderSelects() {
-  const opts = '<option value="">— Root (No folder) —</option>' +
+  const buildFolderOpts = (parentId = null, depth = 0) => {
+    return APP.folders
+      .filter(f => (f.parent_id || null) === parentId)
+      .map(f => {
+        const indent = '  '.repeat(depth) + (depth > 0 ? '└ ' : '');
+        return `<option value="${f.id}">${indent}${escHtml(f.name)}</option>` + buildFolderOpts(f.id, depth + 1);
+      }).join('');
+  };
+
+  const folderOptions = buildFolderOpts(null);
+
+  const defaultOpts = '<option value="">— Root (No folder) —</option>' +
     '<option value="NEW_FOLDER" style="color:#10b981;font-weight:bold;">＋ Create New Folder...</option>' +
-    APP.folders.map(f => `<option value="${f.id}">${escHtml(f.name)}</option>`).join('');
+    folderOptions;
+
+  const moveOpts = '<option value="">— Root (No folder) —</option>' + folderOptions;
+
   ['device-folder-select', 'remote-folder-select', 'folder-parent-select'].forEach(id => {
     const el = $(id);
-    if (el) el.innerHTML = opts;
+    if (el) el.innerHTML = defaultOpts;
   });
+
+  const moveEl = $('move-folder-select');
+  if (moveEl) moveEl.innerHTML = moveOpts;
 }
 
 function handleDragOver(e) { e.preventDefault(); $('drop-zone').style.borderColor = '#6366f1'; }
