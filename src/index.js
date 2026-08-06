@@ -1279,7 +1279,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
                     if (!playerEl.shadowRoot.querySelector('#hide-native-subs')) {
                         const style = document.createElement('style');
                         style.id = 'hide-native-subs';
-                        style.textContent = '.movi-subtitle-canvas, canvas[style*="z-index: 2"] { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
+                        style.textContent = '.movi-subtitle-canvas, .movi-subtitle-overlay, div[class*="subtitle"], canvas[style*="z-index: 2"] { display: none !important; opacity: 0 !important; visibility: hidden !important; }';
                         playerEl.shadowRoot.appendChild(style);
                     }
                 };
