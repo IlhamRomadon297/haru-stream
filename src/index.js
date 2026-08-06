@@ -271,7 +271,7 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
   let results = [];
 
   if (!drive.root_folder_id) {
-    const query = encodeURIComponent(`mimeType contains 'video/' and trashed = false`);
+    const query = encodeURIComponent(`'me' in owners and (mimeType contains 'video/' or fileExtension='mkv' or fileExtension='mp4' or fileExtension='avi' or fileExtension='webm' or fileExtension='mov' or fileExtension='flv' or fileExtension='wmv' or fileExtension='m4v' or fileExtension='ts') and trashed = false`);
     let pageToken = null;
     do {
       let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
@@ -279,7 +279,14 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
       const data = await resp.json();
-      if (data.files) results.push(...data.files);
+      if (data.files) {
+        const videos = data.files.filter(f => {
+          if (f.mimeType && f.mimeType.startsWith('video/')) return true;
+          const ext = f.name.split('.').pop().toLowerCase();
+          return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
+        });
+        results.push(...videos);
+      }
       pageToken = data.nextPageToken;
     } while (pageToken);
   } else {
@@ -525,16 +532,27 @@ async function handleSync(request, env, user) {
             if (change.removed || (change.file && change.file.trashed)) {
               deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(change.fileId));
               totalRemoved++;
-            } else if (change.file && change.file.mimeType && change.file.mimeType.startsWith('video/')) {
-              if (validFolderIds && change.file.parents) {
-                const inFolder = change.file.parents.some(p => validFolderIds.has(p));
-                if (!inFolder) continue;
-              }
+            } else if (change.file) {
               const file = change.file;
-              const resolution = parseResolution(file.videoMediaMetadata);
-              const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
+              let isVideo = false;
+              if (file.mimeType && file.mimeType.startsWith('video/')) {
+                isVideo = true;
+              } else if (file.name) {
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext)) {
+                  isVideo = true;
+                }
+              }
               
-              insertStmts.push(
+              if (isVideo) {
+                if (validFolderIds && file.parents) {
+                  const inFolder = file.parents.some(p => validFolderIds.has(p));
+                  if (!inFolder) continue;
+                }
+                const resolution = parseResolution(file.videoMediaMetadata);
+                const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
+                
+                insertStmts.push(
                 env.DB.prepare(
                   `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -544,6 +562,8 @@ async function handleSync(request, env, user) {
             }
           }
 
+          } // close the if(change.file) else if block
+          
           if (deleteStmts.length > 0) {
             for (let i = 0; i < deleteStmts.length; i += 50) {
               await env.DB.batch(deleteStmts.slice(i, i + 50));
