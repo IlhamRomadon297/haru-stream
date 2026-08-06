@@ -1626,7 +1626,7 @@ async function loadMedia() {
   const sortBy  = $('media-sort-by')?.value || 'title';
   const sortDir = $('media-sort-dir')?.value || 'asc';
   const driveFilter = $('media-drive-filter')?.value || '';
-  const limit   = 250;
+  const limit   = 100;
 
   let url = `/api/media?search=${encodeURIComponent(search)}&sort_by=${sortBy}&sort_dir=${sortDir}&page=${APP.page}&limit=${limit}`;
   
