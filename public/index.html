@@ -1861,8 +1861,7 @@ function renderMediaTable() {
   tbody.innerHTML = APP.mediaData.map(v => {
     const isSelected = APP.selectedIds.has(v.id);
     const embedLink  = `${BASE_URL}/embed/${v.id}`;
-    const cleanTitle = (v.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
-    const streamLink = `${BASE_URL}/stream/${v.id}/${encodeURIComponent(cleanTitle)}`;
+    const streamLink = `${BASE_URL}/stream/${v.id}?download=1`;
     return `<tr class="${isSelected ? 'selected' : ''}" id="tr-${v.id}">
       <td class="align-top py-3" style="width:40px"><input type="checkbox" class="accent-brand-500 cursor-pointer mt-1" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
       <td class="align-top py-3" style="width:auto">
@@ -2495,8 +2494,8 @@ function generateExportText() {
 
   const lines = data.map(v => {
     const parts = [];
-    const cleanTitle = (v.title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
-    const streamUrl  = `${BASE_URL}/stream/${v.id}/${encodeURIComponent(cleanTitle)}`;
+    const streamUrl  = `${BASE_URL}/stream/${v.id}`;
+    const downloadUrl = `${BASE_URL}/stream/${v.id}?download=1`;
 
     if (fields.title)        parts.push(v.title);
     if (fields.file_id)      parts.push(v.id);
@@ -2505,7 +2504,7 @@ function generateExportText() {
     if (fields.embed_link)   parts.push(`${BASE_URL}/embed/${v.id}`);
     if (fields.embed_code)   parts.push(`<iframe src="${BASE_URL}/embed/${v.id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`);
     if (fields.stream_link)  parts.push(streamUrl);
-    if (fields.download_link)parts.push(`${streamUrl}?download=1`);
+    if (fields.download_link)parts.push(downloadUrl);
     if (fields.views)        parts.push(String(v.views));
     return APP.exportSeparator === 'newline' ? parts.join('\n') : parts.join(sep);
   });
@@ -2752,9 +2751,8 @@ function copyEmbedCode(id) {
   copyToClipboard(code, 'Embed Code HTML copied!');
 }
 
-function copyDownloadLink(id, title) {
-  const cleanTitle = (title || 'video.mp4').replace(/[^a-zA-Z0-9.\-_ ]/g, '_');
-  const link = `${BASE_URL}/stream/${id}/${encodeURIComponent(cleanTitle)}`;
+function copyDownloadLink(id) {
+  const link = `${BASE_URL}/stream/${id}?download=1`;
   copyToClipboard(link, 'Download Link copied!');
 }
 

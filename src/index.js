@@ -999,9 +999,8 @@ async function handleEmbed(fileId, request, env) {
     return new Response('Video not found.', { status: 404, headers: HTML_HEADERS });
   }
 
-  // Build relative proxy stream URL so it uses the current iframe origin (e.g. haru-stream.pages.dev)
-  const cleanTitle = (video.title || 'video.mp4').replace(/[/\\]/g, '_');
-  const streamUrl  = `/stream/${video.id}/${encodeURIComponent(cleanTitle)}`;
+  // Build clean relative stream URL using video ID
+  const streamUrl = `/stream/${video.id}`;
 
 
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
@@ -1127,18 +1126,19 @@ async function handleStream(fileId, request, env) {
   responseHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
   responseHeaders.set('Access-Control-Allow-Origin', '*');
   responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-  responseHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
+  responseHeaders.set('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges, Content-Disposition');
 
   // Disable caching entirely for the stream proxy to prevent Cloudflare from buffering
   // large files and prematurely terminating the connection with "Timeout at 0"
   responseHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
 
   const url = new URL(request.url);
-  if (url.searchParams.get('download') === '1') {
-    const filename = video.title.replace(/"/g, '\\"');
-    const encodedFilename = encodeURIComponent(video.title);
-    responseHeaders.set('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodedFilename}`);
-  }
+  const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1';
+  const safeFilename = (video.title || 'video.mp4').replace(/"/g, '\\"');
+  const encodedFilename = encodeURIComponent(video.title || 'video.mp4');
+  const dispositionType = isDownload ? 'attachment' : 'inline';
+
+  responseHeaders.set('Content-Disposition', `${dispositionType}; filename="${safeFilename}"; filename*=UTF-8''${encodedFilename}`);
 
   return new Response(driveResp.body, {
     status: driveResp.status,
