@@ -741,6 +741,18 @@ async function handleDeleteVideos(request, env, user) {
 
 // ── REMOTE UPLOAD ────────────────────────────────────────────
 
+function extractGDriveFileId(urlStr) {
+  try {
+    const matchPath = urlStr.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (matchPath) return matchPath[1];
+    const matchQuery = urlStr.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+    if (matchQuery) return matchQuery[1];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function handleRemoteUpload(request, env, user) {
   const { urls, drive_id, folder_id, title_prefix } = await request.json().catch(() => ({}));
   if (!urls || !Array.isArray(urls) || urls.length === 0) {
@@ -760,15 +772,66 @@ async function handleRemoteUpload(request, env, user) {
 
     try {
       const accessToken = await getAccessToken(drive, env.DB);
-      // Fetch remote URL
-      const remoteResp = await fetch(remoteUrl);
-      if (!remoteResp.ok) throw new Error(`Failed to fetch remote URL: ${remoteUrl}`);
+      const gdriveFileId = extractGDriveFileId(remoteUrl);
+
+      // Handle Google Drive source links via fast server-side GDrive Copy
+      if (gdriveFileId) {
+        let gName = `gdrive_${gdriveFileId}.mp4`;
+        let gMime = 'video/mp4';
+        try {
+          const metaResp = await fetch(`${GOOGLE_DRIVE_API}/files/${gdriveFileId}?fields=id,name,mimeType&supportsAllDrives=true`, {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          if (metaResp.ok) {
+            const meta = await metaResp.json();
+            if (meta.name) gName = meta.name;
+            if (meta.mimeType) gMime = meta.mimeType;
+          }
+        } catch (_) {}
+
+        const filename = title_prefix
+          ? `${title_prefix}_${String(i + 1).padStart(3, '0')}.${gName.split('.').pop() || 'mp4'}`
+          : gName;
+
+        const copyResp = await fetch(`${GOOGLE_DRIVE_API}/files/${gdriveFileId}/copy?supportsAllDrives=true`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: filename,
+            ...(drive.root_folder_id ? { parents: [drive.root_folder_id] } : {}),
+          }),
+        });
+
+        if (!copyResp.ok) throw new Error(`GDrive file copy failed: ${await copyResp.text()}`);
+        const copyData = await copyResp.json();
+
+        await env.DB.prepare(
+          `INSERT INTO videos (user_id, drive_id, folder_id, drive_file_id, title, mime_type)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(drive_file_id) DO NOTHING`
+        ).bind(user.sub, drive.id, folder_id ? parseInt(folder_id) : null, copyData.id, filename, gMime).run();
+
+        results.push({ url: remoteUrl, status: 'success', drive_file_id: copyData.id, filename });
+        continue;
+      }
+
+      // Handle Direct HTTP/HTTPS Video Links
+      const remoteResp = await fetch(remoteUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept': '*/*'
+        }
+      });
+      if (!remoteResp.ok) throw new Error(`Failed to fetch remote URL: HTTP ${remoteResp.status}`);
 
       const contentType = remoteResp.headers.get('content-type') || 'video/mp4';
       const contentLength = remoteResp.headers.get('content-length');
       const filename = title_prefix
         ? `${title_prefix}_${String(i + 1).padStart(3, '0')}.mp4`
-        : remoteUrl.split('/').pop().split('?')[0] || `video_${Date.now()}.mp4`;
+        : (remoteUrl.split('/').pop().split('?')[0] || `video_${Date.now()}.mp4`);
 
       // Initiate resumable upload to Google Drive
       const initResp = await fetch(`${GOOGLE_UPLOAD_API}/files?uploadType=resumable&supportsAllDrives=true`, {
@@ -789,7 +852,7 @@ async function handleRemoteUpload(request, env, user) {
       if (!initResp.ok) throw new Error(`GDrive resumable init failed: ${await initResp.text()}`);
       const uploadUrl = initResp.headers.get('Location');
 
-      // Stream the body directly to Google Drive
+      // Stream body directly to Google Drive
       const uploadResp = await fetch(uploadUrl, {
         method: 'PUT',
         headers: {
@@ -808,7 +871,7 @@ async function handleRemoteUpload(request, env, user) {
         `INSERT INTO videos (user_id, drive_id, folder_id, drive_file_id, title, mime_type)
          VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(drive_file_id) DO NOTHING`
-      ).bind(user.sub, drive.id, folder_id || null, fileData.id, filename, contentType).run();
+      ).bind(user.sub, drive.id, folder_id ? parseInt(folder_id) : null, fileData.id, filename, contentType).run();
 
       results.push({ url: remoteUrl, status: 'success', drive_file_id: fileData.id, filename });
     } catch (e) {

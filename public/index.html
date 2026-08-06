@@ -598,7 +598,12 @@
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-semibold mb-2" style="color:#64748b">TARGET FOLDER (optional)</label>
+                <div class="flex items-center justify-between mb-2">
+                  <label class="block text-xs font-semibold" style="color:#64748b">TARGET FOLDER (HARUSTREAM)</label>
+                  <button type="button" onclick="openNewFolderModal()" class="text-xs font-semibold flex items-center gap-1 hover:underline cursor-pointer" style="color:#10b981">
+                    <i class="fas fa-folder-plus"></i>＋ Create Folder
+                  </button>
+                </div>
                 <select id="device-folder-select" class="form-input" onchange="if(this.value==='NEW_FOLDER'){this.value=''; openNewFolderModal();}">
                   <option value="">— Root (No folder) —</option>
                 </select>
@@ -627,6 +632,7 @@
               <button onclick="startDeviceUpload()" class="btn-gradient px-5 py-2 rounded-xl text-sm font-semibold text-white">
                 <i class="fas fa-upload mr-2"></i>Upload All
               </button>
+            </div>
             <!-- Device upload progress -->
             <div id="device-progress" class="mt-5 hidden space-y-2"></div>
           </div>
@@ -643,7 +649,12 @@
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-semibold mb-2" style="color:#64748b">TARGET FOLDER (optional)</label>
+                <div class="flex items-center justify-between mb-2">
+                  <label class="block text-xs font-semibold" style="color:#64748b">TARGET FOLDER (HARUSTREAM)</label>
+                  <button type="button" onclick="openNewFolderModal()" class="text-xs font-semibold flex items-center gap-1 hover:underline cursor-pointer" style="color:#10b981">
+                    <i class="fas fa-folder-plus"></i>＋ Create Folder
+                  </button>
+                </div>
                 <select id="remote-folder-select" class="form-input" onchange="if(this.value==='NEW_FOLDER'){this.value=''; openNewFolderModal();}">
                   <option value="">— Root (No folder) —</option>
                 </select>
@@ -655,15 +666,15 @@
             </div>
             <div class="mb-5">
               <label class="block text-xs font-semibold mb-2 flex items-center justify-between" style="color:#64748b">
-                <span>REMOTE URLs <span class="text-brand-400">(one per line, bulk supported)</span></span>
+                <span>REMOTE URLs <span class="text-brand-400">(Google Drive & Direct Links supported)</span></span>
                 <span id="url-count" class="text-xs" style="color:#475569">0 URLs</span>
               </label>
               <textarea id="remote-urls" class="form-input form-textarea" style="min-height:180px;font-family:'JetBrains Mono',monospace;font-size:12px"
-                placeholder="https://example.com/video1.mp4&#10;https://example.com/video2.mkv&#10;https://cdn.server.com/video3.mp4"
+                placeholder="https://drive.google.com/file/d/1A2B3C4D5E6F/view&#10;https://example.com/video1.mp4&#10;https://cdn.server.com/video2.mkv"
                 oninput="updateUrlCount()"></textarea>
             </div>
             <div class="flex justify-between items-center">
-              <div class="text-xs" style="color:#475569"><i class="fas fa-info-circle mr-1"></i>Files are streamed directly into Google Drive without being stored on Cloudflare servers.</div>
+              <div class="text-xs" style="color:#475569"><i class="fas fa-info-circle mr-1"></i>Files are streamed or copied directly into Google Drive without using local storage.</div>
               <button onclick="startRemoteUpload()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white whitespace-nowrap ml-4">
                 <i class="fas fa-cloud-upload-alt mr-2"></i>Upload URLs
               </button>
@@ -1128,6 +1139,54 @@
         <i class="fas fa-download mr-1"></i>Download .txt
       </button>
     </div>
+  </div>
+</div>
+
+<!-- NEW FOLDER MODAL -->
+<div id="modal-new-folder" class="modal-overlay hidden">
+  <div class="modal-box w-full max-w-md">
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(16,185,129,0.15)">
+          <i class="fas fa-folder-plus text-emerald-400"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-white text-base">Create Virtual Folder</h3>
+          <p class="text-xs text-slate-400">Organize videos inside HaruStream</p>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-new-folder')" class="text-slate-400 hover:text-white transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <form onsubmit="submitNewFolder(event)" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">FOLDER NAME</label>
+        <input id="folder-name-input" type="text" class="form-input" placeholder="e.g. Anime Season 1, Movies 2024..." required />
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">PARENT FOLDER (optional)</label>
+        <select id="folder-parent-select" class="form-input">
+          <option value="">— None (Root level) —</option>
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">FOLDER ACCENT COLOR</label>
+        <input id="folder-color-input" type="color" value="#6366f1" class="h-10 w-full rounded-xl bg-slate-900 border border-slate-800 cursor-pointer px-1 py-1" />
+      </div>
+
+      <div class="flex justify-end gap-3 pt-3">
+        <button type="button" onclick="closeModal('modal-new-folder')" class="px-5 py-2.5 rounded-xl text-sm font-semibold transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+          Cancel
+        </button>
+        <button type="submit" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white">
+          <i class="fas fa-plus mr-2"></i>Create Folder
+        </button>
+      </div>
+    </form>
   </div>
 </div>
 
