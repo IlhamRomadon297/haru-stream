@@ -840,7 +840,7 @@ async function handleUploadSession(request, env, user, driveId) {
     body: JSON.stringify({
       name: filename,
       mimeType: mimeType,
-      ...(folder_id ? { parents: [folder_id] } : (drive.root_folder_id ? { parents: [drive.root_folder_id] } : {})),
+      ...(drive.root_folder_id ? { parents: [drive.root_folder_id] } : {}),
     }),
   });
 
@@ -1117,7 +1117,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     
     // Watermark script
     const wm = document.createElement('img');
-    wm.src = '/logo.png';
+    wm.src = '/watermark.png';
     wm.style.cssText = 'position:absolute;top:20px;left:20px;width:120px;z-index:999999;pointer-events:none;opacity:0.85;';
     document.addEventListener('DOMContentLoaded', () => document.body.appendChild(wm));
     
