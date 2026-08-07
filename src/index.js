@@ -267,7 +267,7 @@ async function getDescendantFolders(drive, db) {
  */
 async function fetchAllDriveVideos(drive, db, validFolderIds) {
   const accessToken = await getAccessToken(drive, db);
-  const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents)';
+  const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents,trashed)';
   let results = [];
 
   const actualRootId = drive.root_folder_id || 'root';
@@ -291,6 +291,7 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
       const data = await resp.json();
       if (data.files) {
         const videos = data.files.filter(f => {
+          if (f.trashed) return false;
           if (f.mimeType && f.mimeType.startsWith('video/')) return true;
           if (!f.name) return false;
           const ext = f.name.split('.').pop().toLowerCase();
@@ -497,9 +498,12 @@ async function performDriveSync(drive, env, forceFullScan = false) {
       const deleteStmts = [];
 
       for (const change of changes) {
+        const targetId = change.fileId || (change.file ? change.file.id : null);
         if (change.removed || (change.file && change.file.trashed)) {
-          deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(change.fileId));
-          totalRemoved++;
+          if (targetId) {
+            deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(targetId));
+            totalRemoved++;
+          }
         } else if (change.file) {
           const file = change.file;
           let isVideo = false;
@@ -513,10 +517,14 @@ async function performDriveSync(drive, env, forceFullScan = false) {
           }
           
           if (isVideo) {
-            if (validFolderIds && file.parents) {
-              const inFolder = file.parents.some(p => validFolderIds.has(p));
-              if (!inFolder) continue;
+            const inFolder = validFolderIds && file.parents ? file.parents.some(p => validFolderIds.has(p)) : true;
+            if (!inFolder) {
+              // File was moved outside the synced folder tree -> DELETE from D1!
+              deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(file.id));
+              totalRemoved++;
+              continue;
             }
+            
             const resolution = parseResolution(file.videoMediaMetadata);
             const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
             
@@ -554,8 +562,10 @@ async function performDriveSync(drive, env, forceFullScan = false) {
   } else {
     // ── FULL SCAN / LIST API ──────────────────
     const files = await fetchAllDriveVideos(drive, env.DB, validFolderIds);
+    const activeGdriveIds = new Set();
 
     const stmts = files.map(file => {
+      activeGdriveIds.add(file.id);
       const resolution = parseResolution(file.videoMediaMetadata);
       const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
       return env.DB.prepare(
@@ -570,6 +580,26 @@ async function performDriveSync(drive, env, forceFullScan = false) {
         await env.DB.batch(stmts.slice(i, i + 50));
       }
       totalSynced += stmts.length;
+    }
+
+    // ── CLEANUP REMOVED / TRASHED FILES IN FULL SCAN ──
+    // Compare D1 videos for this drive against activeGdriveIds
+    const d1Videos = await env.DB.prepare(
+      `SELECT drive_file_id FROM videos WHERE drive_id = ?`
+    ).bind(drive.id).all();
+    
+    const deleteStmts = [];
+    for (const row of d1Videos.results) {
+      if (!activeGdriveIds.has(row.drive_file_id)) {
+        deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(row.drive_file_id));
+      }
+    }
+
+    if (deleteStmts.length > 0) {
+      for (let i = 0; i < deleteStmts.length; i += 50) {
+        await env.DB.batch(deleteStmts.slice(i, i + 50));
+      }
+      totalRemoved += deleteStmts.length;
     }
 
     try {
