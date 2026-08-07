@@ -1354,11 +1354,16 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    function copyStreamLink(e, url, title) {
+    window.videoTitle  = ${JSON.stringify(video.title)};
+    window.streamUrl   = ${JSON.stringify(streamUrl)};
+    window.driveFileId = ${JSON.stringify(driveFileId)};
+    window.isHeavy     = ${isHeavy ? 'true' : 'false'};
+
+    function copyStreamLink(e) {
       if (e && e.preventDefault) e.preventDefault();
-      let baseUrl = new URL(url, window.location.origin).href;
-      if (title) {
-        const cleanTitle = title.replace(/[/\\]/g, '_');
+      let baseUrl = new URL(window.streamUrl, window.location.origin).href;
+      if (window.videoTitle) {
+        const cleanTitle = window.videoTitle.replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
         const encodedTitle = encodeURIComponent(cleanTitle);
         if (!baseUrl.includes('/' + encodedTitle)) {
           baseUrl += '/' + encodedTitle;
@@ -1401,9 +1406,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       }
     }
 
-    function openExternal(player, streamUrl, title) {
-      let baseUrl = new URL(streamUrl, window.location.origin).href;
-      const cleanTitle = (title || 'video.mkv').replace(/[/\\]/g, '_');
+    function openExternal(player) {
+      let baseUrl = new URL(window.streamUrl, window.location.origin).href;
+      const cleanTitle = (window.videoTitle || 'video.mkv').replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
       const encodedTitle = encodeURIComponent(cleanTitle);
 
       if (!baseUrl.includes('/' + encodedTitle)) {
@@ -1453,7 +1458,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     function retryVlc() {
       const b = document.getElementById('retry-btn');
       if (b) b.remove();
-      openExternal('vlc', streamUrl, videoTitle);
+      openExternal('vlc');
     }
 
     document.addEventListener('click', (e) => {
@@ -1486,14 +1491,14 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
       <div class="warn-ext-group">
         <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-bottom:4px; font-weight:600;">Opsi 1: Aplikasi Eksternal (100% Lancar)</div>
-        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event, '${streamUrl}', videoTitle)">
+        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
           <span id="copy-txt">Copy Link Streaming (Untuk VLC Desktop CTRL+N)</span>
         </button>
         <div style="display:flex; gap:6px;">
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('potplayer', '${streamUrl}', videoTitle)">PotPlayer</button>
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('vlc', '${streamUrl}', videoTitle)">VLC Mobile</button>
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx', '${streamUrl}', videoTitle)">MX Player</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('potplayer')">PotPlayer</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('vlc')">VLC Mobile</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx')">MX Player</button>
         </div>
 
         <div style="text-align:left; font-size:12px; color:#f87171; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 2: Movi-Player (Multi-Audio & Subs Native - Sering Error)</div>
@@ -1517,11 +1522,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   ` : ''}
 
   <script>
-    const videoTitle  = ${JSON.stringify(video.title)};
-    const streamUrl   = ${JSON.stringify(streamUrl)};
-    const driveFileId = ${JSON.stringify(driveFileId)};
-    const isHeavy     = ${isHeavy ? 'true' : 'false'};
-
     // ── Initialize the player ────────────────────────────────
     let art = null;
     let wasmPlayerActive = false;
