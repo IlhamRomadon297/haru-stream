@@ -1486,14 +1486,14 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
       <div class="warn-ext-group">
         <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-bottom:4px; font-weight:600;">Opsi 1: Aplikasi Eksternal (100% Lancar)</div>
-        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event, '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">
+        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event, '${streamUrl}', videoTitle)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
           <span id="copy-txt">Copy Link Streaming (Untuk VLC Desktop CTRL+N)</span>
         </button>
         <div style="display:flex; gap:6px;">
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('potplayer', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">PotPlayer</button>
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('vlc', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">VLC Mobile</button>
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">MX Player</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('potplayer', '${streamUrl}', videoTitle)">PotPlayer</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('vlc', '${streamUrl}', videoTitle)">VLC Mobile</button>
+            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx', '${streamUrl}', videoTitle)">MX Player</button>
         </div>
 
         <div style="text-align:left; font-size:12px; color:#f87171; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 2: Movi-Player (Multi-Audio & Subs Native - Sering Error)</div>
