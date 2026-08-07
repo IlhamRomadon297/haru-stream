@@ -2540,93 +2540,51 @@ function downloadExport() {
   a.click();
 }
 
-async function exportToTelegraph() {
-  const originalSep = APP.exportSeparator;
-  // Force newline separator for Telegraph & Katbin
-  APP.exportSeparator = 'newline';
-  const text = generateExportText();
-  APP.exportSeparator = originalSep;
-  
-  if (!text.trim()) { showToast('No data to export.', 'error'); return; }
-  
-  showToast('Creating Telegra.ph page...', 'info', 2000);
-  try {
-    const title = 'HaruStream Export ' + new Date().toISOString().slice(0,10);
-    
-    // 1. Get or create Telegraph account
-    let token = localStorage.getItem('telegraph_token');
-    if (!token) {
-      const accRes = await fetch('https://api.telegra.ph/createAccount?short_name=HaruStream&author_name=HaruStream');
-      const accJson = await accRes.json();
-      if (accJson.ok) {
-        token = accJson.result.access_token;
-        localStorage.setItem('telegraph_token', token);
-      }
-    }
-    
-    // 2. Format content into Telegraph nodes
-    const content = [];
-    text.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        content.push({ tag: 'br' });
-      } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-        content.push({ tag: 'p', children: [{ tag: 'a', attrs: { href: trimmed }, children: [trimmed] }] });
-      } else if (trimmed.startsWith('<iframe')) {
-        content.push({ tag: 'code', children: [trimmed] });
-      } else {
-        content.push({ tag: 'h4', children: [trimmed] });
-      }
-    });
-    
-    // 3. Create page
-    const pageRes = await fetch('https://api.telegra.ph/createPage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token: token,
-        title: title,
-        content: content,
-        return_content: false
-      })
-    });
-    
-    const pageJson = await pageRes.json();
-    if (pageJson.ok && pageJson.result && pageJson.result.url) {
-      window.open(pageJson.result.url, '_blank');
-      closeModal('modal-export');
-      return;
-    } else {
-      throw new Error(pageJson.error || 'Telegra.ph API returned error');
-    }
-  } catch (e) {
-    console.error('Telegra.ph failed:', e);
-    // Fallback to katb.in with Markdown links
-    try {
-      showToast('Telegra.ph unavailable. Trying katb.in...', 'info', 2000);
-      const katbinMarkdown = text.split('\n').map(line => {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-          return `[${trimmed}](${trimmed})`;
-        }
-        return line;
-      }).join('\n');
+function getExportItems() {
+  const data = getExportData();
+  const fields = {
+    title:        $('exp-title')?.checked,
+    file_id:      $('exp-file-id')?.checked,
+    resolution:   $('exp-resolution')?.checked,
+    size:         $('exp-size')?.checked,
+    embed_link:   $('exp-embed-link')?.checked,
+    embed_code:   $('exp-embed-code')?.checked,
+    stream_link:  $('exp-stream-link')?.checked,
+    download_link:$('exp-download-link')?.checked,
+    views:        $('exp-views')?.checked,
+  };
 
-      const kRes = await fetch('https://katb.in/api/paste', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paste: { content: katbinMarkdown } })
-      });
-      const kJson = await kRes.json();
-      if (kJson.id) {
-        window.open('https://katb.in/' + kJson.id, '_blank');
-        closeModal('modal-export');
-      } else {
-        throw new Error('Katb.in failed');
-      }
-    } catch(err) {
-      showToast('Export failed: ' + e.message, 'error');
+  return data.map(v => ({
+    title:        fields.title ? v.title : null,
+    file_id:      fields.file_id ? v.id : null,
+    resolution:   fields.resolution ? v.resolution : null,
+    size:         fields.size ? v.size : null,
+    embedLink:    fields.embed_link ? `${BASE_URL}/embed/${v.id}` : null,
+    embedCode:    fields.embed_code ? `<iframe src="${BASE_URL}/embed/${v.id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>` : null,
+    streamLink:   fields.stream_link ? `${BASE_URL}/stream/${v.id}` : null,
+    downloadLink: fields.download_link ? `${BASE_URL}/stream/${v.id}?download=1` : null,
+    views:        fields.views ? v.views : null,
+  }));
+}
+
+async function exportToTelegraph() {
+  const items = getExportItems();
+  if (!items.length) { showToast('No data to export.', 'error'); return; }
+
+  showToast('Creating Telegra.ph page...', 'info', 3000);
+  const { ok, data } = await apiFetch('/api/export/telegraph', {
+    method: 'POST',
+    body: {
+      title: 'HaruStream Export ' + new Date().toISOString().slice(0,10),
+      items: items
     }
+  });
+
+  if (ok && data.url) {
+    window.open(data.url, '_blank');
+    closeModal('modal-export');
+  } else {
+    showToast(data.error || 'Telegra.ph export failed.', 'error');
   }
 }
 

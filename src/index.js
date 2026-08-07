@@ -1650,6 +1650,115 @@ async function handleTrack(request, env) {
 // MAIN ROUTER
 // ============================================================
 
+async function handleExportTelegraph(request, env) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const { title, items } = body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return errorResponse('No items to export.', 400);
+    }
+
+    // 1. Get or create Telegra.ph account token
+    let accessToken;
+    const accResp = await fetch('https://api.telegra.ph/createAccount?short_name=HaruStream&author_name=HaruStream');
+    const accData = await accResp.json();
+    if (accData.ok && accData.result?.access_token) {
+      accessToken = accData.result.access_token;
+    } else {
+      return errorResponse('Failed to create Telegra.ph session', 500);
+    }
+
+    // 2. Build Telegra.ph Node Array
+    const contentNodes = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item) continue;
+
+      if (item.title) {
+        contentNodes.push({ tag: 'h4', children: [ item.title ] });
+      }
+
+      const metaParts = [];
+      if (item.resolution) metaParts.push(`Resolution: ${item.resolution}`);
+      if (item.size)       metaParts.push(`Size: ${formatBytes(parseInt(item.size || 0))}`);
+      if (item.views !== undefined && item.views !== null && item.views !== '') {
+        metaParts.push(`Views: ${item.views}`);
+      }
+
+      if (metaParts.length > 0) {
+        contentNodes.push({ tag: 'p', children: [{ tag: 'em', children: [ metaParts.join(' | ') ] }] });
+      }
+
+      if (item.downloadLink) {
+        contentNodes.push({
+          tag: 'p',
+          children: [
+            '📥 Download: ',
+            { tag: 'a', attrs: { href: item.downloadLink }, children: [ item.downloadLink ] }
+          ]
+        });
+      }
+
+      if (item.streamLink) {
+        contentNodes.push({
+          tag: 'p',
+          children: [
+            '▶ Stream: ',
+            { tag: 'a', attrs: { href: item.streamLink }, children: [ item.streamLink ] }
+          ]
+        });
+      }
+
+      if (item.embedLink) {
+        contentNodes.push({
+          tag: 'p',
+          children: [
+            '🎬 Embed Link: ',
+            { tag: 'a', attrs: { href: item.embedLink }, children: [ item.embedLink ] }
+          ]
+        });
+      }
+
+      if (item.embedCode) {
+        contentNodes.push({
+          tag: 'p',
+          children: [
+            '💻 Embed Code: ',
+            { tag: 'code', children: [ item.embedCode ] }
+          ]
+        });
+      }
+
+      if (i < items.length - 1) {
+        contentNodes.push({ tag: 'hr' });
+      }
+    }
+
+    const pageTitle = (title || 'HaruStream Export').substring(0, 250);
+    const pageResp = await fetch('https://api.telegra.ph/createPage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: accessToken,
+        title: pageTitle,
+        content: contentNodes,
+        return_content: false
+      })
+    });
+
+    const pageData = await pageResp.json();
+    if (pageData.ok && pageData.result?.url) {
+      return jsonResponse({ success: true, url: pageData.result.url });
+    } else {
+      return errorResponse(`Telegra.ph API Error: ${pageData.error || 'Unknown error'}`, 500);
+    }
+  } catch (e) {
+    return errorResponse(`Telegra.ph export error: ${e.message}`, 500);
+  }
+}
+
 // ── CRON SCHEDULED HANDLER ────────────────────────────────────
 // Runs every 1 minute via Cloudflare Cron Triggers.
 // Cost: 1 D1 read per minute when idle (~1440 reads/day).
@@ -1819,6 +1928,11 @@ export default {
     // Me
     else if (path === '/api/auth/me' && method === 'GET') {
       res = jsonResponse({ success: true, user: { id: user.sub, username: user.username, role: user.role } });
+    }
+
+    // Export Telegra.ph
+    else if (path === '/api/export/telegraph' && method === 'POST') {
+      res = await handleExportTelegraph(request, env);
     }
 
     // Auto-sync settings
