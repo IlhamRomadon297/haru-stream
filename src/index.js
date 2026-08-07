@@ -1460,9 +1460,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
             <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx', '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">MX Player</button>
         </div>
 
-        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 2: Movi-Player (Multi-Audio & Subs Native)</div>
-        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4);" onclick="dismissWarningAndPlay('movi')">
-          ▶ Putar (Tanpa Style ASS Berat)
+        <div style="text-align:left; font-size:12px; color:#f87171; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 2: Movi-Player (Multi-Audio & Subs Native - Sering Error)</div>
+        <button class="warn-force-btn" style="text-align:left; color:#cbd5e1; background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.3);" onclick="dismissWarningAndPlay('movi')">
+          ▶ Coba Putar via Movi-Player (Sering Error / Timeout)
         </button>
         
         <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Artplayer (Video & Audio Utama)</div>
