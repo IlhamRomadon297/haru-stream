@@ -1650,6 +1650,15 @@ async function handleTrack(request, env) {
 // MAIN ROUTER
 // ============================================================
 
+function formatBytes(bytes, decimals = 2) {
+  if (!bytes || isNaN(bytes) || bytes <= 0) return '0 B';
+  const k = 1024;
+  const dm = decimals < 0 ? 0 : decimals;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
 async function handleExportTelegraph(request, env) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -1669,11 +1678,12 @@ async function handleExportTelegraph(request, env) {
       return errorResponse('Failed to create Telegra.ph session', 500);
     }
 
-    // 2. Build Telegra.ph Node Array
+    // 2. Build Telegra.ph Node Array for ALL items
     const contentNodes = [];
+    const exportItems = items.slice(0, 500); // Max 500 items per Telegra.ph page
 
-    for (let i = 0; i < items.length; i++) {
-      const item = items[i];
+    for (let i = 0; i < exportItems.length; i++) {
+      const item = exportItems[i];
       if (!item) continue;
 
       if (item.title) {
@@ -1682,7 +1692,10 @@ async function handleExportTelegraph(request, env) {
 
       const metaParts = [];
       if (item.resolution) metaParts.push(`Resolution: ${item.resolution}`);
-      if (item.size)       metaParts.push(`Size: ${formatBytes(parseInt(item.size || 0))}`);
+      if (item.size) {
+        const sizeStr = typeof item.size === 'number' ? formatBytes(item.size) : String(item.size);
+        metaParts.push(`Size: ${sizeStr}`);
+      }
       if (item.views !== undefined && item.views !== null && item.views !== '') {
         metaParts.push(`Views: ${item.views}`);
       }
@@ -1731,7 +1744,7 @@ async function handleExportTelegraph(request, env) {
         });
       }
 
-      if (i < items.length - 1) {
+      if (i < exportItems.length - 1) {
         contentNodes.push({ tag: 'hr' });
       }
     }
@@ -1750,7 +1763,7 @@ async function handleExportTelegraph(request, env) {
 
     const pageData = await pageResp.json();
     if (pageData.ok && pageData.result?.url) {
-      return jsonResponse({ success: true, url: pageData.result.url });
+      return jsonResponse({ success: true, url: pageData.result.url, count: exportItems.length });
     } else {
       return errorResponse(`Telegra.ph API Error: ${pageData.error || 'Unknown error'}`, 500);
     }
