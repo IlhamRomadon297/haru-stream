@@ -1496,25 +1496,28 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" controls></movi-player>';
         const playerEl = container.querySelector('movi-player');
         
-        // Add Retry button on error
-        function showRetry() {
+        // Add multi-option fallback modal on error
+        function showRetry(errMsg) {
             if (document.getElementById('retry-btn')) return;
             const errDiv = document.createElement('div');
             errDiv.id = 'retry-btn';
-            errDiv.style.position = 'absolute';
-            errDiv.style.top = '65%';
-            errDiv.style.left = '50%';
-            errDiv.style.transform = 'translate(-50%, -50%)';
-            errDiv.style.zIndex = '999999';
-            errDiv.innerHTML = '<button onclick="window.location.reload()" style="padding:12px 24px; background:#e74c3c; color:white; border:none; border-radius:8px; font-weight:bold; cursor:pointer; font-size:16px; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">🔄 Timeout - Klik Untuk Retry</button>';
+            errDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:rgba(20,20,40,0.95);border:1px solid rgba(99,102,241,0.5);border-radius:14px;padding:16px 20px;max-width:440px;width:90%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.9);color:#fff;font-family:Inter,sans-serif;backdrop-filter:blur(8px);';
+            errDiv.innerHTML =
+              '<div style="font-size:15px;font-weight:700;margin-bottom:6px;color:#f87171;">⚠️ Gagal Memuat MKV WebAssembly</div>' +
+              '<div style="font-size:12px;color:#94a3b8;margin-bottom:14px;line-height:1.4;">' + (errMsg || 'Format MKV berat/multi-track membutuhkan koneksi stabil.') + ' Silakan pilih solusi alternatif:</div>' +
+              '<div style="display:flex;flex-direction:column;gap:8px;">' +
+                '<button onclick="window.location.reload()" style="padding:8px 12px;background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🔄 Coba Muat Ulang (Retry)</button>' +
+                '<button onclick="document.getElementById(\'retry-btn\').remove(); initPlayer(\'art\');" style="padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e2e8f0;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🎬 Putar via Artplayer (Instant HTML5)</button>' +
+                '<button onclick="openExternal(\'vlc\', streamUrl, videoTitle)" style="padding:8px 12px;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.4);color:#86efac;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🚀 Buka di PotPlayer / VLC (100% Smooth)</button>' +
+              '</div>';
             container.appendChild(errDiv);
         }
         
         let errorPoll = setInterval(() => {
-            if (playerEl.shadowRoot) {
-                const html = playerEl.shadowRoot.innerHTML;
-                if (html.includes('Failed to open media') || html.includes('Timeout') || html.includes('Initialization Failed')) {
-                    showRetry();
+            if (playerEl && playerEl.shadowRoot) {
+                const html = playerEl.shadowRoot.innerHTML || '';
+                if (html.includes('Failed to open media') || html.includes('Timeout') || html.includes('Initialization Failed') || html.includes('DEMUXER_ERROR')) {
+                    showRetry('Gagal membaca struktur file MKV.');
                     clearInterval(errorPoll);
                 }
             }
