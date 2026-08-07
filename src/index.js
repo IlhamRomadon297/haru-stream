@@ -644,7 +644,8 @@ async function performDriveSync(drive, env, forceFullScan = false) {
 async function handleSync(request, env, user) {
   const body = await request.json().catch(() => ({}));
   const { drive_id } = body;
-  const forceFullScan = body.force_full === true || body.force === true;
+  // Manual sync should default to forceFullScan = true for 100% accuracy
+  const forceFullScan = body.force_full !== false;
 
   let drivesQuery;
   if (drive_id) {

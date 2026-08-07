@@ -1610,17 +1610,21 @@ function buildDonutChart(topVideos) {
 
 // ── SYNC ─────────────────────────────────────────────────────
 async function triggerSync(driveId) {
-  $('sync-status').classList.remove('hidden');
-  $('sync-status').classList.add('flex');
+  $('sync-status')?.classList.remove('hidden');
+  $('sync-status')?.classList.add('flex');
   const { ok, data } = await apiFetch('/api/media/sync', {
     method: 'POST',
-    body: driveId ? { drive_id: driveId } : {},
+    body: { drive_id: driveId || undefined, force_full: true },
   });
-  $('sync-status').classList.add('hidden');
-  $('sync-status').classList.remove('flex');
+  $('sync-status')?.classList.add('hidden');
+  $('sync-status')?.classList.remove('flex');
 
   if (ok) {
-    showToast(`✔ Sync complete — ${data.synced} files indexed.`, 'success', 4000);
+    const msg = (data.removed || 0) > 0 
+      ? `✔ Sync complete — ${data.synced} indexed, ${data.removed} cleaned up.`
+      : `✔ Sync complete — ${data.synced} files indexed.`;
+    showToast(msg, 'success', 4000);
+    loadDrives();
     if (APP.currentView === 'media')    loadMedia();
     if (APP.currentView === 'dashboard') loadDashboard();
   } else {
