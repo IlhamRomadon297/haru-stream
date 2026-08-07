@@ -271,12 +271,12 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
   const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents,trashed)';
   let results = [];
 
-  // If validFolderIds is null (entire drive sync), query all active files directly
+  // If validFolderIds is null (entire drive sync), query all active files owned by 'me' directly
   if (!validFolderIds) {
-    const query = encodeURIComponent("trashed = false");
+    const query = encodeURIComponent("trashed = false and 'me' in owners");
     let pageToken = null;
     do {
-      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
       if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
@@ -499,139 +499,81 @@ async function handleDeleteDrive(driveId, env, user) {
 
 // ── SYNC ────────────────────────────────────────────────────
 
+
+
 async function performDriveSync(drive, env, forceFullScan = false) {
   let totalSynced  = 0;
   let totalRemoved = 0;
 
   const validFolderIds = await getDescendantFolders(drive, env.DB);
-  const isSmartSync = !forceFullScan && drive.sync_token;
 
-  if (isSmartSync) {
-    // ── SMART SYNC (Changes API) ──────────────────
-    let pageToken = drive.sync_token;
-    let newStartToken = null;
-    
-    do {
-      const data = await getDriveChanges(drive, env.DB, pageToken);
-      const changes = data.changes || [];
-      
-      const insertStmts = [];
-      const deleteStmts = [];
+  // 1. Fetch active video files from GDrive for this drive
+  const gdriveFiles = await fetchAllDriveVideos(drive, env.DB, validFolderIds);
+  const gdriveMap = new Map();
+  for (const f of gdriveFiles) {
+    gdriveMap.set(f.id, f);
+  }
 
-      for (const change of changes) {
-        const targetId = change.fileId || (change.file ? change.file.id : null);
-        if (change.removed || (change.file && change.file.trashed)) {
-          if (targetId) {
-            deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(targetId));
-            totalRemoved++;
-          }
-        } else if (change.file) {
-          const file = change.file;
-          let isVideo = false;
-          if (file.mimeType && file.mimeType.startsWith('video/')) {
-            isVideo = true;
-          } else if (file.name) {
-            const ext = file.name.split('.').pop().toLowerCase();
-            if (['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext)) {
-              isVideo = true;
-            }
-          }
-          
-          if (isVideo) {
-            const inFolder = validFolderIds && file.parents ? file.parents.some(p => validFolderIds.has(p)) : true;
-            if (!inFolder) {
-              // File was moved outside the synced folder tree -> DELETE from D1!
-              deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(file.id));
-              totalRemoved++;
-              continue;
-            }
-            
-            const resolution = parseResolution(file.videoMediaMetadata);
-            const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
-            
-            insertStmts.push(
-              env.DB.prepare(
-                `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=datetime('now'), drive_id=excluded.drive_id`
-              ).bind(drive.user_id, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null)
-            );
-          }
-        }
-      }
-      
-      if (deleteStmts.length > 0) {
-        for (let i = 0; i < deleteStmts.length; i += 50) {
-          await env.DB.batch(deleteStmts.slice(i, i + 50));
-        }
-      }
-      if (insertStmts.length > 0) {
-        for (let i = 0; i < insertStmts.length; i += 50) {
-          await env.DB.batch(insertStmts.slice(i, i + 50));
-        }
-        totalSynced += insertStmts.length;
-      }
-
-      pageToken = data.nextPageToken || null;
-      if (data.newStartPageToken) newStartToken = data.newStartPageToken;
-    } while (pageToken);
-
-    if (newStartToken) {
-      await env.DB.prepare('UPDATE drives SET sync_token = ? WHERE id = ?').bind(newStartToken, drive.id).run();
-    }
-
-  } else {
-    // ── FULL SCAN / LIST API ──────────────────
-    const files = await fetchAllDriveVideos(drive, env.DB, validFolderIds);
-    const activeGdriveIds = new Set();
-
-    const stmts = files.map(file => {
-      activeGdriveIds.add(file.id);
-      const resolution = parseResolution(file.videoMediaMetadata);
-      const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
-      return env.DB.prepare(
-        `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=datetime('now'), drive_id=excluded.drive_id`
-      ).bind(drive.user_id, drive.id, file.id, file.name, parseInt(file.size || 0), file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null);
-    });
-
-    if (stmts.length > 0) {
-      for (let i = 0; i < stmts.length; i += 50) {
-        await env.DB.batch(stmts.slice(i, i + 50));
-      }
-      totalSynced += stmts.length;
-    }
-
-    // ── CLEANUP REMOVED / TRASHED FILES IN FULL SCAN ──
-    // Compare D1 videos for this drive against activeGdriveIds
-    const d1Videos = await env.DB.prepare(
-      `SELECT drive_file_id FROM videos WHERE drive_id = ?`
-    ).bind(drive.id).all();
-    
-    const deleteStmts = [];
-    for (const row of d1Videos.results) {
-      if (!activeGdriveIds.has(row.drive_file_id)) {
-        deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ?`).bind(row.drive_file_id));
-      }
-    }
-
-    if (deleteStmts.length > 0) {
-      for (let i = 0; i < deleteStmts.length; i += 50) {
-        await env.DB.batch(deleteStmts.slice(i, i + 50));
-      }
-      totalRemoved += deleteStmts.length;
-    }
-
-    try {
-      const startToken = await getStartPageToken(drive, env.DB);
-      await env.DB.prepare('UPDATE drives SET sync_token = ? WHERE id = ?').bind(startToken, drive.id).run();
-    } catch (e) {
-      console.error("Failed to get start token", e);
+  // 2. Fetch existing video records from D1 for this drive
+  const d1Query = await env.DB.prepare(
+    `SELECT drive_file_id, title, size FROM videos WHERE drive_id = ?`
+  ).bind(drive.id).all();
+  
+  const d1Map = new Map();
+  if (d1Query.results) {
+    for (const row of d1Query.results) {
+      d1Map.set(row.drive_file_id, row);
     }
   }
 
-  // Update quota and last_synced_at
+  const insertStmts = [];
+  const deleteStmts = [];
+
+  // 3. Diff: find NEW or MODIFIED files (skip unchanged files to save D1 write operations!)
+  for (const [fileId, file] of gdriveMap.entries()) {
+    const existing = d1Map.get(fileId);
+    const size = parseInt(file.size || 0);
+
+    // If file is already in D1 with matching title and size, SKIP IT!
+    if (existing && existing.title === file.name && existing.size === size) {
+      continue;
+    }
+
+    const resolution = parseResolution(file.videoMediaMetadata);
+    const duration   = file.videoMediaMetadata?.durationMillis ? Math.round(parseInt(file.videoMediaMetadata.durationMillis) / 1000) : 0;
+
+    insertStmts.push(
+      env.DB.prepare(
+        `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=datetime('now'), drive_id=excluded.drive_id`
+      ).bind(drive.user_id, drive.id, file.id, file.name, size, file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null)
+    );
+  }
+
+  // 4. Diff: find DELETED / TRASHED files
+  for (const [d1FileId] of d1Map.entries()) {
+    if (!gdriveMap.has(d1FileId)) {
+      deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ? AND drive_id = ?`).bind(d1FileId, drive.id));
+    }
+  }
+
+  // 5. Execute DB batch operations (only execute if there are actual inserts/deletes!)
+  if (deleteStmts.length > 0) {
+    for (let i = 0; i < deleteStmts.length; i += 50) {
+      await env.DB.batch(deleteStmts.slice(i, i + 50));
+    }
+    totalRemoved = deleteStmts.length;
+  }
+
+  if (insertStmts.length > 0) {
+    for (let i = 0; i < insertStmts.length; i += 50) {
+      await env.DB.batch(insertStmts.slice(i, i + 50));
+    }
+    totalSynced = insertStmts.length;
+  }
+
+  // 6. Update quota and last_synced_at
   try {
     const quota = await getDriveQuota(drive, env.DB);
     await env.DB.prepare(`UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`)
