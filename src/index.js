@@ -1354,9 +1354,17 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   </style>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
-    function copyStreamLink(e, url) {
+    function copyStreamLink(e, url, title) {
       if (e && e.preventDefault) e.preventDefault();
-      const absoluteUrl = new URL(url, window.location.origin).href;
+      let baseUrl = new URL(url, window.location.origin).href;
+      if (title) {
+        const cleanTitle = title.replace(/[/\\]/g, '_');
+        const encodedTitle = encodeURIComponent(cleanTitle);
+        if (!baseUrl.includes('/' + encodedTitle)) {
+          baseUrl += '/' + encodedTitle;
+        }
+      }
+      const absoluteUrl = baseUrl;
       let copied = false;
       const doSuccess = () => {
         const txt = document.getElementById('copy-txt');
@@ -1394,11 +1402,17 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     }
 
     function openExternal(player, streamUrl, title) {
-      let absoluteUrl = new URL(streamUrl, window.location.origin).href;
-      const encodedTitle = encodeURIComponent(title || 'video.mkv');
-      // Tambahkan param download=1 agar Content-Disposition memunculkan nama file
+      let baseUrl = new URL(streamUrl, window.location.origin).href;
+      const cleanTitle = (title || 'video.mkv').replace(/[/\\]/g, '_');
+      const encodedTitle = encodeURIComponent(cleanTitle);
+
+      if (!baseUrl.includes('/' + encodedTitle)) {
+        baseUrl += '/' + encodedTitle;
+      }
+
+      let absoluteUrl = baseUrl;
       if (!absoluteUrl.includes('download=1')) {
-          absoluteUrl += (absoluteUrl.includes('?') ? '&' : '?') + 'download=1';
+        absoluteUrl += (absoluteUrl.includes('?') ? '&' : '?') + 'download=1';
       }
 
       let urlWithoutProto = absoluteUrl.split('://')[1] || absoluteUrl;
@@ -1420,7 +1434,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       if (d) d.classList.toggle('open');
     }
 
-    // This will be called by the force button
     function dismissWarningAndPlay(mode) {
       const modal = document.getElementById('warn-modal');
       if (modal) modal.style.display = 'none';
@@ -1429,6 +1442,18 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       if (typeof window.initPlayer === 'function') {
         window.initPlayer(mode);
       }
+    }
+
+    function retryArt() {
+      const b = document.getElementById('retry-btn');
+      if (b) b.remove();
+      dismissWarningAndPlay('art');
+    }
+
+    function retryVlc() {
+      const b = document.getElementById('retry-btn');
+      if (b) b.remove();
+      openExternal('vlc', streamUrl, videoTitle);
     }
 
     document.addEventListener('click', (e) => {
@@ -1461,7 +1486,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
       <div class="warn-ext-group">
         <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-bottom:4px; font-weight:600;">Opsi 1: Aplikasi Eksternal (100% Lancar)</div>
-        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event, '${streamUrl}')">
+        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event, '${streamUrl}', ${JSON.stringify(video.title).replace(/"/g, '&quot;')})">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
           <span id="copy-txt">Copy Link Streaming (Untuk VLC Desktop CTRL+N)</span>
         </button>
@@ -1517,9 +1542,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
               '<div style="font-size:15px;font-weight:700;margin-bottom:6px;color:#f87171;">⚠️ Gagal Memuat MKV WebAssembly</div>' +
               '<div style="font-size:12px;color:#94a3b8;margin-bottom:14px;line-height:1.4;">' + (errMsg || 'Format MKV berat/multi-track membutuhkan koneksi stabil.') + ' Silakan pilih solusi alternatif:</div>' +
               '<div style="display:flex;flex-direction:column;gap:8px;">' +
-                '<button onclick="window.location.reload()" style="padding:8px 12px;background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🔄 Coba Muat Ulang (Retry)</button>' +
-                '<button onclick="document.getElementById(\'retry-btn\').remove(); initPlayer(\'art\');" style="padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e2e8f0;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🎬 Putar via Artplayer (Instant HTML5)</button>' +
-                '<button onclick="openExternal(\'vlc\', streamUrl, videoTitle)" style="padding:8px 12px;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.4);color:#86efac;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🚀 Buka di PotPlayer / VLC (100% Smooth)</button>' +
+                '<button onclick="location.reload()" style="padding:8px 12px;background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🔄 Coba Muat Ulang (Retry)</button>' +
+                '<button onclick="retryArt()" style="padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e2e8f0;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🎬 Putar via Artplayer (Instant HTML5)</button>' +
+                '<button onclick="retryVlc()" style="padding:8px 12px;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.4);color:#86efac;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🚀 Buka di PotPlayer / VLC (100% Smooth)</button>' +
               '</div>';
             container.appendChild(errDiv);
         }
