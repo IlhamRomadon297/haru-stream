@@ -11,12 +11,19 @@ It allows streaming video files stored in Google Drive directly with custom HTML
 
 ---
 
-## 📸 Dashboard & Demo
+## 📸 Screenshots & Features Preview
 
-![HaruStream PRO Dashboard](assets/dashboard.png)
+### 📊 1. Overview & Analytics Dashboard
+![Dashboard Analytics](assets/dashboard-analytics.png)
 
-### 🔗 Live Demos:
-- 🎬 **Live Embed Player Demo**: [https://haru-stream.pages.dev/embed/43265](https://haru-stream.pages.dev/embed/43265)
+### 📁 2. Media Center & Virtual Folders
+![Media Center](assets/media-center.png)
+
+### ☁️ 3. Google Drive Accounts & Auto-Sync Scheduler
+![Drive Settings](assets/drive-settings.png)
+
+### 📤 4. File Upload & Remote URL Streamer
+![File Upload](assets/file-upload.png)
 
 ---
 
