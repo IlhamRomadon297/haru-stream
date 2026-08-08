@@ -1,65 +1,93 @@
 # HaruStream PRO 🎬
 
-**Advanced serverless video streaming aggregator and management system**
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
+[![Cloudflare D1](https://img.shields.io/badge/Cloudflare-D1_Database-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
+[![Google Drive API](https://img.shields.io/badge/Google_Drive-API_v3-4285F4?logo=googledrive&logoColor=white)](https://developers.google.com/drive)
 
-Built on Cloudflare Workers + D1 Database + Google Drive API
+**HaruStream PRO** is a high-performance, serverless video streaming aggregator, proxy engine, and management dashboard built for **Cloudflare Workers, Cloudflare D1 Database, and Google Drive API**.
 
----
-
-## ✨ Features
-
-- 🔐 **JWT Authentication** — Secure PBKDF2 password hashing, 7-day session tokens
-- ☁️ **Multi-Drive Management** — Connect unlimited Google Drive accounts with OAuth2
-- 📁 **Virtual Folder System** — 100% decoupled from Google Drive's physical layout
-- 🔄 **Smart Sync Engine** — Batch-index videos from all connected drives into D1
-- 🎥 **ArtPlayer Embed** — Full-featured player with SubtitlesOctopus (.ass libass WASM)
-- 🌐 **Stream Proxy** — Range-request-aware proxy with view counter
-- 📤 **Remote URL Upload** — Pipe external URLs directly into Google Drive via streams
-- 📊 **Analytics Dashboard** — Chart.js Area + Donut charts, top video stats
-- 📋 **Export Engine** — Export embed codes, links, metadata respecting active sort order
+It allows streaming video files stored in Google Drive directly with custom HTML5 video players, multi-track audio, WASM ASS subtitle rendering, and protocol deep-linking for desktop & mobile external media players (PotPlayer, VLC, MX Player).
 
 ---
 
-## 🚀 Deployment
+## 📸 Dashboard & Demo
 
-### 1. Prerequisites
+![HaruStream PRO Dashboard](assets/dashboard.png)
 
-```bash
-npm install
-npx wrangler login
+### 🔗 Live Demos:
+- 🎬 **Live Embed Player Demo**: [https://haru-stream.pages.dev/embed/43265](https://haru-stream.pages.dev/embed/43265)
+
+---
+
+## ✨ Key Features
+
+- 🔐 **Secure JWT Authentication** — Session tokens signed with HMAC-SHA256 & PBKDF2 salted password hashing.
+- ☁️ **Multi-Drive Management** — Connect unlimited Google Drive accounts via OAuth2 Client ID / Secret.
+- 📁 **Virtual Folder System** — Organize indexed media freely without altering Google Drive folder structures.
+- 🔄 **Automated Sync Engine** — Cloudflare Cron Triggers automatically index new files and prune deleted files every minute (1 D1 read cost).
+- 🎭 **Triple Pemutaran (Player System)**:
+  1. **ArtPlayer HTML5** — Instant & ultra-fast playback for MP4 & standard video formats.
+  2. **Movi-Player WASM** — WebAssembly-powered player with native `.ass` subtitle rendering & multi-track audio selection.
+  3. **External Player Protocol Deep-Link** — One-click launcher for **PotPlayer (Windows)**, **VLC Mobile/Desktop**, and **MX Player (Android)**.
+- 🚀 **HTTP Range Proxy** — Full seeking support (`206 Partial Content`) with bandwidth throttling and view tracking.
+- 📤 **Remote Stream Upload** — Pipe external URLs directly into Google Drive without disk storage.
+- 📊 **Analytics Dashboard** — Interactive charts (Chart.js), total storage usage, view counts, and top video stats.
+- 📋 **Batch Export Engine** — Export iframe embeds, direct stream links, and HTML codes in one click.
+
+---
+
+## 🛡️ Security & Open Source Readiness
+
+HaruStream PRO is 100% clean and **safe for public GitHub repositories**:
+- ❌ **NO hardcoded secrets or API keys** in the source code.
+- 🔐 **Credentials & Tokens** are stored securely in **Cloudflare Worker Secrets** (`JWT_SECRET`) and user-specific D1 Database rows.
+- 🔒 **Privacy Shield**: Original Google Drive File IDs & credentials are never exposed in public embed links.
+
+---
+
+## 🚀 Quick Deployment Guide
+
+### Option 1: Automated Script (Windows PowerShell)
+
+Run the included automated setup script:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1
 ```
 
-### 2. Create D1 Database
+### Option 2: Manual Deployment
 
-```bash
-npx wrangler d1 create haru-stream-db
-# Copy the database_id from output → paste into wrangler.toml
-```
+1. **Install Dependencies & Login to Cloudflare**:
+   ```bash
+   npm install
+   npx wrangler login
+   ```
 
-### 3. Apply Schema
+2. **Create Cloudflare D1 Database**:
+   ```bash
+   npx wrangler d1 create haru-stream-db
+   ```
+   *Copy the `database_id` output into `wrangler.toml`.*
 
-```bash
-npm run db:init
-```
+3. **Initialize Database Schema**:
+   ```bash
+   npm run db:init
+   ```
 
-### 4. Set JWT Secret
+4. **Set JWT Secret**:
+   ```bash
+   npx wrangler secret put JWT_SECRET
+   ```
 
-```bash
-npx wrangler secret put JWT_SECRET
-# Enter a long random string when prompted
-```
+5. **Deploy Backend Worker**:
+   ```bash
+   npm run deploy
+   ```
 
-### 5. Deploy Worker
-
-```bash
-npm run deploy
-```
-
-### 6. Deploy Pages (Frontend)
-
-```bash
-npx wrangler pages deploy ./public --project-name=haru-stream
-```
+6. **Deploy Frontend Pages**:
+   ```bash
+   npx wrangler pages deploy ./public --project-name=haru-stream
+   ```
 
 ---
 
@@ -67,48 +95,39 @@ npx wrangler pages deploy ./public --project-name=haru-stream
 
 ```
 haru-stream/
-├── schema.sql          # D1 database schema
-├── wrangler.toml       # Cloudflare configuration
-├── package.json
-├── src/
-│   └── index.js        # Cloudflare Worker (API + Embed)
-└── public/
-    └── index.html      # SPA Dashboard (Tailwind + Chart.js + FontAwesome)
+├── assets/             # Screenshots & Media assets
+├── functions/          # Cloudflare Pages Functions routing
+├── public/             # SPA Single Page Application (Tailwind + Chart.js)
+├── src/                # Cloudflare Worker API & Embed Page Generator
+├── deploy.ps1          # Automated PowerShell installer
+├── schema.sql          # Cloudflare D1 Database Schema
+├── wrangler.toml       # Cloudflare Workers configuration
+└── package.json
 ```
 
 ---
 
-## 🔑 API Endpoints
+## 🔑 API Reference
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/auth/register` | Register new user |
-| POST | `/api/auth/login` | Login, returns JWT |
-| GET  | `/api/auth/me` | Current user info |
-| GET  | `/api/settings/drives` | List connected drives |
-| POST | `/api/settings/drives` | Add Google Drive credentials |
-| DELETE | `/api/settings/drives/:id` | Remove a drive |
-| POST | `/api/media/sync` | Sync/index videos from GDrive |
-| GET  | `/api/media` | List videos with search + sort + pagination |
-| POST | `/api/media/move` | Move videos to virtual folder |
-| DELETE | `/api/media` | Delete indexed videos |
-| POST | `/api/folders` | Create virtual folder |
-| POST | `/api/media/upload/remote` | Remote URL → GDrive stream upload |
-| GET  | `/api/stats` | Dashboard statistics |
-| GET  | `/embed/:drive_file_id` | ArtPlayer embed page |
-| GET  | `/stream/:drive_file_id` | Proxied video stream |
-
----
-
-## ⚙️ Environment Variables
-
-| Variable | Description | How to Set |
-|----------|-------------|------------|
-| `JWT_SECRET` | Secret key for JWT signing | `wrangler secret put JWT_SECRET` |
-| `DB` | D1 database binding | `wrangler.toml` |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/auth/login` | Authenticate admin user & receive JWT token |
+| `GET` | `/api/auth/me` | Validate session token & return profile |
+| `GET` | `/api/settings/drives` | Fetch list of connected Google Drives |
+| `POST` | `/api/settings/drives` | Register a new Google Drive OAuth2 credential |
+| `DELETE` | `/api/settings/drives/:id` | Disconnect a Google Drive account |
+| `POST` | `/api/media/sync` | Manually trigger Google Drive indexing |
+| `GET` | `/api/media` | Search, filter, and paginate indexed videos |
+| `POST` | `/api/media/move` | Categorize videos into virtual folders |
+| `DELETE` | `/api/media` | Remove indexed videos |
+| `POST` | `/api/folders` | Manage virtual folders |
+| `POST` | `/api/media/upload/remote` | Stream remote URL into Google Drive |
+| `GET` | `/api/stats` | Retrieve dashboard analytics |
+| `GET` | `/embed/:id` | Public HTML5 embed video player |
+| `GET` | `/stream/:id` | Proxied video stream endpoint |
 
 ---
 
 ## 📜 License
 
-MIT © HaruStream PRO
+Distributed under the MIT License. See `LICENSE` for details.
