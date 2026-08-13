@@ -283,7 +283,18 @@
 
     /* Responsive */
     @media (max-width: 768px) {
-      /* Mobile specific tweaks */
+      #folder-sidebar {
+        position: fixed !important;
+        top: 0; bottom: 0; left: 0;
+        z-index: 90 !important;
+        width: 260px !important;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease-out;
+        box-shadow: 10px 0 30px rgba(0,0,0,0.8);
+      }
+      #folder-sidebar.mobile-show {
+        transform: translateX(0) !important;
+      }
     }
 
     /* Filename — full width & readable */
@@ -686,10 +697,21 @@
       </div>
 
       <!-- ── MEDIA CENTER VIEW ──────────────────────────── -->
-      <div id="view-media" class="hidden animate-slide-in flex h-full">
+      <div id="view-media" class="hidden animate-slide-in flex h-full relative">
+
+        <!-- Mobile Folder Sidebar Backdrop -->
+        <div id="folder-sidebar-backdrop" onclick="toggleFolderSidebar(false)" class="hidden fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"></div>
 
         <!-- Folder Tree Sidebar -->
-        <div class="flex-shrink-0 w-64 p-3 overflow-y-auto" style="border-right:1px solid #1e1e38;background:#0c0c1e">
+        <div id="folder-sidebar" class="flex-shrink-0 w-64 p-3 overflow-y-auto" style="border-right:1px solid #1e1e38;background:#0c0c1e">
+          
+          <!-- Mobile Close Button Header -->
+          <div class="flex md:hidden items-center justify-between pb-3 mb-3" style="border-bottom:1px solid #1e1e38">
+            <span class="text-xs font-bold text-white uppercase tracking-wider"><i class="fas fa-folder-tree mr-2" style="color:#6366f1"></i>Folders & Drives</span>
+            <button onclick="toggleFolderSidebar(false)" class="text-slate-400 hover:text-white p-1" style="background:none;border:none;cursor:pointer">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
           
           <!-- DRIVES -->
           <div class="mb-5">
@@ -721,9 +743,14 @@
         </div>
 
         <!-- Media Content -->
-        <div class="flex-1 flex flex-col overflow-hidden">
+        <div class="flex-1 flex flex-col overflow-hidden min-w-0">
           <!-- Media Toolbar -->
           <div class="flex flex-wrap items-center gap-3 px-4 py-3 flex-shrink-0" style="border-bottom:1px solid #1e1e38;background:#0c0c1e">
+            <!-- Mobile Toggle Folder Sidebar Button -->
+            <button onclick="toggleFolderSidebar(true)" class="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold" style="background:#1a1a30;color:#a5b4fc;border:1px solid #2a2a4a">
+              <i class="fas fa-folder-tree text-xs" style="color:#6366f1"></i>
+              <span>Folders</span>
+            </button>
             <!-- Search -->
             <div class="relative flex-1 min-w-36">
               <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs" style="color:#475569"></i>
@@ -1466,7 +1493,22 @@ if (APP.token) {
 
 // ── SIDEBAR & VIEWS ──────────────────────────────────────────
 function toggleSidebar() {
-  $('sidebar').classList.toggle('collapsed');
+  const sb = $('sidebar');
+  if (sb) sb.classList.toggle('expanded');
+}
+
+function toggleFolderSidebar(show) {
+  const sidebar = $('folder-sidebar');
+  const backdrop = $('folder-sidebar-backdrop');
+  if (!sidebar) return;
+  const isShow = show !== undefined ? show : !sidebar.classList.contains('mobile-show');
+  if (isShow) {
+    sidebar.classList.add('mobile-show');
+    if (backdrop) backdrop.classList.remove('hidden');
+  } else {
+    sidebar.classList.remove('mobile-show');
+    if (backdrop) backdrop.classList.add('hidden');
+  }
 }
 
 const VIEW_META = {
@@ -1761,6 +1803,7 @@ function selectDrive(id) {
     const el = $(`dtree-${id}`);
     if (el) el.classList.add('active');
   }
+  if (window.innerWidth <= 768) toggleFolderSidebar(false);
   loadMedia();
 }
 
@@ -1799,6 +1842,7 @@ function selectFolder(id, event) {
     const el = $(`ftree-${id}`);
     if (el) el.classList.add('active');
   }
+  if (window.innerWidth <= 768) toggleFolderSidebar(false);
   loadMedia();
 }
 
