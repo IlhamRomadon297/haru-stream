@@ -1255,7 +1255,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>${escapeHtml(video.title)} — HaruStream PRO</title>
+  <title>${escapeHtml(video.title)} — HaruStream</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <meta name="robots" content="noindex">
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
