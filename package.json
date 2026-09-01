@@ -1,7 +1,7 @@
 {
   "name": "haru-stream",
   "version": "1.0.0",
-  "description": "HaruStream PRO — Advanced serverless video streaming aggregator powered by Cloudflare Workers + D1",
+  "description": "HaruStream — Advanced serverless video streaming aggregator powered by Cloudflare Workers + D1",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",

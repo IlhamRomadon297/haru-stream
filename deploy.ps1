@@ -9,7 +9,7 @@ function Write-Info { param([string]$m) Write-Host "  [-]  $m" -ForegroundColor 
 
 Write-Host ""
 Write-Host "  =================================================" -ForegroundColor Magenta
-Write-Host "    HaruStream PRO - Automated Deploy Script       " -ForegroundColor Magenta
+Write-Host "    HaruStream - Automated Deploy Script           " -ForegroundColor Magenta
 Write-Host "    Target: Cloudflare Second Account              " -ForegroundColor Magenta
 Write-Host "  =================================================" -ForegroundColor Magenta
 Write-Host ""

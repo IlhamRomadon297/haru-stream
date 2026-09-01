@@ -1,11 +1,11 @@
-# HaruStream PRO 🎬
+# HaruStream 🎬
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?logo=cloudflare&logoColor=white)](https://workers.cloudflare.com/)
 [![Cloudflare D1](https://img.shields.io/badge/Cloudflare-D1_Database-F38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/d1/)
 [![Google Drive API](https://img.shields.io/badge/Google_Drive-API_v3-4285F4?logo=googledrive&logoColor=white)](https://developers.google.com/drive)
 
-**HaruStream PRO** is a high-performance, serverless video streaming aggregator, proxy engine, and management dashboard built for **Cloudflare Workers, Cloudflare D1 Database, and Google Drive API**.
+**HaruStream** is a high-performance, serverless video streaming aggregator, proxy engine, and management dashboard built for **Cloudflare Workers, Cloudflare D1 Database, and Google Drive API**.
 
 It allows streaming video files stored in Google Drive directly with custom HTML5 video players, multi-track audio, WASM ASS subtitle rendering, and protocol deep-linking for desktop & mobile external media players (PotPlayer, VLC, MX Player).
 
@@ -46,7 +46,7 @@ It allows streaming video files stored in Google Drive directly with custom HTML
 
 ## 🛡️ Security & Open Source Readiness
 
-HaruStream PRO is 100% clean and **safe for public GitHub repositories**:
+HaruStream is 100% clean and **safe for public GitHub repositories**:
 - ❌ **NO hardcoded secrets or API keys** in the source code.
 - 🔐 **Credentials & Tokens** are stored securely in **Cloudflare Worker Secrets** (`JWT_SECRET`) and user-specific D1 Database rows.
 - 🔒 **Privacy Shield**: Original Google Drive File IDs & credentials are never exposed in public embed links.

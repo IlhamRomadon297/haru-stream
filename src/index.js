@@ -1,5 +1,5 @@
 /**
- * HaruStream PRO - Cloudflare Worker Core
+ * HaruStream - Cloudflare Worker Core
  * =========================================
  * Serverless video streaming aggregator and management system.
  * Runs on Cloudflare Workers + D1 Database.

@@ -1,5 +1,5 @@
 -- ============================================================
--- HaruStream PRO - Cloudflare D1 Database Schema
+-- HaruStream - Cloudflare D1 Database Schema
 -- Version: 1.0.0
 -- ============================================================
 

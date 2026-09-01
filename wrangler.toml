@@ -25,10 +25,17 @@ database_id = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 # Environment Variables (Non-secret)
 # ============================================================
 [vars]
-APP_NAME       = "HaruStream PRO"
+# Production Environment Variables
+APP_NAME       = "HaruStream"
 APP_VERSION    = "1.0.0"
 JWT_EXPIRES_IN = "7d"
 CORS_ORIGIN    = "*"
+# Cron: auto-sync runs every 1 minute
+AUTO_SYNC_INTERVAL_MINUTES = "1"
+
+# Development / Preview environment
+[env.development]
+vars = { APP_NAME = "HaruStream", APP_VERSION = "1.0.0-dev", JWT_EXPIRES_IN = "7d", CORS_ORIGIN = "*", AUTO_SYNC_INTERVAL_MINUTES = "1" }
 
 # ============================================================
 # Secrets — set via: wrangler secret put <KEY>
@@ -47,5 +54,5 @@ database_name = "haru-stream-db"
 database_id   = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 
 [env.production.vars]
-APP_NAME    = "HaruStream PRO"
+APP_NAME    = "HaruStream"
 CORS_ORIGIN = "https://haru-stream.pages.dev"
