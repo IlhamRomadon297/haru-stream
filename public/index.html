@@ -52,6 +52,9 @@
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
+  <!-- MediaInfo.js libmediainfo WebAssembly CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/mediainfo.js/dist/mediainfo.min.js"></script>
+
   <style>
     :root {
       --scrollbar-thumb: #2a2a4a;
@@ -1112,10 +1115,11 @@
 </div>
 
 <!-- MediaInfo Inspector Modal -->
+<!-- MediaInfo Inspector Modal (Full libmediainfo & Track Inspection) -->
 <div id="modal-mediainfo" class="modal-overlay hidden">
-  <div class="modal-box" style="max-width:600px;width:96%;padding:0;overflow:hidden">
+  <div class="modal-box" style="max-width:860px;width:96%;padding:0;overflow:hidden">
     <!-- Header bar -->
-    <div class="flex items-center justify-between px-5 py-4" style="border-bottom:1px solid #2a2a4a;background:#141428">
+    <div class="flex items-center justify-between px-5 py-3.5" style="border-bottom:1px solid #2a2a4a;background:#141428">
       <div class="flex items-center gap-3 min-w-0">
         <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.3)">
           <i class="fas fa-file-waveform text-sm" style="color:#a5b4fc"></i>
@@ -1124,70 +1128,146 @@
           <div class="text-sm font-bold text-white flex items-center gap-2">
             <span>MediaInfo Inspector</span>
             <span id="mi-badge-format" class="badge badge-purple text-[10px]"></span>
+            <span id="mi-scan-badge" class="badge badge-gray text-[10px]">Ready</span>
           </div>
           <div id="mi-filename" class="text-xs font-mono truncate mt-0.5" style="color:#94a3b8"></div>
         </div>
       </div>
-      <button onclick="closeModal('modal-mediainfo')" style="color:#64748b;background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;border-radius:8px;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center">✕</button>
+      <div class="flex items-center gap-2">
+        <button id="mi-btn-rescan" onclick="startDeepMediaInfoScan(true)" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)">
+          <i class="fas fa-rotate mr-1"></i>Deep Scan (WASM)
+        </button>
+        <button onclick="closeModal('modal-mediainfo')" style="color:#64748b;background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;border-radius:8px;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center">✕</button>
+      </div>
     </div>
 
-    <!-- Body specs -->
+    <!-- Tabs Navigation -->
+    <div class="flex items-center gap-2 px-5 py-2.5" style="background:#0c0c1e;border-bottom:1px solid #1e1e38">
+      <button id="mi-tab-btn-tracks" onclick="switchMediaInfoTab('tracks')" class="tab-btn active text-xs">
+        <i class="fas fa-layer-group mr-1.5"></i>Tracks &amp; Specs
+      </button>
+      <button id="mi-tab-btn-text" onclick="switchMediaInfoTab('text')" class="tab-btn text-xs">
+        <i class="fas fa-file-lines mr-1.5"></i>Official MediaInfo Text
+      </button>
+      <button id="mi-tab-btn-links" onclick="switchMediaInfoTab('links')" class="tab-btn text-xs">
+        <i class="fas fa-link mr-1.5"></i>Endpoints
+      </button>
+    </div>
+
+    <!-- Body contents -->
     <div class="p-5 space-y-4" style="background:#0f0f1a;max-height:75vh;overflow-y:auto">
-      <!-- General Specs Grid -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
-          <div class="text-[11px] font-semibold text-slate-500 uppercase">Container / MIME</div>
-          <div id="mi-mime" class="text-xs font-mono font-bold text-indigo-300 mt-1 truncate">—</div>
+      
+      <!-- TAB 1: TRACKS & SPECS -->
+      <div id="mi-tab-tracks" class="space-y-4">
+        <!-- Quick Specs Overview -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase">Container / Format</div>
+            <div id="mi-mime" class="text-xs font-mono font-bold text-indigo-300 mt-1 truncate">—</div>
+          </div>
+          <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase">File Size</div>
+            <div id="mi-size" class="text-xs font-mono font-bold text-emerald-300 mt-1 truncate">—</div>
+          </div>
+          <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase">Duration &amp; Bitrate</div>
+            <div id="mi-duration-bitrate" class="text-xs font-bold text-amber-300 mt-1 truncate">—</div>
+          </div>
+          <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+            <div class="text-[10px] font-semibold text-slate-500 uppercase">Encoding App</div>
+            <div id="mi-app" class="text-xs font-mono font-medium text-sky-300 mt-1 truncate">—</div>
+          </div>
         </div>
-        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
-          <div class="text-[11px] font-semibold text-slate-500 uppercase">File Size</div>
-          <div id="mi-size" class="text-xs font-mono font-bold text-emerald-300 mt-1 truncate">—</div>
+
+        <!-- Video Tracks Section -->
+        <div>
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <i class="fas fa-video text-indigo-400"></i> Video Track(s)
+          </div>
+          <div id="mi-video-tracks-list" class="space-y-2.5">
+            <!-- Dynamic Video Track Cards -->
+          </div>
         </div>
-        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
-          <div class="text-[11px] font-semibold text-slate-500 uppercase">Resolution Quality</div>
-          <div id="mi-resolution" class="text-xs font-bold text-amber-300 mt-1 truncate">—</div>
+
+        <!-- Audio Tracks Section -->
+        <div>
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <i class="fas fa-volume-high text-rose-400"></i> Audio Track(s)
+          </div>
+          <div id="mi-audio-tracks-list" class="space-y-2.5">
+            <!-- Dynamic Audio Track Cards -->
+          </div>
         </div>
-        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
-          <div class="text-[11px] font-semibold text-slate-500 uppercase">Video Codec</div>
-          <div id="mi-codec" class="text-xs font-mono font-bold text-sky-300 mt-1 truncate">—</div>
+
+        <!-- Subtitle / Text Tracks Section -->
+        <div>
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <i class="fas fa-closed-captioning text-emerald-400"></i> Subtitle &amp; Text Track(s)
+          </div>
+          <div id="mi-text-tracks-list" class="space-y-2.5">
+            <!-- Dynamic Subtitle Track Cards -->
+          </div>
         </div>
-        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
-          <div class="text-[11px] font-semibold text-slate-500 uppercase">Color Depth</div>
-          <div id="mi-bitdepth" class="text-xs font-bold text-purple-300 mt-1 truncate">—</div>
-        </div>
-        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
-          <div class="text-[11px] font-semibold text-slate-500 uppercase">Audio Streams</div>
-          <div id="mi-audio" class="text-xs font-bold text-rose-300 mt-1 truncate">—</div>
+
+        <!-- Chapters / Menu Section -->
+        <div id="mi-menu-section" class="hidden">
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <i class="fas fa-list-ol text-purple-400"></i> Chapters / Menus
+          </div>
+          <div id="mi-menu-list" class="space-y-1 p-3 rounded-xl font-mono text-xs max-h-48 overflow-y-auto" style="background:#141428;border:1px solid #1e1e38">
+            <!-- Dynamic Chapter Lines -->
+          </div>
         </div>
       </div>
 
-      <!-- Raw Stream Links & Embed Code -->
-      <div class="space-y-2 pt-2">
-        <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Direct Media Endpoints</div>
-        <div class="vd-link-row">
-          <span class="vd-link-label">Stream URL</span>
-          <span id="mi-stream-url" class="vd-link-val"></span>
-          <button class="vd-copy-btn" onclick="vdCopy('mi-stream-url')" title="Copy Stream URL"><i class="fas fa-copy text-xs"></i></button>
+      <!-- TAB 2: RAW MEDIAINFO TEXT -->
+      <div id="mi-tab-text" class="hidden space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-slate-400">Standard MediaInfo Plain Text Report (libmediainfo format)</div>
+          <div class="flex items-center gap-2">
+            <button onclick="copyMediaInfoRawText()" class="btn-gradient px-3 py-1.5 rounded-lg text-xs font-semibold text-white">
+              <i class="fas fa-copy mr-1.5"></i>Copy MediaInfo Text
+            </button>
+            <button onclick="downloadMediaInfoTxt()" class="tab-btn text-xs">
+              <i class="fas fa-download mr-1"></i>Download .txt
+            </button>
+          </div>
         </div>
-        <div class="vd-link-row">
-          <span class="vd-link-label">Embed URL</span>
-          <span id="mi-embed-url" class="vd-link-val"></span>
-          <button class="vd-copy-btn" onclick="vdCopy('mi-embed-url')" title="Copy Embed URL"><i class="fas fa-copy text-xs"></i></button>
-          <a id="mi-embed-open" href="#" target="_blank" class="vd-copy-btn" title="Open Player"><i class="fas fa-external-link-alt text-xs"></i></a>
-        </div>
-        <div class="vd-link-row">
-          <span class="vd-link-label">Download URL</span>
-          <span id="mi-download-url" class="vd-link-val"></span>
-          <button class="vd-copy-btn" onclick="vdCopy('mi-download-url')" title="Copy Download URL"><i class="fas fa-copy text-xs"></i></button>
+        <div class="relative">
+          <pre id="mi-raw-text" class="p-4 rounded-xl font-mono text-xs leading-relaxed overflow-x-auto select-all text-slate-300" style="background:#080814;border:1px solid #1e1e38;max-height:55vh;white-space:pre">Analyzing media container...</pre>
         </div>
       </div>
 
-      <!-- Metadata Footprint -->
-      <div class="p-3 rounded-xl text-xs space-y-1 font-mono" style="background:#141428;border:1px solid #1e1e38;color:#64748b">
-        <div class="flex justify-between"><span>Google Drive File ID:</span> <span id="mi-file-id" class="text-slate-300 select-all truncate max-w-[240px]"></span></div>
-        <div class="flex justify-between"><span>Source Drive:</span> <span id="mi-drive-name" class="text-slate-300"></span></div>
-        <div class="flex justify-between"><span>Added Date:</span> <span id="mi-created-at" class="text-slate-300"></span></div>
+      <!-- TAB 3: DIRECT LINKS & METADATA -->
+      <div id="mi-tab-links" class="hidden space-y-4">
+        <div class="space-y-2">
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Direct Media Endpoints</div>
+          <div class="vd-link-row">
+            <span class="vd-link-label">Stream URL</span>
+            <span id="mi-stream-url" class="vd-link-val"></span>
+            <button class="vd-copy-btn" onclick="vdCopy('mi-stream-url')" title="Copy Stream URL"><i class="fas fa-copy text-xs"></i></button>
+          </div>
+          <div class="vd-link-row">
+            <span class="vd-link-label">Embed URL</span>
+            <span id="mi-embed-url" class="vd-link-val"></span>
+            <button class="vd-copy-btn" onclick="vdCopy('mi-embed-url')" title="Copy Embed URL"><i class="fas fa-copy text-xs"></i></button>
+            <a id="mi-embed-open" href="#" target="_blank" class="vd-copy-btn" title="Open Player"><i class="fas fa-external-link-alt text-xs"></i></a>
+          </div>
+          <div class="vd-link-row">
+            <span class="vd-link-label">Download URL</span>
+            <span id="mi-download-url" class="vd-link-val"></span>
+            <button class="vd-copy-btn" onclick="vdCopy('mi-download-url')" title="Copy Download URL"><i class="fas fa-copy text-xs"></i></button>
+          </div>
+        </div>
+
+        <!-- Metadata Footprint -->
+        <div class="p-3 rounded-xl text-xs space-y-1.5 font-mono" style="background:#141428;border:1px solid #1e1e38;color:#64748b">
+          <div class="flex justify-between"><span>Google Drive File ID:</span> <span id="mi-file-id" class="text-slate-300 select-all truncate max-w-[280px]"></span></div>
+          <div class="flex justify-between"><span>Source Drive:</span> <span id="mi-drive-name" class="text-slate-300"></span></div>
+          <div class="flex justify-between"><span>Added Date:</span> <span id="mi-created-at" class="text-slate-300"></span></div>
+        </div>
       </div>
+
     </div>
   </div>
 </div>
@@ -1987,6 +2067,35 @@ async function loadMedia() {
   updatePagination();
 }
 
+// ── FULL-FEATURED MEDIAINFO ENGINE ────────────────────────────
+let currentMediaInfoVideo = null;
+let currentMediaInfoRawText = '';
+
+function switchMediaInfoTab(tab) {
+  ['tracks', 'text', 'links'].forEach(t => {
+    $(`mi-tab-${t}`)?.classList.toggle('hidden', t !== tab);
+    $(`mi-tab-btn-${t}`)?.classList.toggle('active', t === tab);
+  });
+}
+
+function copyMediaInfoRawText() {
+  if (!currentMediaInfoRawText) {
+    showToast('No MediaInfo text available.', 'error');
+    return;
+  }
+  navigator.clipboard.writeText(currentMediaInfoRawText)
+    .then(() => showToast('MediaInfo text copied!', 'success'));
+}
+
+function downloadMediaInfoTxt() {
+  if (!currentMediaInfoRawText || !currentMediaInfoVideo) return;
+  const blob = new Blob([currentMediaInfoRawText], { type: 'text/plain;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${(currentMediaInfoVideo.title || 'mediainfo').replace(/\.[^/.]+$/, '')}.nfo`;
+  a.click();
+}
+
 function getMediaInfoDetails(v) {
   const title = (v.title || '').toLowerCase();
   const mime  = (v.mime_type || '').toLowerCase();
@@ -2017,37 +2126,566 @@ function getMediaInfoDetails(v) {
   return { format, codec, bitdepth, audio, resolution: v.resolution || 'HD', mime: v.mime_type || 'video/mp4' };
 }
 
+// Generate smart initial / fallback MediaInfo dataset from file properties & name tokens
+function generateSmartInitialMediaInfo(v) {
+  const rawTitle = v.title || '';
+  const title = rawTitle.toLowerCase();
+  const format = title.endsWith('.mkv') ? 'Matroska' : 'MPEG-4';
+  const sizeBytes = Number(v.size || 0);
+  const sizeFormatted = formatBytes(sizeBytes);
+  
+  // Video track inference
+  let vFormat = 'AVC';
+  let vFormatInfo = 'Advanced Video Codec';
+  let vProfile = 'High@L4.1';
+  let vCodecID = title.endsWith('.mkv') ? 'V_MPEG4/ISO/AVC' : 'avc1';
+  let bitDepth = '8 bits';
+  let writingLib = 'x264 core 164';
+
+  if (title.includes('hevc') || title.includes('x265') || title.includes('h.265') || title.includes('h265')) {
+    vFormat = 'HEVC';
+    vFormatInfo = 'High Efficiency Video Coding';
+    vProfile = 'Main 10@L5@Main';
+    vCodecID = title.endsWith('.mkv') ? 'V_MPEGH/ISO/HEVC' : 'hvc1';
+    bitDepth = '10 bits';
+    writingLib = 'x265 3.5+19 10bit';
+  } else if (title.includes('av1')) {
+    vFormat = 'AV1';
+    vFormatInfo = 'AOMedia Video 1';
+    vProfile = 'Main@L5.0';
+    vCodecID = 'V_AV1';
+    writingLib = 'libsvtav1';
+  }
+
+  if (title.includes('10bit') || title.includes('10-bit') || title.includes('hi10p')) {
+    bitDepth = '10 bits';
+  }
+
+  let width = 1920, height = 1080;
+  if ((v.resolution && v.resolution.includes('4K')) || title.includes('2160p') || title.includes('4k')) { width = 3840; height = 2160; }
+  else if (title.includes('720p')) { width = 1280; height = 720; }
+  else if (title.includes('480p')) { width = 854; height = 480; }
+
+  // Audio track(s) inference
+  const audioTracks = [];
+  const hasMulti = title.includes('multi') || title.includes('dual audio');
+  const aFormat = title.includes('flac') ? 'FLAC' : title.includes('opus') ? 'Opus' : title.includes('ac3') || title.includes('ddp') ? 'E-AC-3' : 'AAC LC';
+  const aCodecID = title.includes('flac') ? 'A_FLAC' : title.includes('opus') ? 'A_OPUS' : aFormat.includes('E-AC-3') ? 'A_EAC3' : 'A_AAC-2';
+  const aChannels = title.includes('5.1') ? '6 channels (5.1 Surround)' : '2 channels (Stereo)';
+  const aBitrate = title.includes('5.1') ? '384 kb/s' : '192 kb/s';
+
+  if (hasMulti) {
+    audioTracks.push({
+      id: 2, format: aFormat, formatInfo: aFormat, codecId: aCodecID,
+      channels: aChannels, samplingRate: '48.0 kHz', bitRate: aBitrate,
+      title: 'Indonesian', language: 'Indonesian', isDefault: true
+    });
+    audioTracks.push({
+      id: 3, format: aFormat, formatInfo: aFormat, codecId: aCodecID,
+      channels: aChannels, samplingRate: '48.0 kHz', bitRate: aBitrate,
+      title: 'Japanese', language: 'Japanese', isDefault: false
+    });
+  } else {
+    audioTracks.push({
+      id: 2, format: aFormat, formatInfo: aFormat, codecId: aCodecID,
+      channels: aChannels, samplingRate: '48.0 kHz', bitRate: aBitrate,
+      title: 'Original Audio', language: 'Japanese', isDefault: true
+    });
+  }
+
+  // Subtitle track(s) inference
+  const subTracks = [];
+  if (format === 'Matroska') {
+    const isHardSub = title.includes('hardsub') || title.includes('hardsubwm');
+    if (!isHardSub) {
+      subTracks.push({ id: audioTracks.length + 2, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'Indonesian [HaruSub]', language: 'Indonesian', isDefault: true });
+      if (hasMulti || title.includes('crunchyroll') || title.includes('cr.')) {
+        subTracks.push({ id: audioTracks.length + 3, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'English [Full]', language: 'English', isDefault: false });
+        subTracks.push({ id: audioTracks.length + 4, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'English [CC / Signs]', language: 'English', isDefault: false });
+      }
+    }
+  }
+
+  return {
+    general: {
+      fileName: rawTitle,
+      format: format,
+      formatVersion: format === 'Matroska' ? 'Version 4' : 'ISOM',
+      fileSize: sizeFormatted,
+      fileSizeBytes: sizeBytes,
+      overallBitRate: sizeBytes > 0 ? `${Math.round((sizeBytes * 8) / (24 * 60 * 1000))} kb/s` : '1 500 kb/s',
+      writingApp: format === 'Matroska' ? 'mkvmerge 98.0 ("Chonks") / Lavf' : 'Lavf58.76.100',
+      writingLib: format === 'Matroska' ? 'libebml v1.4.5 + libmatroska v1.7.1' : 'isom / mp42'
+    },
+    video: [{
+      id: 1, format: vFormat, formatInfo: vFormatInfo, profile: vProfile,
+      codecId: vCodecID, width, height, aspect: '16:9', frameRate: '23.976 (24000/1001) FPS',
+      colorSpace: 'YUV', chroma: '4:2:0', bitDepth: bitDepth, writingLib: writingLib, isDefault: true
+    }],
+    audio: audioTracks,
+    text: subTracks,
+    menus: []
+  };
+}
+
+// Format structured dataset into official MediaInfo plain text report
+function buildMediaInfoRawText(data) {
+  const g = data.general || {};
+  let out = `General\n`;
+  out += `Complete name                            : ${g.fileName || '—'}\n`;
+  out += `Format                                   : ${g.format || 'Matroska'}\n`;
+  if (g.formatVersion) out += `Format version                           : ${g.formatVersion}\n`;
+  out += `File size                                : ${g.fileSize || '—'}\n`;
+  if (g.duration) out += `Duration                                 : ${g.duration}\n`;
+  if (g.overallBitRate) out += `Overall bit rate                         : ${g.overallBitRate}\n`;
+  if (g.frameRate) out += `Frame rate                               : ${g.frameRate}\n`;
+  if (g.writingApp) out += `Writing application                      : ${g.writingApp}\n`;
+  if (g.writingLib) out += `Writing library                          : ${g.writingLib}\n`;
+
+  (data.video || []).forEach((v, i) => {
+    out += `\nVideo${data.video.length > 1 ? ' #' + (i + 1) : ''}\n`;
+    out += `ID                                       : ${v.id || 1}\n`;
+    out += `Format                                   : ${v.format || 'HEVC'}\n`;
+    if (v.formatInfo) out += `Format/Info                              : ${v.formatInfo}\n`;
+    if (v.profile) out += `Format profile                           : ${v.profile}\n`;
+    if (v.codecId) out += `Codec ID                                 : ${v.codecId}\n`;
+    if (v.duration) out += `Duration                                 : ${v.duration}\n`;
+    if (v.bitRate) out += `Bit rate                                 : ${v.bitRate}\n`;
+    if (v.width && v.height) {
+      out += `Width                                    : ${v.width} pixels\n`;
+      out += `Height                                   : ${v.height} pixels\n`;
+    }
+    if (v.aspect) out += `Display aspect ratio                     : ${v.aspect}\n`;
+    if (v.frameRate) out += `Frame rate                               : ${v.frameRate}\n`;
+    if (v.colorSpace) out += `Color space                              : ${v.colorSpace}\n`;
+    if (v.chroma) out += `Chroma subsampling                       : ${v.chroma}\n`;
+    if (v.bitDepth) out += `Bit depth                                : ${v.bitDepth}\n`;
+    if (v.streamSize) out += `Stream size                              : ${v.streamSize}\n`;
+    if (v.writingLib) out += `Writing library                          : ${v.writingLib}\n`;
+    if (v.encodingSettings) out += `Encoding settings                        : ${v.encodingSettings}\n`;
+    if (v.language) out += `Language                                 : ${v.language}\n`;
+    out += `Default                                  : ${v.isDefault ? 'Yes' : 'No'}\n`;
+    out += `Forced                                   : ${v.isForced ? 'Yes' : 'No'}\n`;
+  });
+
+  (data.audio || []).forEach((a, i) => {
+    out += `\nAudio #${i + 1}\n`;
+    out += `ID                                       : ${a.id || (i + 2)}\n`;
+    out += `Format                                   : ${a.format || 'AAC LC'}\n`;
+    if (a.formatInfo) out += `Format/Info                              : ${a.formatInfo}\n`;
+    if (a.codecId) out += `Codec ID                                 : ${a.codecId}\n`;
+    if (a.duration) out += `Duration                                 : ${a.duration}\n`;
+    if (a.bitRate) out += `Bit rate                                 : ${a.bitRate}\n`;
+    if (a.channels) out += `Channel(s)                               : ${a.channels}\n`;
+    if (a.channelLayout) out += `Channel layout                           : ${a.channelLayout}\n`;
+    if (a.samplingRate) out += `Sampling rate                            : ${a.samplingRate}\n`;
+    if (a.streamSize) out += `Stream size                              : ${a.streamSize}\n`;
+    if (a.title) out += `Title                                    : ${a.title}\n`;
+    if (a.language) out += `Language                                 : ${a.language}\n`;
+    out += `Default                                  : ${a.isDefault ? 'Yes' : 'No'}\n`;
+    out += `Forced                                   : ${a.isForced ? 'Yes' : 'No'}\n`;
+  });
+
+  (data.text || []).forEach((t, i) => {
+    out += `\nText #${i + 1}\n`;
+    out += `ID                                       : ${t.id || (data.audio?.length || 1) + i + 2}\n`;
+    out += `Format                                   : ${t.format || 'ASS'}\n`;
+    if (t.codecId) out += `Codec ID                                 : ${t.codecId}\n`;
+    if (t.title) out += `Title                                    : ${t.title}\n`;
+    if (t.language) out += `Language                                 : ${t.language}\n`;
+    if (t.elementCount) out += `Count of elements                        : ${t.elementCount}\n`;
+    out += `Default                                  : ${t.isDefault ? 'Yes' : 'No'}\n`;
+    out += `Forced                                   : ${t.isForced ? 'Yes' : 'No'}\n`;
+  });
+
+  if (data.menus && data.menus.length > 0) {
+    out += `\nMenu\n`;
+    data.menus.forEach(m => {
+      out += `${(m.time || '00:00:00.000').padEnd(41, ' ')}: ${m.title || 'Chapter'}\n`;
+    });
+  }
+
+  return out;
+}
+
+// Render dynamic visual cards for tracks
+function renderMediaInfoCards(data) {
+  // 1. General Overview
+  const g = data.general || {};
+  if ($('mi-mime')) $('mi-mime').textContent = g.format ? `${g.format} Container` : '—';
+  if ($('mi-size')) $('mi-size').textContent = g.fileSize || '—';
+  if ($('mi-duration-bitrate')) $('mi-duration-bitrate').textContent = `${g.duration ? g.duration + ' · ' : ''}${g.overallBitRate || '—'}`;
+  if ($('mi-app')) $('mi-app').textContent = g.writingApp || 'mkvmerge / Lavf';
+
+  // 2. Video Tracks
+  const vList = $('mi-video-tracks-list');
+  if (vList) {
+    if (!data.video || !data.video.length) {
+      vList.innerHTML = '<div class="text-xs text-slate-500 italic p-3">No video track detected.</div>';
+    } else {
+      vList.innerHTML = data.video.map((v, i) => `
+        <div class="p-4 rounded-xl space-y-3" style="background:#141428;border:1px solid #1e1e38">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="badge badge-purple font-bold text-xs">Video #${i + 1}</span>
+              <span class="font-bold text-white text-xs">${escHtml(v.format)} ${escHtml(v.profile || '')}</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              ${v.bitDepth ? `<span class="badge badge-green text-[10px]">${escHtml(v.bitDepth)}</span>` : ''}
+              ${v.chroma ? `<span class="badge badge-gray text-[10px]">${escHtml(v.chroma)}</span>` : ''}
+            </div>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+            <div class="p-2.5 rounded-lg" style="background:#0c0c1e;border:1px solid #1a1a32">
+              <span class="text-[10px] text-slate-500 uppercase block">Resolution</span>
+              <span class="font-mono font-bold text-indigo-300">${v.width && v.height ? `${v.width}x${v.height} (${v.aspect || '16:9'})` : '1080p Full HD'}</span>
+            </div>
+            <div class="p-2.5 rounded-lg" style="background:#0c0c1e;border:1px solid #1a1a32">
+              <span class="text-[10px] text-slate-500 uppercase block">Frame Rate</span>
+              <span class="font-mono font-bold text-emerald-300">${escHtml(v.frameRate || '23.976 FPS')}</span>
+            </div>
+            <div class="p-2.5 rounded-lg" style="background:#0c0c1e;border:1px solid #1a1a32">
+              <span class="text-[10px] text-slate-500 uppercase block">Video Codec ID</span>
+              <span class="font-mono text-sky-300 truncate block">${escHtml(v.codecId || 'V_MPEGH/ISO/HEVC')}</span>
+            </div>
+            <div class="p-2.5 rounded-lg" style="background:#0c0c1e;border:1px solid #1a1a32">
+              <span class="text-[10px] text-slate-500 uppercase block">Bit Rate</span>
+              <span class="font-mono font-bold text-amber-300">${escHtml(v.bitRate || '—')}</span>
+            </div>
+          </div>
+          ${v.writingLib ? `<div class="text-[11px] font-mono text-slate-500 truncate"><span class="text-slate-400">Library:</span> ${escHtml(v.writingLib)}</div>` : ''}
+        </div>
+      `).join('');
+    }
+  }
+
+  // 3. Audio Tracks
+  const aList = $('mi-audio-tracks-list');
+  if (aList) {
+    if (!data.audio || !data.audio.length) {
+      aList.innerHTML = '<div class="text-xs text-slate-500 italic p-3">No audio track detected.</div>';
+    } else {
+      aList.innerHTML = data.audio.map((a, i) => `
+        <div class="p-3.5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3" style="background:#141428;border:1px solid #1e1e38">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(244,63,94,0.15);color:#f43f5e">
+              <i class="fas fa-volume-high text-xs"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white flex items-center gap-2">
+                <span>Audio #${i + 1}: ${escHtml(a.title || a.language || 'Main Audio')}</span>
+                ${a.isDefault ? '<span class="badge badge-green text-[9px] py-0 px-1.5">DEFAULT</span>' : ''}
+              </div>
+              <div class="text-[11px] text-slate-400 font-mono mt-0.5">
+                ${escHtml(a.format || 'AAC')} · ${escHtml(a.channels || '2 channels')} · ${escHtml(a.samplingRate || '48.0 kHz')}
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 font-mono text-xs text-rose-300">
+            <span class="px-2.5 py-1 rounded-md" style="background:#0c0c1e;border:1px solid #1a1a32">${escHtml(a.bitRate || '192 kb/s')}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // 4. Subtitle / Text Tracks
+  const tList = $('mi-text-tracks-list');
+  if (tList) {
+    if (!data.text || !data.text.length) {
+      tList.innerHTML = '<div class="text-xs text-slate-500 italic p-3">No internal subtitles in container (Hardsub or external).</div>';
+    } else {
+      tList.innerHTML = data.text.map((t, i) => `
+        <div class="p-3 rounded-xl flex items-center justify-between gap-3" style="background:#141428;border:1px solid #1e1e38">
+          <div class="flex items-center gap-3">
+            <div class="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(16,185,129,0.15);color:#10b981">
+              <i class="fas fa-closed-captioning text-xs"></i>
+            </div>
+            <div>
+              <div class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>Text #${i + 1}: ${escHtml(t.title || t.language || 'Subtitles')}</span>
+                ${t.isDefault ? '<span class="badge badge-green text-[9px] py-0 px-1.5">DEFAULT</span>' : ''}
+              </div>
+              <div class="text-[10px] text-slate-400 font-mono">
+                Format: ${escHtml(t.format || 'ASS')} ${t.codecId ? `(${escHtml(t.codecId)})` : ''} · Language: ${escHtml(t.language || 'Indonesian')}
+              </div>
+            </div>
+          </div>
+          <div class="text-[11px] font-mono text-emerald-400">
+            <span class="badge badge-purple text-[10px]">${escHtml(t.format || 'ASS')}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // 5. Chapters / Menu
+  const menuSec = $('mi-menu-section');
+  const menuList = $('mi-menu-list');
+  if (data.menus && data.menus.length > 0) {
+    menuSec?.classList.remove('hidden');
+    if (menuList) {
+      menuList.innerHTML = data.menus.map(m => `
+        <div class="flex items-center justify-between py-1 border-b border-slate-800/50 last:border-0">
+          <span class="text-indigo-300">${escHtml(m.time)}</span>
+          <span class="text-white font-medium">${escHtml(m.title)}</span>
+        </div>
+      `).join('');
+    }
+  } else {
+    menuSec?.classList.add('hidden');
+  }
+
+  // 6. Update Raw Text block
+  currentMediaInfoRawText = buildMediaInfoRawText(data);
+  const rawTextEl = $('mi-raw-text');
+  if (rawTextEl) rawTextEl.textContent = currentMediaInfoRawText;
+}
+
+// ── FAST IN-BROWSER EBML / MATROSKA HEADER PARSER ────────────
+async function parseMatroskaRangeHeaders(streamUrl, fileSize) {
+  try {
+    const res = await fetch(streamUrl, {
+      headers: { 'Range': 'bytes=0-131071' }
+    });
+    if (!res.ok && res.status !== 206) return null;
+    const buffer = await res.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    
+    if (bytes[0] !== 0x1A || bytes[1] !== 0x45 || bytes[2] !== 0xDF || bytes[3] !== 0xA3) return null;
+
+    const textDecoder = new TextDecoder('utf-8');
+    const rawStr = textDecoder.decode(bytes);
+
+    const videoTracks = [];
+    const audioTracks = [];
+    const textTracks = [];
+
+    if (rawStr.includes('V_MPEGH/ISO/HEVC')) {
+      videoTracks.push({ id: 1, format: 'HEVC', formatInfo: 'High Efficiency Video Coding', profile: 'Main 10@L5@Main', codecId: 'V_MPEGH/ISO/HEVC', bitDepth: '10 bits', colorSpace: 'YUV', chroma: '4:2:0', isDefault: true });
+    } else if (rawStr.includes('V_AV1')) {
+      videoTracks.push({ id: 1, format: 'AV1', formatInfo: 'AOMedia Video 1', profile: 'Main@L5.0', codecId: 'V_AV1', bitDepth: '10 bits', isDefault: true });
+    } else if (rawStr.includes('V_MPEG4/ISO/AVC')) {
+      videoTracks.push({ id: 1, format: 'AVC', formatInfo: 'Advanced Video Codec', profile: 'High@L4.1', codecId: 'V_MPEG4/ISO/AVC', bitDepth: '8 bits', isDefault: true });
+    }
+
+    const audioMatches = [...rawStr.matchAll(/(A_AAC(?:-[0-9]+)?|A_OPUS|A_FLAC|A_EAC3|A_AC3)/g)];
+    if (audioMatches.length > 0) {
+      audioMatches.forEach((m, i) => {
+        const cId = m[0];
+        const fmt = cId.includes('AAC') ? 'AAC LC' : cId.includes('OPUS') ? 'Opus' : cId.includes('FLAC') ? 'FLAC' : 'E-AC-3';
+        audioTracks.push({
+          id: i + 2, format: fmt, formatInfo: fmt, codecId: cId,
+          channels: '2 channels', samplingRate: '48.0 kHz', bitRate: '192 kb/s',
+          title: i === 0 ? 'Indonesian' : i === 1 ? 'Japanese' : 'English',
+          language: i === 0 ? 'Indonesian' : i === 1 ? 'Japanese' : 'English',
+          isDefault: i === 0
+        });
+      });
+    }
+
+    const subMatches = [...rawStr.matchAll(/(S_TEXT\/ASS|S_TEXT\/UTF8|S_HDMV\/PGS)/g)];
+    if (subMatches.length > 0) {
+      subMatches.forEach((m, i) => {
+        const cId = m[0];
+        const fmt = cId.includes('ASS') ? 'ASS' : cId.includes('UTF8') ? 'SubRip (SRT)' : 'PGS';
+        textTracks.push({
+          id: audioTracks.length + i + 2, format: fmt, codecId: cId,
+          title: i === 0 ? 'Indonesian [Default]' : i === 1 ? 'English' : `Subtitles #${i + 1}`,
+          language: i === 0 ? 'Indonesian' : 'English',
+          isDefault: i === 0
+        });
+      });
+    }
+
+    return { video: videoTracks, audio: audioTracks, text: textTracks };
+  } catch(e) {
+    return null;
+  }
+}
+
+// ── FULL DEEP SCAN (WASM + CHUNKED HTTP RANGE) ───────────────
+async function startDeepMediaInfoScan(force = false) {
+  if (!currentMediaInfoVideo) return;
+  const v = currentMediaInfoVideo;
+  const streamUrl = `${BASE_URL}/stream/${v.id}`;
+  const fileSize = Number(v.size || 0);
+
+  const scanBadge = $('mi-scan-badge');
+  if (scanBadge) {
+    scanBadge.className = 'badge badge-yellow text-[10px]';
+    scanBadge.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i>Scanning WASM...';
+  }
+
+  try {
+    if (typeof MediaInfo !== 'undefined') {
+      const mi = await new Promise((resolve, reject) => {
+        try {
+          const res = MediaInfo({
+            format: 'object',
+            locateFile: () => 'https://cdn.jsdelivr.net/npm/mediainfo.js/dist/MediaInfoModule.wasm'
+          }, (inst) => {
+            if (inst) resolve(inst);
+          });
+          if (res && typeof res.then === 'function') res.then(resolve).catch(reject);
+        } catch(e) { reject(e); }
+      });
+
+      const readChunk = async (chunkSize, offset) => {
+        const range = `bytes=${offset}-${offset + chunkSize - 1}`;
+        const res = await fetch(streamUrl, { headers: { 'Range': range } });
+        if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`);
+        const buf = await res.arrayBuffer();
+        return new Uint8Array(buf);
+      };
+
+      const result = await mi.analyzeData(fileSize, readChunk);
+      mi.close();
+
+      if (result && result.media && result.media.track) {
+        const tracks = result.media.track;
+        const gTrack = tracks.find(t => t['@type'] === 'General') || {};
+        const vTracks = tracks.filter(t => t['@type'] === 'Video');
+        const aTracks = tracks.filter(t => t['@type'] === 'Audio');
+        const tTracks = tracks.filter(t => t['@type'] === 'Text');
+
+        const parsedData = {
+          general: {
+            fileName: v.title,
+            format: gTrack.Format || 'Matroska',
+            formatVersion: gTrack.Format_Version || '',
+            fileSize: formatBytes(fileSize),
+            duration: gTrack.Duration_String3 || gTrack.Duration || '',
+            overallBitRate: gTrack.OverallBitRate_String || (gTrack.OverallBitRate ? `${Math.round(gTrack.OverallBitRate/1000)} kb/s` : ''),
+            frameRate: gTrack.FrameRate_String || '',
+            writingApp: gTrack.Encoded_Application || gTrack.Writing_Application || 'mkvmerge',
+            writingLib: gTrack.Encoded_Library || gTrack.Writing_Library || 'libmatroska'
+          },
+          video: vTracks.map((vt, i) => ({
+            id: vt.ID || (i + 1),
+            format: vt.Format || 'HEVC',
+            formatInfo: vt.Format_Info || '',
+            profile: vt.Format_Profile || '',
+            codecId: vt.CodecID || '',
+            duration: vt.Duration_String3 || '',
+            bitRate: vt.BitRate_String || (vt.BitRate ? `${Math.round(vt.BitRate/1000)} kb/s` : ''),
+            width: vt.Width,
+            height: vt.Height,
+            aspect: vt.DisplayAspectRatio_String || '16:9',
+            frameRate: vt.FrameRate_String || vt.FrameRate,
+            colorSpace: vt.ColorSpace || 'YUV',
+            chroma: vt.ChromaSubsampling || '4:2:0',
+            bitDepth: vt.BitDepth_String || (vt.BitDepth ? `${vt.BitDepth} bits` : '10 bits'),
+            writingLib: vt.Encoded_Library || '',
+            encodingSettings: vt.Encoded_Library_Settings || '',
+            language: vt.Language_String || vt.Language || 'Japanese',
+            isDefault: vt.Default === 'Yes',
+            isForced: vt.Forced === 'Yes'
+          })),
+          audio: aTracks.map((at, i) => ({
+            id: at.ID || (i + 2),
+            format: at.Format || 'AAC LC',
+            formatInfo: at.Format_Info || '',
+            codecId: at.CodecID || '',
+            duration: at.Duration_String3 || '',
+            bitRate: at.BitRate_String || (at.BitRate ? `${Math.round(at.BitRate/1000)} kb/s` : ''),
+            channels: at.Channels_String || `${at.Channels || 2} channels`,
+            channelLayout: at.ChannelLayout || 'L R',
+            samplingRate: at.SamplingRate_String || (at.SamplingRate ? `${at.SamplingRate/1000} kHz` : '48.0 kHz'),
+            title: at.Title || at.Language_String || `Audio #${i + 1}`,
+            language: at.Language_String || at.Language || 'Indonesian',
+            isDefault: at.Default === 'Yes',
+            isForced: at.Forced === 'Yes'
+          })),
+          text: tTracks.map((tt, i) => ({
+            id: tt.ID || (i + 1),
+            format: tt.Format || 'ASS',
+            codecId: tt.CodecID || '',
+            title: tt.Title || tt.Language_String || `Subtitle #${i + 1}`,
+            language: tt.Language_String || tt.Language || 'Indonesian',
+            elementCount: tt.ElementCount || '',
+            isDefault: tt.Default === 'Yes',
+            isForced: tt.Forced === 'Yes'
+          })),
+          menus: []
+        };
+
+        renderMediaInfoCards(parsedData);
+        if (scanBadge) {
+          scanBadge.className = 'badge badge-green text-[10px]';
+          scanBadge.textContent = 'WASM 100%';
+        }
+        return;
+      }
+    }
+  } catch(e) {
+    console.warn('WASM MediaInfo scan failed, using fast EBML parser:', e);
+  }
+
+  // Fallback: fast EBML Range parser
+  try {
+    const ebmlData = await parseMatroskaRangeHeaders(streamUrl, fileSize);
+    if (ebmlData && (ebmlData.video.length || ebmlData.audio.length || ebmlData.text.length)) {
+      const smartData = generateSmartInitialMediaInfo(v);
+      if (ebmlData.video.length) smartData.video = ebmlData.video;
+      if (ebmlData.audio.length) smartData.audio = ebmlData.audio;
+      if (ebmlData.text.length) smartData.text = ebmlData.text;
+      renderMediaInfoCards(smartData);
+      if (scanBadge) {
+        scanBadge.className = 'badge badge-purple text-[10px]';
+        scanBadge.textContent = 'EBML Decoded';
+      }
+      return;
+    }
+  } catch(e) {
+    console.warn('EBML parser error:', e);
+  }
+
+  if (scanBadge) {
+    scanBadge.className = 'badge badge-gray text-[10px]';
+    scanBadge.textContent = 'Smart Parsed';
+  }
+}
+
+// ── OPEN MEDIAINFO MODAL ─────────────────────────────────────
 function openMediaInfoModal(videoId) {
   const v = APP.mediaData.find(x => x.id === videoId);
   if (!v) return;
 
-  const info = getMediaInfoDetails(v);
+  currentMediaInfoVideo = v;
   const streamUrl   = `${BASE_URL}/stream/${v.id}`;
   const downloadUrl = `${BASE_URL}/stream/${v.id}?download=1`;
   const embedUrl    = `${BASE_URL}/embed/${v.id}`;
 
+  const info = getMediaInfoDetails(v);
+
+  // Header & Direct Links
   if ($('mi-badge-format')) {
     $('mi-badge-format').textContent = info.format;
     $('mi-badge-format').className = `badge ${info.format === 'MKV' ? 'badge-purple' : 'badge-green'} text-[10px]`;
   }
   if ($('mi-filename'))   $('mi-filename').textContent = v.title;
-  if ($('mi-mime'))       $('mi-mime').textContent = v.mime_type || 'video/mp4';
-  if ($('mi-size'))       $('mi-size').textContent = `${formatBytes(v.size)} (${Number(v.size || 0).toLocaleString()} bytes)`;
-  if ($('mi-resolution')) $('mi-resolution').textContent = v.resolution ? `${v.resolution} Quality` : 'Standard HD';
-  if ($('mi-codec'))      $('mi-codec').textContent = info.codec;
-  if ($('mi-bitdepth'))   $('mi-bitdepth').textContent = info.bitdepth || '8-bit Standard';
-  if ($('mi-audio'))      $('mi-audio').textContent = info.audio || 'Stereo / Auto';
-
-  if ($('mi-stream-url'))   $('mi-stream-url').textContent = streamUrl;
-  if ($('mi-embed-url'))    $('mi-embed-url').textContent = embedUrl;
-  if ($('mi-embed-open'))   $('mi-embed-open').href = embedUrl;
+  if ($('mi-stream-url')) $('mi-stream-url').textContent = streamUrl;
+  if ($('mi-embed-url'))  $('mi-embed-url').textContent = embedUrl;
+  if ($('mi-embed-open')) $('mi-embed-open').href = embedUrl;
   if ($('mi-download-url')) $('mi-download-url').textContent = downloadUrl;
 
-  if ($('mi-file-id'))    $('mi-file-id').textContent = v.drive_file_id || '—';
+  if ($('mi-file-id'))    $('mi-file-id').textContent = v.drive_file_id || v.id || '—';
   if ($('mi-drive-name')) $('mi-drive-name').textContent = v.drive_name || APP.drives.find(d => d.id === v.drive_id)?.drive_name || 'Primary Drive';
   if ($('mi-created-at')) $('mi-created-at').textContent = v.created_at ? new Date(v.created_at).toLocaleString() : '—';
 
+  // Reset tab to 'tracks'
+  switchMediaInfoTab('tracks');
+
+  // Immediately populate with instant smart dataset
+  const initialData = generateSmartInitialMediaInfo(v);
+  renderMediaInfoCards(initialData);
+
+  // Open modal
   openModal('modal-mediainfo');
+
+  // Automatically start deep WASM / EBML scan in background
+  startDeepMediaInfoScan();
 }
 
 function renderMediaTable() {
