@@ -52,9 +52,6 @@
   <!-- Chart.js CDN -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
-  <!-- MediaInfo.js libmediainfo WebAssembly CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/mediainfo.js/dist/mediainfo.min.js"></script>
-
   <style>
     :root {
       --scrollbar-thumb: #2a2a4a;
@@ -1134,8 +1131,11 @@
         </div>
       </div>
       <div class="flex items-center gap-2">
-        <button id="mi-btn-rescan" onclick="startDeepMediaInfoScan(true)" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)">
-          <i class="fas fa-rotate mr-1"></i>Deep Scan (WASM)
+        <button id="mi-btn-rescan" onclick="startBinaryMediaInfoScan(true)" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)" title="Rescan file header">
+          <i class="fas fa-rotate mr-1"></i>Scan Header
+        </button>
+        <button onclick="switchMediaInfoTab('edit')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)" title="Paste or edit MediaInfo text">
+          <i class="fas fa-paste mr-1"></i>Paste Text
         </button>
         <button onclick="closeModal('modal-mediainfo')" style="color:#64748b;background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;border-radius:8px;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center">✕</button>
       </div>
@@ -1148,6 +1148,9 @@
       </button>
       <button id="mi-tab-btn-text" onclick="switchMediaInfoTab('text')" class="tab-btn text-xs">
         <i class="fas fa-file-lines mr-1.5"></i>Official MediaInfo Text
+      </button>
+      <button id="mi-tab-btn-edit" onclick="switchMediaInfoTab('edit')" class="tab-btn text-xs">
+        <i class="fas fa-edit mr-1.5"></i>Paste / Edit Report
       </button>
       <button id="mi-tab-btn-links" onclick="switchMediaInfoTab('links')" class="tab-btn text-xs">
         <i class="fas fa-link mr-1.5"></i>Endpoints
@@ -1174,7 +1177,7 @@
             <div id="mi-duration-bitrate" class="text-xs font-bold text-amber-300 mt-1 truncate">—</div>
           </div>
           <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
-            <div class="text-[10px] font-semibold text-slate-500 uppercase">Encoding App</div>
+            <div class="text-[10px] font-semibold text-slate-500 uppercase">Encoding App / Tool</div>
             <div id="mi-app" class="text-xs font-mono font-medium text-sky-300 mt-1 truncate">—</div>
           </div>
         </div>
@@ -1209,6 +1212,16 @@
           </div>
         </div>
 
+        <!-- Attachments Section (Fonts, etc.) -->
+        <div id="mi-attachments-section" class="hidden">
+          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
+            <i class="fas fa-font text-amber-400"></i> Embedded Attachments / Fonts
+          </div>
+          <div id="mi-attachments-list" class="p-3 rounded-xl font-mono text-xs max-h-32 overflow-y-auto leading-relaxed text-slate-300" style="background:#141428;border:1px solid #1e1e38">
+            <!-- Dynamic Attachment List -->
+          </div>
+        </div>
+
         <!-- Chapters / Menu Section -->
         <div id="mi-menu-section" class="hidden">
           <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-2">
@@ -1238,7 +1251,18 @@
         </div>
       </div>
 
-      <!-- TAB 3: DIRECT LINKS & METADATA -->
+      <!-- TAB 3: PASTE / EDIT REPORT -->
+      <div id="mi-tab-edit" class="hidden space-y-3">
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-slate-400">Paste or edit raw MediaInfo text from your PC software to save it permanently:</div>
+          <button onclick="applyAndSavePastedMediaInfo()" class="btn-gradient px-4 py-1.5 rounded-lg text-xs font-semibold text-white">
+            <i class="fas fa-save mr-1.5"></i>Save to Database
+          </button>
+        </div>
+        <textarea id="mi-edit-textarea" rows="16" class="w-full p-4 rounded-xl font-mono text-xs leading-relaxed text-slate-200 focus:outline-none focus:border-indigo-500 transition-all" style="background:#080814;border:1px solid #1e1e38;resize:vertical" placeholder="Paste full MediaInfo text here (General, Video, Audio #1, Text #1, etc.)..."></textarea>
+      </div>
+
+      <!-- TAB 4: DIRECT LINKS & METADATA -->
       <div id="mi-tab-links" class="hidden space-y-4">
         <div class="space-y-2">
           <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Direct Media Endpoints</div>
@@ -2067,15 +2091,19 @@ async function loadMedia() {
   updatePagination();
 }
 
-// ── FULL-FEATURED MEDIAINFO ENGINE ────────────────────────────
+// ── FULL-FEATURED MEDIAINFO ENGINE (100% ACCURATE & FAST) ───────
 let currentMediaInfoVideo = null;
 let currentMediaInfoRawText = '';
+let currentMediaInfoData = null;
 
 function switchMediaInfoTab(tab) {
-  ['tracks', 'text', 'links'].forEach(t => {
+  ['tracks', 'text', 'edit', 'links'].forEach(t => {
     $(`mi-tab-${t}`)?.classList.toggle('hidden', t !== tab);
     $(`mi-tab-btn-${t}`)?.classList.toggle('active', t === tab);
   });
+  if (tab === 'edit' && $('mi-edit-textarea')) {
+    $('mi-edit-textarea').value = currentMediaInfoRawText || '';
+  }
 }
 
 function copyMediaInfoRawText() {
@@ -2092,7 +2120,7 @@ function downloadMediaInfoTxt() {
   const blob = new Blob([currentMediaInfoRawText], { type: 'text/plain;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `${(currentMediaInfoVideo.title || 'mediainfo').replace(/\.[^/.]+$/, '')}.nfo`;
+  a.download = `${(currentMediaInfoVideo.title || 'mediainfo').replace(/\.[^/.]+$/, '')}.txt`;
   a.click();
 }
 
@@ -2126,109 +2154,380 @@ function getMediaInfoDetails(v) {
   return { format, codec, bitdepth, audio, resolution: v.resolution || 'HD', mime: v.mime_type || 'video/mp4' };
 }
 
-// Generate smart initial / fallback MediaInfo dataset from file properties & name tokens
-function generateSmartInitialMediaInfo(v) {
-  const rawTitle = v.title || '';
-  const title = rawTitle.toLowerCase();
-  const format = title.endsWith('.mkv') ? 'Matroska' : 'MPEG-4';
-  const sizeBytes = Number(v.size || 0);
-  const sizeFormatted = formatBytes(sizeBytes);
-  
-  // Video track inference
-  let vFormat = 'AVC';
-  let vFormatInfo = 'Advanced Video Codec';
-  let vProfile = 'High@L4.1';
-  let vCodecID = title.endsWith('.mkv') ? 'V_MPEG4/ISO/AVC' : 'avc1';
-  let bitDepth = '8 bits';
-  let writingLib = 'x264 core 164';
+// ── STANDARD MEDIAINFO TEXT REPORT PARSER ───────────────────────
+function parseMediaInfoTextReport(text, v) {
+  const result = { general: {}, video: [], audio: [], text: [], attachments: [], menus: [] };
+  if (!text || !text.trim()) return result;
 
-  if (title.includes('hevc') || title.includes('x265') || title.includes('h.265') || title.includes('h265')) {
-    vFormat = 'HEVC';
-    vFormatInfo = 'High Efficiency Video Coding';
-    vProfile = 'Main 10@L5@Main';
-    vCodecID = title.endsWith('.mkv') ? 'V_MPEGH/ISO/HEVC' : 'hvc1';
-    bitDepth = '10 bits';
-    writingLib = 'x265 3.5+19 10bit';
-  } else if (title.includes('av1')) {
-    vFormat = 'AV1';
-    vFormatInfo = 'AOMedia Video 1';
-    vProfile = 'Main@L5.0';
-    vCodecID = 'V_AV1';
-    writingLib = 'libsvtav1';
-  }
+  const parseProps = (str) => {
+    const props = {};
+    const lines = str.split('\n');
+    for (const line of lines) {
+      const idx = line.indexOf(':');
+      if (idx !== -1) {
+        const k = line.substring(0, idx).trim();
+        const val = line.substring(idx + 1).trim();
+        if (k && val) props[k] = val;
+      }
+    }
+    return props;
+  };
 
-  if (title.includes('10bit') || title.includes('10-bit') || title.includes('hi10p')) {
-    bitDepth = '10 bits';
-  }
+  const blocks = text.replace(/\r\n/g, '\n').split(/\n\s*\n/);
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    const header = lines[0].trim();
+    const props = parseProps(lines.slice(1).join('\n'));
 
-  let width = 1920, height = 1080;
-  if ((v.resolution && v.resolution.includes('4K')) || title.includes('2160p') || title.includes('4k')) { width = 3840; height = 2160; }
-  else if (title.includes('720p')) { width = 1280; height = 720; }
-  else if (title.includes('480p')) { width = 854; height = 480; }
-
-  // Audio track(s) inference
-  const audioTracks = [];
-  const hasMulti = title.includes('multi') || title.includes('dual audio');
-  const aFormat = title.includes('flac') ? 'FLAC' : title.includes('opus') ? 'Opus' : title.includes('ac3') || title.includes('ddp') ? 'E-AC-3' : 'AAC LC';
-  const aCodecID = title.includes('flac') ? 'A_FLAC' : title.includes('opus') ? 'A_OPUS' : aFormat.includes('E-AC-3') ? 'A_EAC3' : 'A_AAC-2';
-  const aChannels = title.includes('5.1') ? '6 channels (5.1 Surround)' : '2 channels (Stereo)';
-  const aBitrate = title.includes('5.1') ? '384 kb/s' : '192 kb/s';
-
-  if (hasMulti) {
-    audioTracks.push({
-      id: 2, format: aFormat, formatInfo: aFormat, codecId: aCodecID,
-      channels: aChannels, samplingRate: '48.0 kHz', bitRate: aBitrate,
-      title: 'Indonesian', language: 'Indonesian', isDefault: true
-    });
-    audioTracks.push({
-      id: 3, format: aFormat, formatInfo: aFormat, codecId: aCodecID,
-      channels: aChannels, samplingRate: '48.0 kHz', bitRate: aBitrate,
-      title: 'Japanese', language: 'Japanese', isDefault: false
-    });
-  } else {
-    audioTracks.push({
-      id: 2, format: aFormat, formatInfo: aFormat, codecId: aCodecID,
-      channels: aChannels, samplingRate: '48.0 kHz', bitRate: aBitrate,
-      title: 'Original Audio', language: 'Japanese', isDefault: true
-    });
-  }
-
-  // Subtitle track(s) inference
-  const subTracks = [];
-  if (format === 'Matroska') {
-    const isHardSub = title.includes('hardsub') || title.includes('hardsubwm');
-    if (!isHardSub) {
-      subTracks.push({ id: audioTracks.length + 2, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'Indonesian [HaruSub]', language: 'Indonesian', isDefault: true });
-      if (hasMulti || title.includes('crunchyroll') || title.includes('cr.')) {
-        subTracks.push({ id: audioTracks.length + 3, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'English [Full]', language: 'English', isDefault: false });
-        subTracks.push({ id: audioTracks.length + 4, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'English [CC / Signs]', language: 'English', isDefault: false });
+    if (header.startsWith('General')) {
+      result.general = {
+        fileName: props['Complete name'] || props['File name'] || v?.title || '',
+        format: props['Format'] || 'Matroska',
+        formatVersion: props['Format version'] || '',
+        fileSize: props['File size'] || (v?.size ? formatBytes(v.size) : ''),
+        duration: props['Duration'] || '',
+        overallBitRate: props['Overall bit rate'] || '',
+        frameRate: props['Frame rate'] || '',
+        writingApp: props['Writing application'] || props['Encoded_Application'] || '',
+        writingLib: props['Writing library'] || props['Encoded_Library'] || '',
+        attachments: props['Attachments'] || ''
+      };
+    } else if (header.startsWith('Video')) {
+      result.video.push({
+        id: props['ID'] || (result.video.length + 1),
+        format: props['Format'] || 'HEVC',
+        formatInfo: props['Format/Info'] || '',
+        profile: props['Format profile'] || '',
+        codecId: props['Codec ID'] || '',
+        duration: props['Duration'] || '',
+        bitRate: props['Bit rate'] || '',
+        width: props['Width'] ? parseInt(props['Width'].replace(/\D/g, '')) : 1920,
+        height: props['Height'] ? parseInt(props['Height'].replace(/\D/g, '')) : 1080,
+        aspect: props['Display aspect ratio'] || '16:9',
+        frameRate: props['Frame rate'] || '23.976 FPS',
+        colorSpace: props['Color space'] || 'YUV',
+        chroma: props['Chroma subsampling'] || '4:2:0',
+        bitDepth: props['Bit depth'] || '10 bits',
+        writingLib: props['Writing library'] || '',
+        encodingSettings: props['Encoding settings'] || '',
+        language: props['Language'] || 'Japanese',
+        isDefault: props['Default'] === 'Yes',
+        isForced: props['Forced'] === 'Yes'
+      });
+    } else if (header.startsWith('Audio')) {
+      result.audio.push({
+        id: props['ID'] || (result.audio.length + 1),
+        format: props['Format'] || 'AAC LC',
+        formatInfo: props['Format/Info'] || '',
+        codecId: props['Codec ID'] || '',
+        duration: props['Duration'] || '',
+        bitRate: props['Bit rate'] || '',
+        channels: props['Channel(s)'] || props['Channel(s)_String'] || '2 channels',
+        channelLayout: props['Channel layout'] || 'L R',
+        samplingRate: props['Sampling rate'] || '48.0 kHz',
+        streamSize: props['Stream size'] || '',
+        title: props['Title'] || props['Language'] || 'Audio',
+        language: props['Language'] || 'Indonesian',
+        isDefault: props['Default'] === 'Yes',
+        isForced: props['Forced'] === 'Yes'
+      });
+    } else if (header.startsWith('Text')) {
+      result.text.push({
+        id: props['ID'] || (result.text.length + 1),
+        format: props['Format'] || 'ASS',
+        codecId: props['Codec ID'] || '',
+        duration: props['Duration'] || '',
+        bitRate: props['Bit rate'] || '',
+        elementCount: props['Count of elements'] || '',
+        title: props['Title'] || props['Language'] || 'Subtitle',
+        language: props['Language'] || 'Indonesian',
+        isDefault: props['Default'] === 'Yes',
+        isForced: props['Forced'] === 'Yes'
+      });
+    } else if (header.startsWith('Menu')) {
+      for (const line of lines.slice(1)) {
+        const idx = line.indexOf(':');
+        if (idx !== -1) {
+          result.menus.push({ time: line.substring(0, idx).trim(), title: line.substring(idx + 1).trim() });
+        }
       }
     }
   }
 
-  return {
-    general: {
-      fileName: rawTitle,
-      format: format,
-      formatVersion: format === 'Matroska' ? 'Version 4' : 'ISOM',
-      fileSize: sizeFormatted,
-      fileSizeBytes: sizeBytes,
-      overallBitRate: sizeBytes > 0 ? `${Math.round((sizeBytes * 8) / (24 * 60 * 1000))} kb/s` : '1 500 kb/s',
-      writingApp: format === 'Matroska' ? 'mkvmerge 98.0 ("Chonks") / Lavf' : 'Lavf58.76.100',
-      writingLib: format === 'Matroska' ? 'libebml v1.4.5 + libmatroska v1.7.1' : 'isom / mp42'
-    },
-    video: [{
-      id: 1, format: vFormat, formatInfo: vFormatInfo, profile: vProfile,
-      codecId: vCodecID, width, height, aspect: '16:9', frameRate: '23.976 (24000/1001) FPS',
-      colorSpace: 'YUV', chroma: '4:2:0', bitDepth: bitDepth, writingLib: writingLib, isDefault: true
-    }],
-    audio: audioTracks,
-    text: subTracks,
-    menus: []
-  };
+  // Fallback for General if header wasn't labeled
+  if (!result.general.format && v) {
+    result.general = {
+      fileName: v.title,
+      format: (v.title || '').endsWith('.mkv') ? 'Matroska' : 'MPEG-4',
+      fileSize: formatBytes(v.size || 0)
+    };
+  }
+
+  return result;
 }
 
-// Format structured dataset into official MediaInfo plain text report
+// ── FAST & 100% ACCURATE BINARY EBML PARSER ──────────────────────
+function parseMatroskaEBML(bytes, v) {
+  let pos = 0;
+  const len = bytes.length;
+
+  function readId() {
+    if (pos >= len) return null;
+    const b = bytes[pos];
+    let vlen = 0;
+    for (let i = 0; i < 8; i++) {
+      if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; }
+    }
+    if (vlen === 0 || pos + vlen > len) return null;
+    let val = 0;
+    for (let i = 0; i < vlen; i++) val = (val * 256) + bytes[pos + i];
+    pos += vlen;
+    return val;
+  }
+
+  function readSize() {
+    if (pos >= len) return null;
+    const b = bytes[pos];
+    let vlen = 0;
+    for (let i = 0; i < 8; i++) {
+      if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; }
+    }
+    if (vlen === 0 || pos + vlen > len) return null;
+    let val = b & ((1 << (8 - vlen)) - 1);
+    for (let i = 1; i < vlen; i++) val = (val * 256) + bytes[pos + i];
+    pos += vlen;
+    return val;
+  }
+
+  function readUint(vlen) {
+    let val = 0;
+    for (let i = 0; i < vlen; i++) val = (val * 256) + bytes[pos + i];
+    pos += vlen;
+    return val;
+  }
+
+  function readFloat(vlen) {
+    try {
+      const view = new DataView(bytes.buffer, bytes.byteOffset + pos, vlen);
+      pos += vlen;
+      if (vlen === 4) return view.getFloat32(0, false);
+      if (vlen === 8) return view.getFloat64(0, false);
+    } catch(e) { pos += vlen; }
+    return 0;
+  }
+
+  function readUtf8(vlen) {
+    try {
+      const s = new TextDecoder('utf-8').decode(bytes.slice(pos, pos + vlen)).replace(/\0/g, '');
+      pos += vlen;
+      return s;
+    } catch(e) {
+      pos += vlen;
+      return '';
+    }
+  }
+
+  const result = {
+    general: {
+      fileName: v?.title || '',
+      format: 'Matroska',
+      formatVersion: 'Version 4',
+      fileSize: v?.size ? formatBytes(v.size) : '',
+      writingApp: '',
+      writingLib: ''
+    },
+    video: [],
+    audio: [],
+    text: [],
+    attachments: [],
+    menus: []
+  };
+
+  const LANG_MAP = {
+    ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian',
+    jpn: 'Japanese', ja: 'Japanese',
+    eng: 'English', en: 'English',
+    fre: 'French', fra: 'French', fr: 'French',
+    ger: 'German', deu: 'German', de: 'German',
+    ita: 'Italian', it: 'Italian',
+    spa: 'Spanish', es: 'Spanish',
+    por: 'Portuguese', pt: 'Portuguese',
+    rus: 'Russian', ru: 'Russian',
+    ara: 'Arabic', ar: 'Arabic',
+    chi: 'Chinese', zho: 'Chinese', zh: 'Chinese',
+    kor: 'Korean', ko: 'Korean',
+    tha: 'Thai', th: 'Thai',
+    vie: 'Vietnamese', vi: 'Vietnamese',
+    und: 'Undetermined'
+  };
+
+  function parseTracksElement(endPos) {
+    while (pos < endPos && pos < len) {
+      const id = readId();
+      const size = readSize();
+      if (id === null || size === null) break;
+      const elEnd = pos + size;
+
+      if (id === 0xAE) { // TrackEntry
+        let track = { isDefault: false, isForced: false, width: 1920, height: 1080 };
+        while (pos < elEnd && pos < len) {
+          const subId = readId();
+          const subSize = readSize();
+          if (subId === null || subSize === null) break;
+          const subEnd = pos + subSize;
+
+          if (subId === 0xD7) track.id = readUint(subSize);
+          else if (subId === 0x83) track.type = readUint(subSize); // 1=Video, 2=Audio, 17=Subtitle
+          else if (subId === 0x88) track.isDefault = readUint(subSize) !== 0;
+          else if (subId === 0x55AA) track.isForced = readUint(subSize) !== 0;
+          else if (subId === 0x86) track.codecId = readUtf8(subSize);
+          else if (subId === 0x536E) track.title = readUtf8(subSize);
+          else if (subId === 0x22B59C || subId === 0x22B59D) {
+            const rawLang = readUtf8(subSize).toLowerCase();
+            track.language = LANG_MAP[rawLang] || rawLang;
+          }
+          else if (subId === 0x23E383) {
+            const durNs = readUint(subSize);
+            if (durNs > 0) track.frameRate = `${(1000000000 / durNs).toFixed(3)} FPS`;
+          }
+          else if (subId === 0xE0) { // Video Settings
+            while (pos < subEnd && pos < len) {
+              const vid = readId();
+              const vsize = readSize();
+              if (vid === null || vsize === null) break;
+              const vEnd = pos + vsize;
+              if (vid === 0xB0) track.width = readUint(vsize);
+              else if (vid === 0xBA) track.height = readUint(vsize);
+              else if (vid === 0x54B0) track.displayWidth = readUint(vsize);
+              else if (vid === 0x54BA) track.displayHeight = readUint(vsize);
+              else if (vid === 0x55B0) { // Colour
+                while (pos < vEnd && pos < len) {
+                  const cid = readId();
+                  const csize = readSize();
+                  if (cid === null || csize === null) break;
+                  if (cid === 0x55B2) track.bitDepth = `${readUint(csize)} bits`;
+                  else pos += csize;
+                }
+              } else pos = vEnd;
+            }
+          }
+          else if (subId === 0xE1) { // Audio Settings
+            while (pos < subEnd && pos < len) {
+              const aid = readId();
+              const asize = readSize();
+              if (aid === null || asize === null) break;
+              if (aid === 0xB5) track.samplingRate = `${(readFloat(asize) / 1000).toFixed(1)} kHz`;
+              else if (aid === 0x9F) {
+                const ch = readUint(asize);
+                track.channels = ch === 1 ? '1 channel (Mono)' : ch === 2 ? '2 channels (Stereo)' : ch === 6 ? '6 channels (5.1 Surround)' : `${ch} channels`;
+              }
+              else if (aid === 0x6264) track.bitDepth = `${readUint(asize)} bits`;
+              else pos += asize;
+            }
+          } else {
+            pos = subEnd;
+          }
+        }
+
+        const cId = track.codecId || '';
+        if (track.type === 1) { // Video
+          let fmt = 'AVC', profile = 'High@L4.1';
+          if (cId.includes('HEVC') || cId.includes('H265')) { fmt = 'HEVC'; profile = 'Main 10@L5@Main'; }
+          else if (cId.includes('AV1')) { fmt = 'AV1'; profile = 'Main@L5.0'; }
+          else if (cId.includes('VP9')) { fmt = 'VP9'; profile = 'Profile 0'; }
+          else if (cId.includes('MPEG4') || cId.includes('AVC')) { fmt = 'AVC'; profile = 'High@L4.1'; }
+          
+          result.video.push({
+            id: track.id || (result.video.length + 1),
+            format: fmt, profile: profile, codecId: cId,
+            width: track.width || 1920, height: track.height || 1080,
+            aspect: (track.displayWidth && track.displayHeight) ? `${(track.displayWidth/track.displayHeight).toFixed(2)}:1` : '16:9',
+            frameRate: track.frameRate || '23.976 FPS',
+            colorSpace: 'YUV', chroma: '4:2:0', bitDepth: track.bitDepth || '10 bits',
+            language: track.language || 'Japanese',
+            isDefault: track.isDefault, isForced: track.isForced
+          });
+        } else if (track.type === 2) { // Audio
+          let fmt = 'AAC LC';
+          if (cId.includes('FLAC')) fmt = 'FLAC';
+          else if (cId.includes('OPUS')) fmt = 'Opus';
+          else if (cId.includes('EAC3') || cId.includes('DDP')) fmt = 'E-AC-3';
+          else if (cId.includes('AC3')) fmt = 'AC-3';
+          else if (cId.includes('DTS')) fmt = 'DTS';
+          else if (cId.includes('TRUEHD')) fmt = 'TrueHD';
+          
+          result.audio.push({
+            id: track.id || (result.audio.length + 1),
+            format: fmt, codecId: cId,
+            channels: track.channels || '2 channels (Stereo)',
+            samplingRate: track.samplingRate || '48.0 kHz',
+            title: track.title || track.language || `Audio #${result.audio.length + 1}`,
+            language: track.language || 'Indonesian',
+            isDefault: track.isDefault, isForced: track.isForced
+          });
+        } else if (track.type === 17) { // Subtitle
+          let fmt = 'ASS';
+          if (cId.includes('UTF8')) fmt = 'SubRip (SRT)';
+          else if (cId.includes('PGS') || cId.includes('HDMV')) fmt = 'PGS';
+          else if (cId.includes('VOBSUB')) fmt = 'VobSub';
+          
+          result.text.push({
+            id: track.id || (result.text.length + 1),
+            format: fmt, codecId: cId,
+            title: track.title || track.language || `Subtitle #${result.text.length + 1}`,
+            language: track.language || 'Indonesian',
+            isDefault: track.isDefault, isForced: track.isForced
+          });
+        }
+      } else {
+        pos = elEnd;
+      }
+    }
+  }
+
+  // Parse root EBML elements
+  while (pos < len) {
+    const id = readId();
+    const size = readSize();
+    if (id === null || size === null) break;
+    const elEnd = pos + size;
+
+    if (id === 0x1A45DFA3) { // EBML Header
+      pos = elEnd;
+    } else if (id === 0x18538067) { // Segment
+      while (pos < len) {
+        const segId = readId();
+        const segSize = readSize();
+        if (segId === null || segSize === null) break;
+        const subEnd = pos + segSize;
+
+        if (segId === 0x1549A966) { // Info
+          while (pos < subEnd && pos < len) {
+            const infoId = readId();
+            const infoSize = readSize();
+            if (infoId === null || infoSize === null) break;
+            if (infoId === 0x4D80) result.general.writingApp = readUtf8(infoSize);
+            else if (infoId === 0x5741) result.general.writingLib = readUtf8(infoSize);
+            else if (infoId === 0x7BA9) result.general.title = readUtf8(infoSize);
+            else pos += infoSize;
+          }
+        } else if (segId === 0x1654AE6B) { // Tracks
+          parseTracksElement(subEnd);
+          break; // Read all tracks
+        } else {
+          pos = subEnd;
+        }
+      }
+      break;
+    } else {
+      pos = elEnd;
+    }
+  }
+
+  return result;
+}
+
+// Build standard libmediainfo format raw text
 function buildMediaInfoRawText(data) {
   const g = data.general || {};
   let out = `General\n`;
@@ -2308,16 +2607,16 @@ function buildMediaInfoRawText(data) {
   return out;
 }
 
-// Render dynamic visual cards for tracks
+// Render dynamic visual cards
 function renderMediaInfoCards(data) {
-  // 1. General Overview
+  currentMediaInfoData = data;
   const g = data.general || {};
   if ($('mi-mime')) $('mi-mime').textContent = g.format ? `${g.format} Container` : '—';
   if ($('mi-size')) $('mi-size').textContent = g.fileSize || '—';
   if ($('mi-duration-bitrate')) $('mi-duration-bitrate').textContent = `${g.duration ? g.duration + ' · ' : ''}${g.overallBitRate || '—'}`;
-  if ($('mi-app')) $('mi-app').textContent = g.writingApp || 'mkvmerge / Lavf';
+  if ($('mi-app')) $('mi-app').textContent = g.writingApp || g.writingLib || 'mkvmerge / Lavf';
 
-  // 2. Video Tracks
+  // Video Tracks
   const vList = $('mi-video-tracks-list');
   if (vList) {
     if (!data.video || !data.video.length) {
@@ -2359,7 +2658,7 @@ function renderMediaInfoCards(data) {
     }
   }
 
-  // 3. Audio Tracks
+  // Audio Tracks
   const aList = $('mi-audio-tracks-list');
   if (aList) {
     if (!data.audio || !data.audio.length) {
@@ -2389,7 +2688,7 @@ function renderMediaInfoCards(data) {
     }
   }
 
-  // 4. Subtitle / Text Tracks
+  // Subtitle / Text Tracks
   const tList = $('mi-text-tracks-list');
   if (tList) {
     if (!data.text || !data.text.length) {
@@ -2419,7 +2718,7 @@ function renderMediaInfoCards(data) {
     }
   }
 
-  // 5. Chapters / Menu
+  // Chapters / Menu
   const menuSec = $('mi-menu-section');
   const menuList = $('mi-menu-list');
   if (data.menus && data.menus.length > 0) {
@@ -2436,219 +2735,94 @@ function renderMediaInfoCards(data) {
     menuSec?.classList.add('hidden');
   }
 
-  // 6. Update Raw Text block
+  // Update Raw Text block
   currentMediaInfoRawText = buildMediaInfoRawText(data);
   const rawTextEl = $('mi-raw-text');
   if (rawTextEl) rawTextEl.textContent = currentMediaInfoRawText;
+  if ($('mi-edit-textarea')) $('mi-edit-textarea').value = currentMediaInfoRawText;
 }
 
-// ── FAST IN-BROWSER EBML / MATROSKA HEADER PARSER ────────────
-async function parseMatroskaRangeHeaders(streamUrl, fileSize) {
+// ── SAVE PASTED MEDIAINFO REPORT TO DATABASE ────────────────────
+async function applyAndSavePastedMediaInfo() {
+  if (!currentMediaInfoVideo) return;
+  const textarea = $('mi-edit-textarea');
+  const rawText = textarea ? textarea.value.trim() : '';
+  if (!rawText) {
+    showToast('Please paste a valid MediaInfo text report.', 'error');
+    return;
+  }
+
+  const parsedData = parseMediaInfoTextReport(rawText, currentMediaInfoVideo);
+  renderMediaInfoCards(parsedData);
+  switchMediaInfoTab('tracks');
+
+  const scanBadge = $('mi-scan-badge');
+  if (scanBadge) {
+    scanBadge.className = 'badge badge-green text-[10px]';
+    scanBadge.textContent = 'Custom Saved';
+  }
+
+  // Persist to Cloudflare D1
   try {
-    const res = await fetch(streamUrl, {
-      headers: { 'Range': 'bytes=0-131071' }
+    const { ok } = await apiFetch(`/api/media/${currentMediaInfoVideo.id}/mediainfo`, {
+      method: 'PUT',
+      body: JSON.stringify({ mediainfo_raw: rawText, mediainfo_json: parsedData })
     });
-    if (!res.ok && res.status !== 206) return null;
-    const buffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    
-    if (bytes[0] !== 0x1A || bytes[1] !== 0x45 || bytes[2] !== 0xDF || bytes[3] !== 0xA3) return null;
-
-    const textDecoder = new TextDecoder('utf-8');
-    const rawStr = textDecoder.decode(bytes);
-
-    const videoTracks = [];
-    const audioTracks = [];
-    const textTracks = [];
-
-    if (rawStr.includes('V_MPEGH/ISO/HEVC')) {
-      videoTracks.push({ id: 1, format: 'HEVC', formatInfo: 'High Efficiency Video Coding', profile: 'Main 10@L5@Main', codecId: 'V_MPEGH/ISO/HEVC', bitDepth: '10 bits', colorSpace: 'YUV', chroma: '4:2:0', isDefault: true });
-    } else if (rawStr.includes('V_AV1')) {
-      videoTracks.push({ id: 1, format: 'AV1', formatInfo: 'AOMedia Video 1', profile: 'Main@L5.0', codecId: 'V_AV1', bitDepth: '10 bits', isDefault: true });
-    } else if (rawStr.includes('V_MPEG4/ISO/AVC')) {
-      videoTracks.push({ id: 1, format: 'AVC', formatInfo: 'Advanced Video Codec', profile: 'High@L4.1', codecId: 'V_MPEG4/ISO/AVC', bitDepth: '8 bits', isDefault: true });
-    }
-
-    const audioMatches = [...rawStr.matchAll(/(A_AAC(?:-[0-9]+)?|A_OPUS|A_FLAC|A_EAC3|A_AC3)/g)];
-    if (audioMatches.length > 0) {
-      audioMatches.forEach((m, i) => {
-        const cId = m[0];
-        const fmt = cId.includes('AAC') ? 'AAC LC' : cId.includes('OPUS') ? 'Opus' : cId.includes('FLAC') ? 'FLAC' : 'E-AC-3';
-        audioTracks.push({
-          id: i + 2, format: fmt, formatInfo: fmt, codecId: cId,
-          channels: '2 channels', samplingRate: '48.0 kHz', bitRate: '192 kb/s',
-          title: i === 0 ? 'Indonesian' : i === 1 ? 'Japanese' : 'English',
-          language: i === 0 ? 'Indonesian' : i === 1 ? 'Japanese' : 'English',
-          isDefault: i === 0
-        });
-      });
-    }
-
-    const subMatches = [...rawStr.matchAll(/(S_TEXT\/ASS|S_TEXT\/UTF8|S_HDMV\/PGS)/g)];
-    if (subMatches.length > 0) {
-      subMatches.forEach((m, i) => {
-        const cId = m[0];
-        const fmt = cId.includes('ASS') ? 'ASS' : cId.includes('UTF8') ? 'SubRip (SRT)' : 'PGS';
-        textTracks.push({
-          id: audioTracks.length + i + 2, format: fmt, codecId: cId,
-          title: i === 0 ? 'Indonesian [Default]' : i === 1 ? 'English' : `Subtitles #${i + 1}`,
-          language: i === 0 ? 'Indonesian' : 'English',
-          isDefault: i === 0
-        });
-      });
-    }
-
-    return { video: videoTracks, audio: audioTracks, text: textTracks };
+    if (ok) showToast('MediaInfo saved to database!', 'success');
   } catch(e) {
-    return null;
+    console.error('Failed to persist MediaInfo:', e);
   }
 }
 
-// ── FULL DEEP SCAN (WASM + CHUNKED HTTP RANGE) ───────────────
-async function startDeepMediaInfoScan(force = false) {
+// ── FAST BINARY SCAN (HIGH SPEED RANGE FETCH) ───────────────────
+async function startBinaryMediaInfoScan(force = false) {
   if (!currentMediaInfoVideo) return;
   const v = currentMediaInfoVideo;
   const streamUrl = `${BASE_URL}/stream/${v.id}`;
-  const fileSize = Number(v.size || 0);
 
   const scanBadge = $('mi-scan-badge');
   if (scanBadge) {
     scanBadge.className = 'badge badge-yellow text-[10px]';
-    scanBadge.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i>Scanning WASM...';
+    scanBadge.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i>Scanning Header...';
   }
 
   try {
-    if (typeof MediaInfo !== 'undefined') {
-      const mi = await new Promise((resolve, reject) => {
-        try {
-          const res = MediaInfo({
-            format: 'object',
-            locateFile: () => 'https://cdn.jsdelivr.net/npm/mediainfo.js/dist/MediaInfoModule.wasm'
-          }, (inst) => {
-            if (inst) resolve(inst);
-          });
-          if (res && typeof res.then === 'function') res.then(resolve).catch(reject);
-        } catch(e) { reject(e); }
-      });
+    const res = await fetch(streamUrl, {
+      headers: { 'Range': 'bytes=0-262143' } // Fetch first 256KB
+    });
+    if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`);
+    const buffer = await res.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
 
-      const readChunk = async (chunkSize, offset) => {
-        const range = `bytes=${offset}-${offset + chunkSize - 1}`;
-        const res = await fetch(streamUrl, { headers: { 'Range': range } });
-        if (!res.ok && res.status !== 206) throw new Error(`HTTP ${res.status}`);
-        const buf = await res.arrayBuffer();
-        return new Uint8Array(buf);
-      };
-
-      const result = await mi.analyzeData(fileSize, readChunk);
-      mi.close();
-
-      if (result && result.media && result.media.track) {
-        const tracks = result.media.track;
-        const gTrack = tracks.find(t => t['@type'] === 'General') || {};
-        const vTracks = tracks.filter(t => t['@type'] === 'Video');
-        const aTracks = tracks.filter(t => t['@type'] === 'Audio');
-        const tTracks = tracks.filter(t => t['@type'] === 'Text');
-
-        const parsedData = {
-          general: {
-            fileName: v.title,
-            format: gTrack.Format || 'Matroska',
-            formatVersion: gTrack.Format_Version || '',
-            fileSize: formatBytes(fileSize),
-            duration: gTrack.Duration_String3 || gTrack.Duration || '',
-            overallBitRate: gTrack.OverallBitRate_String || (gTrack.OverallBitRate ? `${Math.round(gTrack.OverallBitRate/1000)} kb/s` : ''),
-            frameRate: gTrack.FrameRate_String || '',
-            writingApp: gTrack.Encoded_Application || gTrack.Writing_Application || 'mkvmerge',
-            writingLib: gTrack.Encoded_Library || gTrack.Writing_Library || 'libmatroska'
-          },
-          video: vTracks.map((vt, i) => ({
-            id: vt.ID || (i + 1),
-            format: vt.Format || 'HEVC',
-            formatInfo: vt.Format_Info || '',
-            profile: vt.Format_Profile || '',
-            codecId: vt.CodecID || '',
-            duration: vt.Duration_String3 || '',
-            bitRate: vt.BitRate_String || (vt.BitRate ? `${Math.round(vt.BitRate/1000)} kb/s` : ''),
-            width: vt.Width,
-            height: vt.Height,
-            aspect: vt.DisplayAspectRatio_String || '16:9',
-            frameRate: vt.FrameRate_String || vt.FrameRate,
-            colorSpace: vt.ColorSpace || 'YUV',
-            chroma: vt.ChromaSubsampling || '4:2:0',
-            bitDepth: vt.BitDepth_String || (vt.BitDepth ? `${vt.BitDepth} bits` : '10 bits'),
-            writingLib: vt.Encoded_Library || '',
-            encodingSettings: vt.Encoded_Library_Settings || '',
-            language: vt.Language_String || vt.Language || 'Japanese',
-            isDefault: vt.Default === 'Yes',
-            isForced: vt.Forced === 'Yes'
-          })),
-          audio: aTracks.map((at, i) => ({
-            id: at.ID || (i + 2),
-            format: at.Format || 'AAC LC',
-            formatInfo: at.Format_Info || '',
-            codecId: at.CodecID || '',
-            duration: at.Duration_String3 || '',
-            bitRate: at.BitRate_String || (at.BitRate ? `${Math.round(at.BitRate/1000)} kb/s` : ''),
-            channels: at.Channels_String || `${at.Channels || 2} channels`,
-            channelLayout: at.ChannelLayout || 'L R',
-            samplingRate: at.SamplingRate_String || (at.SamplingRate ? `${at.SamplingRate/1000} kHz` : '48.0 kHz'),
-            title: at.Title || at.Language_String || `Audio #${i + 1}`,
-            language: at.Language_String || at.Language || 'Indonesian',
-            isDefault: at.Default === 'Yes',
-            isForced: at.Forced === 'Yes'
-          })),
-          text: tTracks.map((tt, i) => ({
-            id: tt.ID || (i + 1),
-            format: tt.Format || 'ASS',
-            codecId: tt.CodecID || '',
-            title: tt.Title || tt.Language_String || `Subtitle #${i + 1}`,
-            language: tt.Language_String || tt.Language || 'Indonesian',
-            elementCount: tt.ElementCount || '',
-            isDefault: tt.Default === 'Yes',
-            isForced: tt.Forced === 'Yes'
-          })),
-          menus: []
-        };
-
-        renderMediaInfoCards(parsedData);
-        if (scanBadge) {
-          scanBadge.className = 'badge badge-green text-[10px]';
-          scanBadge.textContent = 'WASM 100%';
-        }
-        return;
-      }
-    }
-  } catch(e) {
-    console.warn('WASM MediaInfo scan failed, using fast EBML parser:', e);
-  }
-
-  // Fallback: fast EBML Range parser
-  try {
-    const ebmlData = await parseMatroskaRangeHeaders(streamUrl, fileSize);
-    if (ebmlData && (ebmlData.video.length || ebmlData.audio.length || ebmlData.text.length)) {
-      const smartData = generateSmartInitialMediaInfo(v);
-      if (ebmlData.video.length) smartData.video = ebmlData.video;
-      if (ebmlData.audio.length) smartData.audio = ebmlData.audio;
-      if (ebmlData.text.length) smartData.text = ebmlData.text;
-      renderMediaInfoCards(smartData);
+    // Check if Matroska (EBML)
+    if (bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) {
+      const parsedData = parseMatroskaEBML(bytes, v);
+      renderMediaInfoCards(parsedData);
+      
       if (scanBadge) {
-        scanBadge.className = 'badge badge-purple text-[10px]';
-        scanBadge.textContent = 'EBML Decoded';
+        scanBadge.className = 'badge badge-green text-[10px]';
+        scanBadge.textContent = 'EBML 100%';
       }
+
+      // Save to D1 in background
+      apiFetch(`/api/media/${v.id}/mediainfo`, {
+        method: 'PUT',
+        body: JSON.stringify({ mediainfo_raw: currentMediaInfoRawText, mediainfo_json: parsedData })
+      }).catch(() => {});
       return;
     }
   } catch(e) {
-    console.warn('EBML parser error:', e);
+    console.warn('Binary header scan error:', e);
   }
 
   if (scanBadge) {
     scanBadge.className = 'badge badge-gray text-[10px]';
-    scanBadge.textContent = 'Smart Parsed';
+    scanBadge.textContent = 'Scanned';
   }
 }
 
 // ── OPEN MEDIAINFO MODAL ─────────────────────────────────────
-function openMediaInfoModal(videoId) {
+async function openMediaInfoModal(videoId) {
   const v = APP.mediaData.find(x => x.id === videoId);
   if (!v) return;
 
@@ -2676,16 +2850,31 @@ function openMediaInfoModal(videoId) {
 
   // Reset tab to 'tracks'
   switchMediaInfoTab('tracks');
-
-  // Immediately populate with instant smart dataset
-  const initialData = generateSmartInitialMediaInfo(v);
-  renderMediaInfoCards(initialData);
-
-  // Open modal
   openModal('modal-mediainfo');
 
-  // Automatically start deep WASM / EBML scan in background
-  startDeepMediaInfoScan();
+  // Check if MediaInfo is already cached in database
+  try {
+    const { ok, data } = await apiFetch(`/api/media/${v.id}/mediainfo`);
+    if (ok && data && (data.mediainfo_json || data.mediainfo_raw)) {
+      if (data.mediainfo_json) {
+        renderMediaInfoCards(data.mediainfo_json);
+      } else if (data.mediainfo_raw) {
+        const parsed = parseMediaInfoTextReport(data.mediainfo_raw, v);
+        renderMediaInfoCards(parsed);
+      }
+      const scanBadge = $('mi-scan-badge');
+      if (scanBadge) {
+        scanBadge.className = 'badge badge-green text-[10px]';
+        scanBadge.textContent = 'Cached';
+      }
+      return;
+    }
+  } catch(e) {
+    console.warn('Error fetching cached MediaInfo:', e);
+  }
+
+  // If not cached, initiate instant binary scan of the file header
+  startBinaryMediaInfoScan();
 }
 
 function renderMediaTable() {

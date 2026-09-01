@@ -1785,6 +1785,29 @@ async function runAutoSync(env) {
   ).bind(new Date().toISOString()).run();
 }
 
+async function handleGetMediaInfo(videoId, env, user) {
+  const row = await env.DB.prepare('SELECT id, title, mediainfo_raw, mediainfo_json FROM videos WHERE id = ?').bind(videoId).first();
+  if (!row) return errorResponse('Video not found.', 404);
+  let parsedJson = null;
+  if (row.mediainfo_json) {
+    try { parsedJson = JSON.parse(row.mediainfo_json); } catch(e) {}
+  }
+  return jsonResponse({
+    success: true,
+    mediainfo_raw: row.mediainfo_raw || null,
+    mediainfo_json: parsedJson
+  });
+}
+
+async function handleSaveMediaInfo(videoId, request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const { mediainfo_raw, mediainfo_json } = body;
+  const jsonStr = mediainfo_json ? (typeof mediainfo_json === 'string' ? mediainfo_json : JSON.stringify(mediainfo_json)) : null;
+  await env.DB.prepare('UPDATE videos SET mediainfo_raw = ?, mediainfo_json = ?, updated_at = datetime("now") WHERE id = ?')
+    .bind(mediainfo_raw || null, jsonStr, videoId).run();
+  return jsonResponse({ success: true, message: 'MediaInfo saved successfully.' });
+}
+
 // Track whether admin seeding has been attempted in this isolate lifetime
 let adminSeeded = false;
 
@@ -1920,6 +1943,14 @@ export default {
     else if (path === '/api/settings/auto-sync') {
       if (method === 'GET')       res = await handleGetAutoSync(env);
       else if (method === 'POST') res = await handleSetAutoSync(request, env);
+      else res = errorResponse('Method not allowed.', 405);
+    }
+
+    // MediaInfo get / save
+    else if (path.match(/^\/api\/media\/\d+\/mediainfo$/)) {
+      const videoId = parseInt(path.split('/')[3]);
+      if (method === 'GET') res = await handleGetMediaInfo(videoId, env, user);
+      else if (method === 'PUT' || method === 'POST') res = await handleSaveMediaInfo(videoId, request, env, user);
       else res = errorResponse('Method not allowed.', 405);
     }
 
