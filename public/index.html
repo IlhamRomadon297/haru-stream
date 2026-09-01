@@ -416,8 +416,8 @@
      ============================================================ -->
 <div id="app" class="hidden flex h-screen overflow-hidden">
 
-  <!-- SIDEBAR -->
-  <div id="sidebar-container">
+  <!-- SIDEBAR (Desktop) -->
+  <div id="sidebar-container" class="hidden md:block">
     <aside id="sidebar">
     <!-- Logo -->
       <div class="flex items-center gap-3 pl-[14px] pr-4 py-5" style="border-bottom:1px solid #1e1e38; overflow:hidden; white-space:nowrap;">
@@ -468,10 +468,30 @@
     </aside>
   </div>
 
+  <!-- ── MOBILE BOTTOM NAVIGATION ────────────────────────── -->
+  <nav id="mobile-bottom-nav" class="md:hidden fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around py-2 px-2" style="background:#0c0c1e;border-top:1px solid #1e1e38;box-shadow:0 -8px 24px rgba(0,0,0,0.6);">
+    <button type="button" onclick="showView('dashboard')" id="mob-nav-dashboard" class="flex-1 flex flex-col items-center gap-1 py-1 text-indigo-400 text-[11px] font-semibold transition-all">
+      <i class="fas fa-chart-line text-base"></i>
+      <span>Dashboard</span>
+    </button>
+    <button type="button" onclick="showView('media')" id="mob-nav-media" class="flex-1 flex flex-col items-center gap-1 py-1 text-slate-400 text-[11px] font-medium transition-all">
+      <i class="fas fa-film text-base"></i>
+      <span>Media</span>
+    </button>
+    <button type="button" onclick="showView('upload')" id="mob-nav-upload" class="flex-1 flex flex-col items-center gap-1 py-1 text-slate-400 text-[11px] font-medium transition-all">
+      <i class="fas fa-cloud-upload-alt text-base"></i>
+      <span>Upload</span>
+    </button>
+    <button type="button" onclick="showView('drives')" id="mob-nav-drives" class="flex-1 flex flex-col items-center gap-1 py-1 text-slate-400 text-[11px] font-medium transition-all">
+      <i class="fab fa-google-drive text-base"></i>
+      <span>Drives</span>
+    </button>
+  </nav>
+
   <!-- MAIN CONTENT -->
   <main class="flex-1 flex flex-col overflow-hidden">
     <!-- Topbar -->
-    <header class="flex items-center px-6 py-4 gap-4 flex-shrink-0" style="background:#0c0c1e;border-bottom:1px solid #1e1e38">
+    <header class="flex items-center px-4 md:px-6 py-4 gap-4 flex-shrink-0" style="background:#0c0c1e;border-bottom:1px solid #1e1e38">
       <div class="flex-1">
         <h2 id="page-title" class="text-base font-semibold text-white">Dashboard</h2>
         <p id="page-subtitle" class="text-xs mt-0.5" style="color:#475569">Overview & Analytics</p>
@@ -489,10 +509,10 @@
     </header>
 
     <!-- View container -->
-    <div class="flex-1 overflow-y-auto">
+    <div class="flex-1 overflow-y-auto pb-20 md:pb-0">
 
       <!-- ── DASHBOARD VIEW ─────────────────────────────── -->
-      <div id="view-dashboard" class="p-6 animate-slide-in">
+      <div id="view-dashboard" class="p-4 md:p-6 animate-slide-in">
         <!-- Metric Cards -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <div class="metric-card">
@@ -500,7 +520,7 @@
               <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(99,102,241,0.15)">
                 <i class="fas fa-play-circle" style="color:#6366f1"></i>
               </div>
-              <span class="badge badge-purple text-xs">+12%</span>
+              <span class="badge badge-purple text-xs">Streaming</span>
             </div>
             <div id="stat-views" class="text-2xl font-bold text-white mb-1">—</div>
             <div class="text-xs" style="color:#64748b">Total Plays</div>
@@ -510,7 +530,7 @@
               <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(16,185,129,0.12)">
                 <i class="fas fa-download" style="color:#10b981"></i>
               </div>
-              <span class="badge badge-green text-xs">+8%</span>
+              <span class="badge badge-green text-xs">Direct DL</span>
             </div>
             <div id="stat-downloads" class="text-2xl font-bold text-white mb-1">—</div>
             <div class="text-xs" style="color:#64748b">Downloads</div>
@@ -781,10 +801,11 @@
                 <i class="fas fa-columns text-xs"></i>Columns
               </button>
               <div id="col-dropdown" class="hidden absolute right-0 top-full mt-1 p-3 rounded-xl z-20 w-48 space-y-2" style="background:#1a1a30;border:1px solid #2a2a4a;box-shadow:0 16px 48px rgba(0,0,0,0.7)">
+                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:#94a3b8"><input type="checkbox" id="col-mediainfo"  checked class="accent-brand-500" onchange="renderMediaTable()"> MediaInfo</label>
                 <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:#94a3b8"><input type="checkbox" id="col-resolution" checked class="accent-brand-500" onchange="renderMediaTable()"> Resolution</label>
                 <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:#94a3b8"><input type="checkbox" id="col-size"       checked class="accent-brand-500" onchange="renderMediaTable()"> Size</label>
                 <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:#94a3b8"><input type="checkbox" id="col-views"      checked class="accent-brand-500" onchange="renderMediaTable()"> Views</label>
-                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:#94a3b8"><input type="checkbox" id="col-links"      checked class="accent-brand-500" onchange="renderMediaTable()"> Links</label>
+                <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:#94a3b8"><input type="checkbox" id="col-downloads"  class="accent-brand-500" onchange="renderMediaTable()"> Downloads</label>
               </div>
             </div>
 
@@ -811,9 +832,11 @@
                       <tr>
                         <th style="width:40px"><input type="checkbox" id="check-all" class="accent-brand-500 cursor-pointer" onchange="toggleAllCheckboxes()" /></th>
                         <th onclick="sortByColumn('title')" id="th-title" style="width:auto">Title & Actions <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
+                        <th id="th-mediainfo" style="width:130px" class="text-center">MediaInfo</th>
                         <th id="th-resolution" onclick="sortByColumn('resolution')" style="width:110px" class="text-center">Resolution <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
                         <th id="th-size" onclick="sortByColumn('size')" style="width:110px" class="text-right">Size <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
                         <th id="th-views" onclick="sortByColumn('views')" style="width:90px" class="text-right">Views <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
+                        <th id="th-downloads" onclick="sortByColumn('downloads')" style="width:90px;display:none" class="text-right">Downloads <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
                       </tr>
                     </thead>
                     <tbody id="media-tbody">
@@ -1061,6 +1084,85 @@
           <div class="text-xs mt-2" style="color:#64748b">Source Drive</div>
           <div id="vd-drive" class="text-xs mt-1" style="color:#94a3b8"></div>
         </div>
+      </div>
+</div>
+
+<!-- MediaInfo Inspector Modal -->
+<div id="modal-mediainfo" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:600px;width:96%;padding:0;overflow:hidden">
+    <!-- Header bar -->
+    <div class="flex items-center justify-between px-5 py-4" style="border-bottom:1px solid #2a2a4a;background:#141428">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.3)">
+          <i class="fas fa-file-waveform text-sm" style="color:#a5b4fc"></i>
+        </div>
+        <div class="min-w-0">
+          <div class="text-sm font-bold text-white flex items-center gap-2">
+            <span>MediaInfo Inspector</span>
+            <span id="mi-badge-format" class="badge badge-purple text-[10px]"></span>
+          </div>
+          <div id="mi-filename" class="text-xs font-mono truncate mt-0.5" style="color:#94a3b8"></div>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-mediainfo')" style="color:#64748b;background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;border-radius:8px;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center">✕</button>
+    </div>
+
+    <!-- Body specs -->
+    <div class="p-5 space-y-4" style="background:#0f0f1a;max-height:75vh;overflow-y:auto">
+      <!-- General Specs Grid -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Container / MIME</div>
+          <div id="mi-mime" class="text-xs font-mono font-bold text-indigo-300 mt-1 truncate">—</div>
+        </div>
+        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">File Size</div>
+          <div id="mi-size" class="text-xs font-mono font-bold text-emerald-300 mt-1 truncate">—</div>
+        </div>
+        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Resolution Quality</div>
+          <div id="mi-resolution" class="text-xs font-bold text-amber-300 mt-1 truncate">—</div>
+        </div>
+        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Video Codec</div>
+          <div id="mi-codec" class="text-xs font-mono font-bold text-sky-300 mt-1 truncate">—</div>
+        </div>
+        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Color Depth</div>
+          <div id="mi-bitdepth" class="text-xs font-bold text-purple-300 mt-1 truncate">—</div>
+        </div>
+        <div class="p-3 rounded-xl" style="background:#141428;border:1px solid #1e1e38">
+          <div class="text-[11px] font-semibold text-slate-500 uppercase">Audio Streams</div>
+          <div id="mi-audio" class="text-xs font-bold text-rose-300 mt-1 truncate">—</div>
+        </div>
+      </div>
+
+      <!-- Raw Stream Links & Embed Code -->
+      <div class="space-y-2 pt-2">
+        <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Direct Media Endpoints</div>
+        <div class="vd-link-row">
+          <span class="vd-link-label">Stream URL</span>
+          <span id="mi-stream-url" class="vd-link-val"></span>
+          <button class="vd-copy-btn" onclick="vdCopy('mi-stream-url')" title="Copy Stream URL"><i class="fas fa-copy text-xs"></i></button>
+        </div>
+        <div class="vd-link-row">
+          <span class="vd-link-label">Embed URL</span>
+          <span id="mi-embed-url" class="vd-link-val"></span>
+          <button class="vd-copy-btn" onclick="vdCopy('mi-embed-url')" title="Copy Embed URL"><i class="fas fa-copy text-xs"></i></button>
+          <a id="mi-embed-open" href="#" target="_blank" class="vd-copy-btn" title="Open Player"><i class="fas fa-external-link-alt text-xs"></i></a>
+        </div>
+        <div class="vd-link-row">
+          <span class="vd-link-label">Download URL</span>
+          <span id="mi-download-url" class="vd-link-val"></span>
+          <button class="vd-copy-btn" onclick="vdCopy('mi-download-url')" title="Copy Download URL"><i class="fas fa-copy text-xs"></i></button>
+        </div>
+      </div>
+
+      <!-- Metadata Footprint -->
+      <div class="p-3 rounded-xl text-xs space-y-1 font-mono" style="background:#141428;border:1px solid #1e1e38;color:#64748b">
+        <div class="flex justify-between"><span>Google Drive File ID:</span> <span id="mi-file-id" class="text-slate-300 select-all truncate max-w-[240px]"></span></div>
+        <div class="flex justify-between"><span>Source Drive:</span> <span id="mi-drive-name" class="text-slate-300"></span></div>
+        <div class="flex justify-between"><span>Added Date:</span> <span id="mi-created-at" class="text-slate-300"></span></div>
       </div>
     </div>
   </div>
@@ -1528,6 +1630,18 @@ function showView(name) {
     }
     const nav = $(`nav-${v}`);
     if (nav) nav.classList.toggle('active', v === name);
+
+    // Sync mobile bottom nav
+    const mobNav = $(`mob-nav-${v}`);
+    if (mobNav) {
+      if (v === name) {
+        mobNav.classList.remove('text-slate-400');
+        mobNav.classList.add('text-indigo-400', 'font-semibold');
+      } else {
+        mobNav.classList.remove('text-indigo-400', 'font-semibold');
+        mobNav.classList.add('text-slate-400');
+      }
+    }
   });
 
   const meta = VIEW_META[name];
@@ -1879,17 +1993,84 @@ async function loadMedia() {
   updatePagination();
 }
 
+function getMediaInfoDetails(v) {
+  const title = (v.title || '').toLowerCase();
+  const mime  = (v.mime_type || '').toLowerCase();
+  
+  let format = 'MP4';
+  if (title.endsWith('.mkv') || mime.includes('matroska') || mime.includes('mkv')) format = 'MKV';
+  else if (title.endsWith('.webm') || mime.includes('webm')) format = 'WEBM';
+  else if (title.endsWith('.avi')) format = 'AVI';
+  else if (title.endsWith('.mov')) format = 'MOV';
+  else if (title.endsWith('.m4v')) format = 'M4V';
+
+  let codec = 'AVC / H.264';
+  if (title.includes('hevc') || title.includes('x265') || title.includes('h.265') || title.includes('h265')) codec = 'HEVC / H.265';
+  else if (title.includes('av1')) codec = 'AV1';
+  else if (title.includes('vp9')) codec = 'VP9';
+  else if (title.includes('x264') || title.includes('h264') || title.includes('h.264') || title.includes('avc')) codec = 'AVC / H.264';
+
+  let bitdepth = '';
+  if (title.includes('10bit') || title.includes('10-bit') || title.includes('hi10p')) bitdepth = '10-bit';
+
+  let audio = '';
+  if (title.includes('aac')) audio = 'AAC';
+  else if (title.includes('flac')) audio = 'FLAC';
+  else if (title.includes('opus')) audio = 'Opus';
+  else if (title.includes('ac3') || title.includes('ddp') || title.includes('eac3')) audio = 'Dolby';
+  else if (title.includes('dual audio') || title.includes('multi')) audio = 'Multi-Audio';
+
+  return { format, codec, bitdepth, audio, resolution: v.resolution || 'HD', mime: v.mime_type || 'video/mp4' };
+}
+
+function openMediaInfoModal(videoId) {
+  const v = APP.mediaData.find(x => x.id === videoId);
+  if (!v) return;
+
+  const info = getMediaInfoDetails(v);
+  const streamUrl   = `${BASE_URL}/stream/${v.id}`;
+  const downloadUrl = `${BASE_URL}/stream/${v.id}?download=1`;
+  const embedUrl    = `${BASE_URL}/embed/${v.id}`;
+
+  if ($('mi-badge-format')) {
+    $('mi-badge-format').textContent = info.format;
+    $('mi-badge-format').className = `badge ${info.format === 'MKV' ? 'badge-purple' : 'badge-green'} text-[10px]`;
+  }
+  if ($('mi-filename'))   $('mi-filename').textContent = v.title;
+  if ($('mi-mime'))       $('mi-mime').textContent = v.mime_type || 'video/mp4';
+  if ($('mi-size'))       $('mi-size').textContent = `${formatBytes(v.size)} (${Number(v.size || 0).toLocaleString()} bytes)`;
+  if ($('mi-resolution')) $('mi-resolution').textContent = v.resolution ? `${v.resolution} Quality` : 'Standard HD';
+  if ($('mi-codec'))      $('mi-codec').textContent = info.codec;
+  if ($('mi-bitdepth'))   $('mi-bitdepth').textContent = info.bitdepth || '8-bit Standard';
+  if ($('mi-audio'))      $('mi-audio').textContent = info.audio || 'Stereo / Auto';
+
+  if ($('mi-stream-url'))   $('mi-stream-url').textContent = streamUrl;
+  if ($('mi-embed-url'))    $('mi-embed-url').textContent = embedUrl;
+  if ($('mi-embed-open'))   $('mi-embed-open').href = embedUrl;
+  if ($('mi-download-url')) $('mi-download-url').textContent = downloadUrl;
+
+  if ($('mi-file-id'))    $('mi-file-id').textContent = v.drive_file_id || '—';
+  if ($('mi-drive-name')) $('mi-drive-name').textContent = v.drive_name || APP.drives.find(d => d.id === v.drive_id)?.drive_name || 'Primary Drive';
+  if ($('mi-created-at')) $('mi-created-at').textContent = v.created_at ? new Date(v.created_at).toLocaleString() : '—';
+
+  openModal('modal-mediainfo');
+}
+
 function renderMediaTable() {
   if (APP.mediaView === 'grid') { renderMediaGrid(); return; }
 
+  const showMediaInfo  = $('col-mediainfo')?.checked;
   const showResolution = $('col-resolution')?.checked;
   const showSize       = $('col-size')?.checked;
   const showViews      = $('col-views')?.checked;
+  const showDownloads  = $('col-downloads')?.checked;
 
   // Toggle header visibility
-  $('th-resolution').style.display = showResolution ? '' : 'none';
-  $('th-size').style.display       = showSize ? '' : 'none';
-  $('th-views').style.display      = showViews ? '' : 'none';
+  if ($('th-mediainfo'))  $('th-mediainfo').style.display  = showMediaInfo ? '' : 'none';
+  if ($('th-resolution')) $('th-resolution').style.display = showResolution ? '' : 'none';
+  if ($('th-size'))       $('th-size').style.display       = showSize ? '' : 'none';
+  if ($('th-views'))      $('th-views').style.display      = showViews ? '' : 'none';
+  if ($('th-downloads'))  $('th-downloads').style.display  = showDownloads ? '' : 'none';
 
   const tbody = $('media-tbody');
   if (!APP.mediaData.length) {
@@ -1897,7 +2078,7 @@ function renderMediaTable() {
     if (APP.currentFolder !== null && APP.currentFolder !== undefined) {
       extraMsg = `<div class="mt-3"><button type="button" onclick="selectFolder(null)" class="px-3 py-1.5 rounded-lg text-xs font-semibold" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)"><i class="fas fa-layer-group mr-1.5"></i>Search across All Folders</button></div>`;
     }
-    tbody.innerHTML = `<tr><td colspan="5" class="text-center py-14" style="color:#475569">
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-14" style="color:#475569">
       <i class="fas fa-film text-3xl mb-3 block" style="color:#1e1e38"></i>
       No videos found in this folder.
       ${extraMsg}
@@ -1909,6 +2090,8 @@ function renderMediaTable() {
     const isSelected = APP.selectedIds.has(v.id);
     const embedLink  = `${BASE_URL}/embed/${v.id}`;
     const streamLink = `${BASE_URL}/stream/${v.id}?download=1`;
+    const info = getMediaInfoDetails(v);
+
     return `<tr class="${isSelected ? 'selected' : ''}" id="tr-${v.id}">
       <td class="align-top py-3" style="width:40px"><input type="checkbox" class="accent-brand-500 cursor-pointer mt-1" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
       <td class="align-top py-3" style="width:auto">
@@ -1923,6 +2106,9 @@ function renderMediaTable() {
             
             <!-- Subtitle Actions Toolbar Under Title -->
             <div class="flex items-center gap-2 mt-1.5 text-xs flex-wrap" style="color:#64748b;font-size:11.5px">
+              <button type="button" onclick="openMediaInfoModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-indigo-400 font-medium" title="MediaInfo Inspector">
+                <i class="fas fa-file-waveform text-[10px]"></i> MediaInfo
+              </button>
               <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
                 <i class="fas fa-info-circle text-[10px]"></i> Detail
               </button>
@@ -1948,9 +2134,15 @@ function renderMediaTable() {
           </div>
         </div>
       </td>
+      <td class="align-top py-3 text-center whitespace-nowrap" style="width:130px;display:${showMediaInfo ? '' : 'none'}">
+        <span class="badge ${info.format === 'MKV' ? 'badge-purple' : 'badge-green'} text-[10px] font-bold">${info.format}</span>
+        <span class="text-[11px] font-mono ml-1" style="color:#a5b4fc">${info.codec.split(' ')[0]}</span>
+        ${info.bitdepth ? `<span class="badge badge-yellow text-[9px] ml-1">${info.bitdepth}</span>` : ''}
+      </td>
       <td class="align-top py-3 text-center whitespace-nowrap" style="width:100px;display:${showResolution ? '' : 'none'}">${fmtResolutionBadge(v.resolution)}</td>
       <td class="align-top py-3 text-right whitespace-nowrap" style="width:110px;display:${showSize ? '' : 'none'}"><span class="text-xs font-mono" style="color:#64748b">${formatBytes(v.size)}</span></td>
       <td class="align-top py-3 text-right whitespace-nowrap" style="width:80px;display:${showViews ? '' : 'none'}"><span class="text-xs font-mono" style="color:#94a3b8">${formatNumber(v.views)}</span></td>
+      <td class="align-top py-3 text-right whitespace-nowrap" style="width:80px;display:${showDownloads ? '' : 'none'}"><span class="text-xs font-mono" style="color:#34d399">${formatNumber(v.downloads || 0)}</span></td>
     </tr>`;
   }).join('');
 }

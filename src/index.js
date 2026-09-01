@@ -1135,7 +1135,12 @@ async function handleStream(fileId, request, env) {
   responseHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
 
   const url = new URL(request.url);
-  const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1';
+  const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1' || url.pathname.startsWith('/d/') || url.pathname.startsWith('/download/');
+  if (isDownload && request.method === 'GET') {
+    env.DB.prepare(
+      `UPDATE videos SET downloads = downloads + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+    ).bind(fileId, parseInt(fileId) || 0).run().catch(() => {});
+  }
   const safeFilename = (video.title || 'video.mp4').replace(/"/g, '\\"');
   const encodedFilename = encodeURIComponent(video.title || 'video.mp4');
   const dispositionType = isDownload ? 'attachment' : 'inline';
@@ -1258,11 +1263,20 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <title>${escapeHtml(video.title)} — HaruStream</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <meta name="robots" content="noindex">
+  <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --plyr-color-main: #6366f1;
+      --plyr-video-background: #000;
+      --plyr-font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --plyr-control-radius: 8px;
+    }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
     html,body{width:100vw;height:100vh;background:#000;overflow:hidden;margin:0;padding:0;}
-    #artplayer-container{position:absolute;top:0;left:0;width:100vw;height:100vh;display:block;}
-    .art-video-player{background:#000;width:100%;height:100%;}
+    #player-container{position:absolute;top:0;left:0;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;background:#000;}
+    .plyr{width:100%;height:100%;max-height:100vh;}
+    .plyr__video-wrapper{height:100% !important;background:#000;}
     video{object-fit:contain !important;width:100% !important;height:100% !important;}
 
     /* ── Warning Modal ─────────────────────────────────── */
@@ -1297,8 +1311,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     .warn-title{font-size:14px;font-weight:700;color:#fff;margin-bottom:4px;font-family:Inter,sans-serif}
     .warn-body{font-size:11.5px;line-height:1.4;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:8px}
     .warn-ext-group{display:flex;flex-direction:column;gap:4px}
-    .warn-group-label{text-align:left;font-size:11.5px;color:#a5b4fc;margin-top:6px;margin-bottom:2px;font-weight:600;font-family:Inter,sans-serif}
-    .warn-group-label.warn-red-label{color:#f87171}
     .warn-ext-btn{
       display:flex;align-items:center;gap:8px;
       padding:6px 12px;border-radius:8px;border:1px solid rgba(99,102,241,0.35);
@@ -1316,8 +1328,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       transition:all .15s;font-family:Inter,sans-serif;text-align:left;
     }
     .warn-force-btn:hover{background:rgba(99,102,241,0.22);color:#fff}
-    .warn-force-btn.warn-red-btn{color:#cbd5e1;background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3)}
-    .warn-force-btn.warn-red-btn:hover{background:rgba(239,68,68,0.25);color:#fff}
 
     @media (max-height: 520px), (max-width: 520px) {
       #warn-modal { padding: 4px; align-items: flex-start; }
@@ -1326,34 +1336,10 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       .warn-icon svg { width: 14px; height: 14px; }
       .warn-title { font-size: 11px; margin-bottom: 1px; }
       .warn-body { font-size: 9.5px; margin-bottom: 3px; }
-      .warn-group-label { font-size: 9.5px; margin-top: 4px; margin-bottom: 2px; }
       .warn-ext-btn, .warn-force-btn { padding: 3px 6px; font-size: 9.5px; border-radius: 5px; }
       .warn-ext-btn svg { width: 12px; height: 12px; }
     }
-
-    /* ── External player dropdown ──────────────────────── */
-    #ext-menu-wrap{position:relative;display:inline-block}
-    #ext-dropdown{
-      position:absolute;bottom:calc(100% + 8px);right:0;
-      background:#1a1a36;border:1px solid rgba(99,102,241,0.3);
-      border-radius:12px;padding:6px;
-      display:none;flex-direction:column;gap:2px;
-      min-width:220px;z-index:500;
-      box-shadow:0 16px 48px rgba(0,0,0,0.9);
-      animation:fadeUp .15s ease-out;
-    }
-    #ext-dropdown.open{display:flex}
-    @keyframes fadeUp{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
-    .ext-item{
-      display:flex;align-items:center;gap:8px;
-      padding:8px 12px;border-radius:8px;
-      color:#a5b4fc;font-size:12px;font-weight:600;
-      cursor:pointer;transition:all .15s;
-      font-family:Inter,sans-serif;
-    }
-    .ext-item:hover{background:rgba(99,102,241,0.18);color:#c7d2fe}
   </style>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script>
     window.videoTitle  = ${JSON.stringify(video.title)};
     window.streamUrl   = ${JSON.stringify(streamUrl)};
@@ -1371,7 +1357,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         }
       }
       const absoluteUrl = baseUrl;
-      let copied = false;
       const doSuccess = () => {
         const txt = document.getElementById('copy-txt');
         if (txt) {
@@ -1395,13 +1380,10 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           document.body.appendChild(ta);
           ta.focus({ preventScroll: true });
           ta.select();
-          copied = document.execCommand('copy');
+          document.execCommand('copy');
           document.body.removeChild(ta);
-        } catch (err) {}
-
-        if (copied) {
           doSuccess();
-        } else {
+        } catch (err) {
           prompt('Salin link streaming di bawah ini (Ctrl+C):', text);
         }
       }
@@ -1435,25 +1417,20 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       }
     }
 
-    function toggleExtMenu() {
-      const d = document.getElementById('ext-dropdown');
-      if (d) d.classList.toggle('open');
-    }
-
     function dismissWarningAndPlay(mode) {
       const modal = document.getElementById('warn-modal');
       if (modal) modal.style.display = 'none';
-      const container = document.getElementById('artplayer-container');
-      if (container) container.style.display = 'block';
+      const container = document.getElementById('player-container');
+      if (container) container.style.display = 'flex';
       if (typeof window.initPlayer === 'function') {
         window.initPlayer(mode);
       }
     }
 
-    function retryArt() {
+    function retryPlyr() {
       const b = document.getElementById('retry-btn');
       if (b) b.remove();
-      dismissWarningAndPlay('art');
+      dismissWarningAndPlay('plyr');
     }
 
     function retryVlc() {
@@ -1461,14 +1438,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       if (b) b.remove();
       openExternal('vlc');
     }
-
-    document.addEventListener('click', (e) => {
-      const wrap = document.getElementById('ext-menu-wrap');
-      if (wrap && !wrap.contains(e.target)) {
-        const d = document.getElementById('ext-dropdown');
-        if (d) d.classList.remove('open');
-      }
-    });
   </script>
 </head>
 <body>
@@ -1507,33 +1476,34 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           ▶ Coba Putar via Movi-Player (Sering Error / Timeout)
         </button>
         
-        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Artplayer (Video & Audio Utama)</div>
-        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.2);" onclick="dismissWarningAndPlay('art')">
-          ▶ Putar (Tanpa Subtitle ASS & Multi-Audio)
+        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Plyr.io HTML5 (Video & Audio Utama)</div>
+        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.2);" onclick="dismissWarningAndPlay('plyr')">
+          ▶ Putar via Plyr.io (Instant HTML5)
         </button>
       </div>
     </div>
   </div>` : ''}
 
-  <div id="artplayer-container" style="${isHeavy ? 'display:none;' : ''}"></div>
+  <div id="player-container" style="${isHeavy ? 'display:none;' : ''}">
+    <video id="player" playsinline controls controlsList="nodownload" oncontextmenu="return false;" preload="metadata" style="width:100%;height:100%;object-fit:contain;">
+      <source src="${streamUrl}" type="${video.mime_type || 'video/mp4'}">
+    </video>
+  </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/artplayer@5/dist/artplayer.js"></script>
+  <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
   ${isHeavy ? `
   <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.3.5/dist/element.js"></script>
   ` : ''}
 
   <script>
-    // ── Initialize the player ────────────────────────────────
-    let art = null;
-    let wasmPlayerActive = false;
+    let plyrInstance = null;
 
     window.initPlayer = function(mode) {
       if (mode === 'movi') {
-        const container = document.getElementById('artplayer-container');
+        const container = document.getElementById('player-container');
         container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" controls></movi-player>';
         const playerEl = container.querySelector('movi-player');
         
-        // Add multi-option fallback modal on error
         function showRetry(errMsg) {
             if (document.getElementById('retry-btn')) return;
             const errDiv = document.createElement('div');
@@ -1544,7 +1514,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
               '<div style="font-size:12px;color:#94a3b8;margin-bottom:14px;line-height:1.4;">' + (errMsg || 'Format MKV berat/multi-track membutuhkan koneksi stabil.') + ' Silakan pilih solusi alternatif:</div>' +
               '<div style="display:flex;flex-direction:column;gap:8px;">' +
                 '<button onclick="location.reload()" style="padding:8px 12px;background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🔄 Coba Muat Ulang (Retry)</button>' +
-                '<button onclick="retryArt()" style="padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e2e8f0;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🎬 Putar via Artplayer (Instant HTML5)</button>' +
+                '<button onclick="retryPlyr()" style="padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e2e8f0;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🎬 Putar via Plyr (Instant HTML5)</button>' +
                 '<button onclick="retryVlc()" style="padding:8px 12px;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.4);color:#86efac;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🚀 Buka di PotPlayer / VLC (100% Smooth)</button>' +
               '</div>';
             container.appendChild(errDiv);
@@ -1562,92 +1532,50 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         return;
       }
 
-      if (art) {
-        art.play().catch(e => console.error(e));
+      if (plyrInstance) {
+        plyrInstance.play().catch(e => console.error(e));
         return;
       }
-      art = new Artplayer({
-        container: '#artplayer-container',
-        url:       streamUrl,
-        title:     videoTitle,
-        autoplay:  false, // Disabled per user request
-        pip:       true,
-        screenshot: true,
-        setting:   true,
-        loop:      false,
-        flip:      true,
-        playbackRate: true,
-        aspectRatio: true,
-        fullscreen:  true,
-        fullscreenWeb: true,
-        miniProgressBar: true,
-        hotkey: true,
-        lock: true,
-        fastForward: true,
-        autoSize: false,
-        autoMini: false,
-        theme: '#6366f1',
-        lang: 'en',
-        moreVideoAttr: {
-          preload: 'metadata',
-        },
-        controls: [
-          // ── Download button ──────────────────────────────
-          {
-            position: 'right',
-            html: '<button title="Download" style="color:#fff;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);border-radius:8px;cursor:pointer;font-size:12px;padding:4px 10px;font-weight:600">⬇ DL</button>',
-            click: () => {
-              const a = document.createElement('a');
-              a.href = streamUrl + '?download=1';
-              a.download = videoTitle;
-              a.click();
-            },
-          },
-          // ── External Player dropdown button ──────────────
-          {
-            position: 'right',
-            html: '<div id="ext-menu-wrap" style="position:relative">' +
-                  '<button onclick="toggleExtMenu()" title="Buka di Aplikasi Eksternal" ' +
-                  'style="color:#a5b4fc;background:rgba(99,102,241,.15);border:1px solid rgba(99,102,241,.35);border-radius:8px;cursor:pointer;font-size:12px;padding:4px 10px;font-weight:600">▶ Eksternal</button>' +
-                  '<div id="ext-dropdown">' +
-                  '<div class="ext-item" onclick="openExternal(&quot;potplayer&quot;, &quot;${streamUrl}&quot;)">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>PotPlayer (Windows)</div>' +
-                  '<div class="ext-item" onclick="openExternal(&quot;vlc&quot;, &quot;${streamUrl}&quot;)">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>VLC (Cross-platform)</div>' +
-                  '<div class="ext-item" onclick="openExternal(&quot;mx&quot;, &quot;${streamUrl}&quot;)">' +
-                  '<svg width="14" height="14" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M8 5v14l11-7z"/></svg>MX Player (Android)</div>' +
-                  '</div></div>',
-          },
-        ],
-        plugins: [],
-      });
 
-      art.on('ready', () => {
-        console.log('[HaruStream] Player ready:', videoTitle, '| Heavy:', isHeavy);
+      const videoEl = document.getElementById('player');
+      if (videoEl) {
+        plyrInstance = new Plyr(videoEl, {
+          controls: [
+            'play-large',
+            'restart',
+            'play',
+            'progress',
+            'current-time',
+            'duration',
+            'mute',
+            'volume',
+            'captions',
+            'settings',
+            'pip',
+            'airplay',
+            'fullscreen'
+          ],
+          settings: ['captions', 'quality', 'speed', 'loop'],
+          speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+          keyboard: { focused: true, global: true },
+          tooltips: { controls: true, seek: true },
+          fullscreen: { enabled: true, fallback: true, iosNative: false },
+          hideControls: true,
+          resetOnEnd: true,
+        });
+
+        plyrInstance.on('ended', () => {
+          navigator.sendBeacon('/api/media/track', JSON.stringify({
+            drive_file_id: driveFileId,
+            event: 'complete'
+          }));
+        });
         
-
-      });
-
-      // ── F-key fullscreen ─────────────────────────────────
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'f' || e.key === 'F') {
-          e.preventDefault();
-          if (art) art.fullscreen = !art.fullscreen;
-        }
-      });
-
-      // ── View tracking beacon ─────────────────────────────
-      art.on('video:ended', () => {
-        navigator.sendBeacon('/api/media/track', JSON.stringify({
-          drive_file_id: driveFileId,
-          event: 'complete'
-        }));
-      });
-      // ── Error tracking ───────────────────────────────────
-      art.on('error', (error, detail) => {
-        console.error('[HaruStream] ArtPlayer error:', error, detail);
-      });
-    }; // end initPlayer()
+        plyrInstance.on('error', (e) => {
+          console.error('[HaruStream] Plyr error:', e);
+        });
+      }
+    };
 
     // ── Startup logic ─────────────────────────────────────
     if (isHeavy) {
@@ -1888,8 +1816,8 @@ export default {
       return await handleEmbed(parts[1], request, env);
     }
 
-    if ((method === 'GET' || method === 'HEAD') && path.startsWith('/stream/')) {
-      const parts = path.split('/').filter(Boolean); // ['stream', '123', 'filename.mkv']
+    if ((method === 'GET' || method === 'HEAD') && (path.startsWith('/stream/') || path.startsWith('/d/') || path.startsWith('/download/'))) {
+      const parts = path.split('/').filter(Boolean); // ['stream', '123', 'filename.mkv'] or ['d', '123']
       if (parts.length < 2) return errorResponse('Not Found', 404);
       return await handleStream(parts[1], request, env);
     }
