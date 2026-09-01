@@ -3049,10 +3049,15 @@ function parseMp4Boxes(bytes, v) {
   return null;
 }
 
+// Memory cache for instantaneous 0ms transitions between videos in the same session
+const miMemoryCache = new Map();
+let activeMediaInfoVideoId = null;
+
 // ── FAST BINARY SCAN (HIGH SPEED RANGE FETCH) ───────────────────
 async function startBinaryMediaInfoScan(force = false) {
   if (!currentMediaInfoVideo) return;
   const v = currentMediaInfoVideo;
+  const scanTargetId = v.id;
   const streamUrl = `${BASE_URL}/stream/${v.id}`;
   const fileSize = Number(v.size || 0);
 
@@ -3074,10 +3079,13 @@ async function startBinaryMediaInfoScan(force = false) {
       if (bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) {
         const parsedData = parseMatroskaEBML(bytes, v);
         if (parsedData && (parsedData.video.length || parsedData.audio.length)) {
-          renderMediaInfoCards(parsedData);
-          if (scanBadge) {
-            scanBadge.className = 'badge badge-green text-[10px]';
-            scanBadge.textContent = 'EBML 100%';
+          miMemoryCache.set(scanTargetId, parsedData);
+          if (activeMediaInfoVideoId === scanTargetId) {
+            renderMediaInfoCards(parsedData);
+            if (scanBadge) {
+              scanBadge.className = 'badge badge-green text-[10px]';
+              scanBadge.textContent = 'EBML 100%';
+            }
           }
           apiFetch(`/api/media/${v.id}/mediainfo`, {
             method: 'PUT',
@@ -3090,10 +3098,13 @@ async function startBinaryMediaInfoScan(force = false) {
       // 2. Check if MP4 (ISOBMFF)
       const mp4Data = parseMp4Boxes(bytes, v);
       if (mp4Data && (mp4Data.video.length || mp4Data.audio.length)) {
-        renderMediaInfoCards(mp4Data);
-        if (scanBadge) {
-          scanBadge.className = 'badge badge-green text-[10px]';
-          scanBadge.textContent = 'MP4 100%';
+        miMemoryCache.set(scanTargetId, mp4Data);
+        if (activeMediaInfoVideoId === scanTargetId) {
+          renderMediaInfoCards(mp4Data);
+          if (scanBadge) {
+            scanBadge.className = 'badge badge-green text-[10px]';
+            scanBadge.textContent = 'MP4 100%';
+          }
         }
         apiFetch(`/api/media/${v.id}/mediainfo`, {
           method: 'PUT',
@@ -3108,10 +3119,13 @@ async function startBinaryMediaInfoScan(force = false) {
 
   // 3. Fallback: Generate smart profile from container tags and video properties
   const fallbackData = generateSmartInitialMediaInfo(v);
-  renderMediaInfoCards(fallbackData);
-  if (scanBadge) {
-    scanBadge.className = 'badge badge-purple text-[10px]';
-    scanBadge.textContent = 'Auto Profile';
+  miMemoryCache.set(scanTargetId, fallbackData);
+  if (activeMediaInfoVideoId === scanTargetId) {
+    renderMediaInfoCards(fallbackData);
+    if (scanBadge) {
+      scanBadge.className = 'badge badge-purple text-[10px]';
+      scanBadge.textContent = 'Auto Profile';
+    }
   }
   apiFetch(`/api/media/${v.id}/mediainfo`, {
     method: 'PUT',
@@ -3124,6 +3138,7 @@ async function openMediaInfoModal(videoId) {
   const v = APP.mediaData.find(x => x.id === videoId);
   if (!v) return;
 
+  activeMediaInfoVideoId = videoId;
   currentMediaInfoVideo = v;
   const streamUrl   = `${BASE_URL}/stream/${v.id}`;
   const downloadUrl = `${BASE_URL}/stream/${v.id}?download=1`;
@@ -3131,7 +3146,7 @@ async function openMediaInfoModal(videoId) {
 
   const info = getMediaInfoDetails(v);
 
-  // Header & Direct Links
+  // Instantly update header & links for the NEW video
   if ($('mi-badge-format')) {
     $('mi-badge-format').textContent = info.format;
     $('mi-badge-format').className = `badge ${info.format === 'MKV' ? 'badge-purple' : 'badge-green'} text-[10px]`;
@@ -3148,35 +3163,50 @@ async function openMediaInfoModal(videoId) {
 
   // Reset tab to 'tracks'
   switchMediaInfoTab('tracks');
-  
-  // Immediately show clean smart profile while scanning
+
+  // 1. If in In-Memory Cache → Render instantly in 0.00ms (NO network, NO residue, NO delay!)
+  if (miMemoryCache.has(videoId)) {
+    const cachedData = miMemoryCache.get(videoId);
+    renderMediaInfoCards(cachedData);
+    const scanBadge = $('mi-scan-badge');
+    if (scanBadge) {
+      scanBadge.className = 'badge badge-green text-[10px]';
+      scanBadge.textContent = 'Instant';
+    }
+    openModal('modal-mediainfo');
+    return;
+  }
+
+  // 2. Clear old video cards immediately & render target video's base profile
   const initial = generateSmartInitialMediaInfo(v);
   renderMediaInfoCards(initial);
-
   openModal('modal-mediainfo');
 
-  // Check if MediaInfo is already cached in database
+  // 3. Check D1 Database Cache
   try {
     const { ok, data } = await apiFetch(`/api/media/${v.id}/mediainfo`);
+    if (activeMediaInfoVideoId !== videoId) return; // User switched to another video
     if (ok && data && (data.mediainfo_json || data.mediainfo_raw)) {
-      if (data.mediainfo_json) {
-        renderMediaInfoCards(data.mediainfo_json);
-      } else if (data.mediainfo_raw) {
-        const parsed = parseMediaInfoTextReport(data.mediainfo_raw, v);
-        renderMediaInfoCards(parsed);
+      let finalData = data.mediainfo_json;
+      if (!finalData && data.mediainfo_raw) {
+        finalData = parseMediaInfoTextReport(data.mediainfo_raw, v);
       }
-      const scanBadge = $('mi-scan-badge');
-      if (scanBadge) {
-        scanBadge.className = 'badge badge-green text-[10px]';
-        scanBadge.textContent = 'Cached';
+      if (finalData) {
+        miMemoryCache.set(videoId, finalData);
+        renderMediaInfoCards(finalData);
+        const scanBadge = $('mi-scan-badge');
+        if (scanBadge) {
+          scanBadge.className = 'badge badge-green text-[10px]';
+          scanBadge.textContent = 'Cached';
+        }
+        return;
       }
-      return;
     }
   } catch(e) {
     console.warn('Error fetching cached MediaInfo:', e);
   }
 
-  // If not cached, initiate instant binary scan of the file header
+  // 4. If not in DB, run binary scan in background
   startBinaryMediaInfoScan();
 }
 
