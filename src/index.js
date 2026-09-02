@@ -441,12 +441,13 @@ async function handleRegister(request, env) {
   return errorResponse('Registration is disabled. This system uses a single admin account.', 403);
 }
 
-/**
- * Seed the master admin account if it does not already exist.
- * Called once during Worker startup (via initializeApp).
- */
 async function seedAdminAccount(env) {
   try {
+    // Ensure DB columns exist for folders
+    try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN drive_id INTEGER`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN gdrive_folder_id TEXT`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN parent_gdrive_folder_id TEXT`).run(); } catch (_) {}
+
     const existing = await env.DB.prepare(
       `SELECT id FROM users WHERE username = 'harumisato' LIMIT 1`
     ).first();
@@ -739,91 +740,110 @@ async function handleSync(request, env, user) {
 
 
 async function handleListMedia(request, env, user) {
-  const url    = new URL(request.url);
-  const search = url.searchParams.get('search') || '';
-  const folderId = url.searchParams.get('folder_id') || null;
-  const driveId  = url.searchParams.get('drive_id') || null;
-  const sortBy   = url.searchParams.get('sort_by') || 'title';
-  const sortDir  = (url.searchParams.get('sort_dir') || 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-  const page     = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
-  const limit    = Math.min(200, parseInt(url.searchParams.get('limit') || '50'));
-  const offset   = (page - 1) * limit;
+  try {
+    const url    = new URL(request.url);
+    const search = url.searchParams.get('search') || '';
+    const folderId = url.searchParams.get('folder_id') || null;
+    const driveId  = url.searchParams.get('drive_id') || null;
+    const sortBy   = url.searchParams.get('sort_by') || 'title';
+    const sortDir  = (url.searchParams.get('sort_dir') || 'asc').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    const page     = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+    const limit    = Math.min(200, parseInt(url.searchParams.get('limit') || '50'));
+    const offset   = (page - 1) * limit;
 
-  const validSorts = { title: 'v.title', size: 'v.size', views: 'v.views', downloads: 'v.downloads', created_at: 'v.created_at', modified: 'v.drive_modified_at', resolution: 'v.resolution' };
-  const orderCol = validSorts[sortBy] || 'v.title';
+    const validSorts = { title: 'v.title', size: 'v.size', views: 'v.views', downloads: 'v.downloads', created_at: 'v.created_at', modified: 'v.drive_modified_at', resolution: 'v.resolution' };
+    const orderCol = validSorts[sortBy] || 'v.title';
 
-  let whereClause = 'WHERE v.user_id = ?';
-  const bindings = [user.sub];
+    let whereClause = 'WHERE v.user_id = ?';
+    const bindings = [user.sub];
 
-  if (driveId) {
-    whereClause += ' AND v.drive_id = ?';
-    bindings.push(parseInt(driveId));
+    if (driveId) {
+      whereClause += ' AND v.drive_id = ?';
+      bindings.push(parseInt(driveId));
+    }
+
+    if (folderId && folderId !== 'null') {
+      const targetFid = parseInt(folderId);
+      let targetFolderIds = [targetFid];
+      try {
+        const allUserFolders = await env.DB.prepare(
+          'SELECT id, parent_id FROM folders WHERE user_id = ?'
+        ).bind(user.sub).all();
+
+        const getFolderAndSubfolderIds = (rootId) => {
+          let ids = [rootId];
+          const children = (allUserFolders.results || []).filter(f => f.parent_id === rootId);
+          for (const child of children) {
+            ids = ids.concat(getFolderAndSubfolderIds(child.id));
+          }
+          return ids;
+        };
+        targetFolderIds = getFolderAndSubfolderIds(targetFid);
+      } catch (_) {}
+
+      const placeholders = targetFolderIds.map(() => '?').join(',');
+      whereClause += ` AND v.folder_id IN (${placeholders})`;
+      bindings.push(...targetFolderIds);
+    } else if (folderId === 'null') {
+      whereClause += ' AND v.folder_id IS NULL';
+    }
+
+    if (search) {
+      whereClause += ' AND (v.title LIKE ? OR v.tags LIKE ?)';
+      bindings.push(`%${search}%`, `%${search}%`);
+    }
+
+    const countResult = await env.DB.prepare(
+      `SELECT COUNT(*) as total FROM videos v ${whereClause}`
+    ).bind(...bindings).first();
+
+    const videos = await env.DB.prepare(
+      `SELECT v.id, v.drive_file_id, v.title, v.size, v.resolution, v.duration,
+              v.views, v.downloads, v.mime_type, v.thumbnail_url, v.folder_id,
+              v.is_public, v.tags, v.drive_modified_at, v.created_at, v.updated_at,
+              d.drive_name, f.name as folder_name
+       FROM videos v
+       LEFT JOIN drives  d ON d.id = v.drive_id
+       LEFT JOIN folders f ON f.id = v.folder_id
+       ${whereClause}
+       ORDER BY ${orderCol} ${sortDir}
+       LIMIT ? OFFSET ?`
+    ).bind(...bindings, limit, offset).all();
+
+    // Fetch folders with drive_id and video_count
+    let folders = [];
+    try {
+      const foldersRes = await env.DB.prepare(
+        `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order,
+                COUNT(v.id) as video_count
+         FROM folders f
+         LEFT JOIN videos v ON v.folder_id = f.id
+         WHERE f.user_id = ?
+         GROUP BY f.id
+         ORDER BY f.drive_id, f.name`
+      ).bind(user.sub).all();
+      folders = foldersRes.results || [];
+    } catch (_) {
+      try {
+        const fallback = await env.DB.prepare(
+          `SELECT id, parent_id, name, color, icon, sort_order FROM folders WHERE user_id = ? ORDER BY sort_order, name`
+        ).bind(user.sub).all();
+        folders = fallback.results || [];
+      } catch (_) {}
+    }
+
+    return jsonResponse({
+      success: true,
+      total: countResult?.total || 0,
+      page,
+      limit,
+      videos: videos.results || [],
+      folders: folders,
+    });
+  } catch (err) {
+    console.error('[HaruStream] handleListMedia error:', err);
+    return errorResponse(`Failed to load media: ${err.message}`, 500);
   }
-
-  if (folderId) {
-    const targetFid = parseInt(folderId);
-    const allUserFolders = await env.DB.prepare(
-      'SELECT id, parent_id FROM folders WHERE user_id = ?'
-    ).bind(user.sub).all();
-
-    const getFolderAndSubfolderIds = (rootId) => {
-      let ids = [rootId];
-      const children = (allUserFolders.results || []).filter(f => f.parent_id === rootId);
-      for (const child of children) {
-        ids = ids.concat(getFolderAndSubfolderIds(child.id));
-      }
-      return ids;
-    };
-
-    const targetFolderIds = getFolderAndSubfolderIds(targetFid);
-    const placeholders = targetFolderIds.map(() => '?').join(',');
-    whereClause += ` AND v.folder_id IN (${placeholders})`;
-    bindings.push(...targetFolderIds);
-  } else if (url.searchParams.get('folder_id') === 'null') {
-    whereClause += ' AND v.folder_id IS NULL';
-  }
-
-  if (search) {
-    whereClause += ' AND (v.title LIKE ? OR v.tags LIKE ?)';
-    bindings.push(`%${search}%`, `%${search}%`);
-  }
-
-  const countResult = await env.DB.prepare(
-    `SELECT COUNT(*) as total FROM videos v ${whereClause}`
-  ).bind(...bindings).first();
-
-  const videos = await env.DB.prepare(
-    `SELECT v.id, v.drive_file_id, v.title, v.size, v.resolution, v.duration,
-            v.views, v.downloads, v.mime_type, v.thumbnail_url, v.folder_id,
-            v.is_public, v.tags, v.drive_modified_at, v.created_at, v.updated_at,
-            d.drive_name, f.name as folder_name
-     FROM videos v
-     LEFT JOIN drives  d ON d.id = v.drive_id
-     LEFT JOIN folders f ON f.id = v.folder_id
-     ${whereClause}
-     ORDER BY ${orderCol} ${sortDir}
-     LIMIT ? OFFSET ?`
-  ).bind(...bindings, limit, offset).all();
-
-  // Fetch folders with drive_id and video_count
-  const folders = await env.DB.prepare(
-    `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order,
-            COUNT(v.id) as video_count
-     FROM folders f
-     LEFT JOIN videos v ON v.folder_id = f.id
-     WHERE f.user_id = ?
-     GROUP BY f.id
-     ORDER BY f.drive_id, f.name`
-  ).bind(user.sub).all();
-
-  return jsonResponse({
-    success: true,
-    total: countResult?.total || 0,
-    page,
-    limit,
-    videos: videos.results,
-    folders: folders.results,
-  });
 }
 
 async function handleCreateFolder(request, env, user) {
