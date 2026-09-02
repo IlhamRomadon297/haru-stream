@@ -264,6 +264,53 @@ async function getDescendantFolders(drive, db) {
 }
 
 /**
+ * Fetch all folders in the drive (or within descendant folders if root_folder_id is set).
+ */
+async function fetchAllDriveFolders(drive, db, validFolderIds) {
+  const accessToken = await getAccessToken(drive, db);
+  const fields = 'nextPageToken,files(id,name,parents,trashed)';
+  let results = [];
+
+  if (!validFolderIds) {
+    const query = encodeURIComponent("mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'me' in owners");
+    let pageToken = null;
+    do {
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
+      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!resp.ok) break;
+      const data = await resp.json();
+      if (data.files) {
+        results.push(...data.files.filter(f => !f.trashed && f.name));
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+    return results;
+  }
+
+  const folderArray = Array.from(validFolderIds);
+  const CHUNK_SIZE = 25;
+  for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
+    const chunk = folderArray.slice(i, i + CHUNK_SIZE);
+    const idQuery = chunk.map(id => `id = '${id}'`).join(' or ');
+    const query = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and trashed = false and (${idQuery})`);
+    let pageToken = null;
+    do {
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!resp.ok) break;
+      const data = await resp.json();
+      if (data.files) {
+        results.push(...data.files.filter(f => !f.trashed && f.name));
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+  }
+  return results;
+}
+
+/**
  * Fetch all videos in the drive, or only within descendant folders if root_folder_id is set.
  */
 async function fetchAllDriveVideos(drive, db, validFolderIds) {
@@ -494,29 +541,84 @@ async function handleDeleteDrive(driveId, env, user) {
   if (!drive) return errorResponse('Drive not found.', 404);
 
   await env.DB.prepare('DELETE FROM drives WHERE id = ?').bind(driveId).run();
+  await env.DB.prepare('DELETE FROM folders WHERE drive_id = ?').bind(driveId).run();
   return jsonResponse({ success: true, message: 'Drive removed.' });
 }
 
 // ── SYNC ────────────────────────────────────────────────────
 
-
-
 async function performDriveSync(drive, env, forceFullScan = false) {
   let totalSynced  = 0;
   let totalRemoved = 0;
 
+  // 0. Ensure schema compatibility for GDrive folders
+  try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN drive_id INTEGER`).run(); } catch (_) {}
+  try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN gdrive_folder_id TEXT`).run(); } catch (_) {}
+  try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN parent_gdrive_folder_id TEXT`).run(); } catch (_) {}
+
   const validFolderIds = await getDescendantFolders(drive, env.DB);
 
-  // 1. Fetch active video files from GDrive for this drive
+  // 1. Sync GDrive Folders for this drive
+  const gdriveFolders = await fetchAllDriveFolders(drive, env.DB, validFolderIds);
+  const existingFoldersQuery = await env.DB.prepare(
+    `SELECT id, gdrive_folder_id, name FROM folders WHERE drive_id = ?`
+  ).bind(drive.id).all();
+
+  const d1FolderMap = new Map();
+  for (const f of (existingFoldersQuery.results || [])) {
+    if (f.gdrive_folder_id) d1FolderMap.set(f.gdrive_folder_id, f);
+  }
+
+  const gdriveFolderMap = new Map();
+  for (const gf of gdriveFolders) {
+    gdriveFolderMap.set(gf.id, gf);
+    const parentGdriveId = (gf.parents && gf.parents.length > 0) ? gf.parents[0] : null;
+    const existing = d1FolderMap.get(gf.id);
+    if (!existing) {
+      await env.DB.prepare(
+        `INSERT INTO folders (user_id, drive_id, gdrive_folder_id, parent_gdrive_folder_id, name, color)
+         VALUES (?, ?, ?, ?, ?, '#6366f1')`
+      ).bind(drive.user_id, drive.id, gf.id, parentGdriveId, gf.name).run();
+    } else if (existing.name !== gf.name) {
+      await env.DB.prepare(
+        `UPDATE folders SET name = ?, parent_gdrive_folder_id = ?, updated_at = datetime('now') WHERE id = ?`
+      ).bind(gf.name, parentGdriveId, existing.id).run();
+    }
+  }
+
+  // Delete removed folders
+  for (const [gdriveId, d1Folder] of d1FolderMap.entries()) {
+    if (!gdriveFolderMap.has(gdriveId)) {
+      await env.DB.prepare(`DELETE FROM folders WHERE id = ?`).bind(d1Folder.id).run();
+    }
+  }
+
+  // Refresh folder mapping (gdrive_folder_id -> D1 id) and resolve integer parent_id
+  const refreshedFolders = await env.DB.prepare(
+    `SELECT id, gdrive_folder_id, parent_gdrive_folder_id FROM folders WHERE drive_id = ?`
+  ).bind(drive.id).all();
+
+  const gdriveToD1Id = new Map();
+  for (const f of (refreshedFolders.results || [])) {
+    gdriveToD1Id.set(f.gdrive_folder_id, f.id);
+  }
+
+  // Update parent_id references
+  for (const f of (refreshedFolders.results || [])) {
+    const parentIntId = f.parent_gdrive_folder_id ? (gdriveToD1Id.get(f.parent_gdrive_folder_id) || null) : null;
+    await env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id).run();
+  }
+
+  // 2. Fetch active video files from GDrive for this drive
   const gdriveFiles = await fetchAllDriveVideos(drive, env.DB, validFolderIds);
   const gdriveMap = new Map();
   for (const f of gdriveFiles) {
     gdriveMap.set(f.id, f);
   }
 
-  // 2. Fetch existing video records from D1 for this drive
+  // 3. Fetch existing video records from D1 for this drive
   const d1Query = await env.DB.prepare(
-    `SELECT drive_file_id, title, size FROM videos WHERE drive_id = ?`
+    `SELECT drive_file_id, title, size, folder_id FROM videos WHERE drive_id = ?`
   ).bind(drive.id).all();
   
   const d1Map = new Map();
@@ -529,13 +631,16 @@ async function performDriveSync(drive, env, forceFullScan = false) {
   const insertStmts = [];
   const deleteStmts = [];
 
-  // 3. Diff: find NEW or MODIFIED files (skip unchanged files to save D1 write operations!)
+  // 4. Diff: find NEW or MODIFIED files
   for (const [fileId, file] of gdriveMap.entries()) {
     const existing = d1Map.get(fileId);
     const size = parseInt(file.size || 0);
 
-    // If file is already in D1 with matching title and size, SKIP IT!
-    if (existing && existing.title === file.name && existing.size === size) {
+    const parentGdriveId = (file.parents && file.parents.length > 0) ? file.parents[0] : null;
+    const targetFolderId = (parentGdriveId && parentGdriveId !== drive.root_folder_id) ? (gdriveToD1Id.get(parentGdriveId) || null) : null;
+
+    // If file is already in D1 with matching title, size, and folder_id, skip it!
+    if (existing && existing.title === file.name && existing.size === size && existing.folder_id === targetFolderId) {
       continue;
     }
 
@@ -544,21 +649,21 @@ async function performDriveSync(drive, env, forceFullScan = false) {
 
     insertStmts.push(
       env.DB.prepare(
-        `INSERT INTO videos (user_id, drive_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, drive_modified_at=datetime('now'), drive_id=excluded.drive_id`
-      ).bind(drive.user_id, drive.id, file.id, file.name, size, file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null)
+        `INSERT INTO videos (user_id, drive_id, folder_id, drive_file_id, title, size, mime_type, resolution, duration, thumbnail_url, drive_modified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(drive_file_id) DO UPDATE SET title=excluded.title, size=excluded.size, mime_type=excluded.mime_type, resolution=excluded.resolution, duration=excluded.duration, thumbnail_url=excluded.thumbnail_url, folder_id=excluded.folder_id, drive_modified_at=datetime('now'), drive_id=excluded.drive_id`
+      ).bind(drive.user_id, drive.id, targetFolderId, file.id, file.name, size, file.mimeType, resolution, duration, file.thumbnailLink || null, file.modifiedTime || null)
     );
   }
 
-  // 4. Diff: find DELETED / TRASHED files
+  // 5. Diff: find DELETED / TRASHED files
   for (const [d1FileId] of d1Map.entries()) {
     if (!gdriveMap.has(d1FileId)) {
       deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ? AND drive_id = ?`).bind(d1FileId, drive.id));
     }
   }
 
-  // 5. Execute DB batch operations (only execute if there are actual inserts/deletes!)
+  // 6. Execute DB batch operations (only execute if there are actual inserts/deletes!)
   if (deleteStmts.length > 0) {
     for (let i = 0; i < deleteStmts.length; i += 50) {
       await env.DB.batch(deleteStmts.slice(i, i + 50));
@@ -573,7 +678,7 @@ async function performDriveSync(drive, env, forceFullScan = false) {
     totalSynced = insertStmts.length;
   }
 
-  // 6. Update quota and last_synced_at
+  // 7. Update quota and last_synced_at
   try {
     const quota = await getDriveQuota(drive, env.DB);
     await env.DB.prepare(`UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`)
@@ -700,9 +805,15 @@ async function handleListMedia(request, env, user) {
      LIMIT ? OFFSET ?`
   ).bind(...bindings, limit, offset).all();
 
-  // Fetch virtual folders for folder tree navigation
+  // Fetch folders with drive_id and video_count
   const folders = await env.DB.prepare(
-    `SELECT id, parent_id, name, color, icon, sort_order FROM folders WHERE user_id = ? ORDER BY sort_order, name`
+    `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order,
+            COUNT(v.id) as video_count
+     FROM folders f
+     LEFT JOIN videos v ON v.folder_id = f.id
+     WHERE f.user_id = ?
+     GROUP BY f.id
+     ORDER BY f.drive_id, f.name`
   ).bind(user.sub).all();
 
   return jsonResponse({

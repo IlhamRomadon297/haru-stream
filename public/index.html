@@ -754,32 +754,19 @@
             </button>
           </div>
           
-          <!-- DRIVES -->
-          <div class="mb-5">
-            <div class="text-xs font-semibold mb-2 px-3 flex items-center justify-between" style="color:#64748b;letter-spacing:1px">
-              <span>DRIVES</span>
-            </div>
-            <div class="folder-tree-item active" id="drive-all" onclick="selectDrive(null)">
-              <i class="fab fa-google-drive w-5 text-center" style="color:#10b981"></i>All Drives
-            </div>
-            <div id="drive-tree" class="mt-1 space-y-0.5"></div>
-          </div>
-
-          <!-- FOLDERS -->
+          <!-- UNIFIED DRIVE & FOLDER LIBRARY TREE -->
           <div class="mb-4">
-            <div class="flex items-center justify-between mb-3 px-3">
-              <span class="text-xs font-semibold uppercase tracking-wider" style="color:#475569">Folders</span>
-              <button onclick="openNewFolderModal()" class="w-6 h-6 rounded-lg flex items-center justify-center text-xs transition-colors hover:bg-brand-500/20" style="color:#6366f1;background:none;border:none;cursor:pointer" title="New Folder">
-                <i class="fas fa-plus"></i>
-              </button>
+            <div class="text-xs font-semibold mb-2.5 px-3 flex items-center justify-between" style="color:#64748b;letter-spacing:0.8px">
+              <span class="uppercase tracking-wider">LIBRARY</span>
+              <span id="library-total-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full" style="background:rgba(99,102,241,0.15);color:#a5b4fc">0 files</span>
             </div>
-            <div class="folder-tree-item active" id="folder-all" onclick="selectFolder(null)">
-              <i class="fas fa-layer-group w-5 text-center" style="color:#6366f1"></i>All Folders
+            <!-- All Videos Root Item -->
+            <div class="folder-tree-item active" id="tree-item-all" onclick="selectLibraryNode(null, null)">
+              <i class="fas fa-layer-group w-5 text-center" style="color:#6366f1"></i>
+              <span class="flex-1 font-semibold truncate">All Videos</span>
             </div>
-            <div class="folder-tree-item" id="folder-unsorted" onclick="selectFolder('null')">
-              <i class="far fa-folder w-5 text-center" style="color:#94a3b8"></i>Unsorted
-            </div>
-            <div id="folder-tree" class="mt-1 space-y-0.5"></div>
+            <!-- Dynamic Drive & Folder Tree -->
+            <div id="unified-tree" class="mt-2 space-y-1"></div>
           </div>
         </div>
 
@@ -1993,72 +1980,119 @@ async function loadFolders() {
   populateFolderSelects();
 }
 
-function renderDriveTree() {
-  const tree = $('drive-tree');
-  if (!APP.drives) { tree.innerHTML = ''; return; }
-  
-  const html = APP.drives.map(d => `
-    <div class="folder-tree-item ${APP.currentDrive === d.id ? 'active' : ''}" id="dtree-${d.id}" onclick="selectDrive(${d.id})" style="padding-left:10px" title="${escHtml(d.drive_name)}">
-      <i class="fab fa-google-drive text-xs flex-shrink-0" style="color:#10b981"></i>
-      <span class="flex-1 truncate min-w-0" title="${escHtml(d.drive_name)}">${escHtml(d.drive_name)}</span>
-    </div>
-  `).join('');
+function renderMediaTree() {
+  const tree = $('unified-tree');
+  if (!tree) return;
+  if (!APP.drives || !APP.drives.length) {
+    tree.innerHTML = '<div class="text-xs px-3 py-2 text-slate-500 italic">No drives connected</div>';
+    return;
+  }
+
+  if (!APP.expandedDrives) {
+    APP.expandedDrives = new Set(APP.drives.map(d => d.id)); // expand all by default
+  }
+
+  const buildFolderBranch = (driveId, parentId, depth = 0) => {
+    const driveFolders = (APP.folders || []).filter(f => f.drive_id === driveId);
+    return driveFolders
+      .filter(f => (f.parent_id || null) === parentId)
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(f => {
+        const isCurrent = APP.currentDrive === driveId && APP.currentFolder === f.id;
+        const paddingLeft = depth * 12 + 24;
+        const countBadge = (f.video_count !== undefined && f.video_count !== null) ? `<span class="text-[10px] font-mono px-1.5 py-0.2 rounded text-slate-400 bg-white/5 ml-auto">${f.video_count}</span>` : '';
+        return `
+          <div class="folder-tree-item group ${isCurrent ? 'active' : ''}" id="tree-folder-${f.id}" onclick="selectLibraryNode(${driveId}, ${f.id}, event)" style="padding-left:${paddingLeft}px" title="${escHtml(f.name)}">
+            <span class="text-slate-500 font-mono text-xs mr-0.5" style="opacity:0.5">└</span>
+            <i class="${isCurrent ? 'fas fa-folder-open' : 'fas fa-folder'} text-xs flex-shrink-0" style="color:${isCurrent ? '#818cf8' : '#6366f1'}"></i>
+            <span class="flex-1 truncate min-w-0 font-normal">${escHtml(f.name)}</span>
+            ${countBadge}
+          </div>
+          ${buildFolderBranch(driveId, f.id, depth + 1)}
+        `;
+      }).join('');
+  };
+
+  const html = APP.drives.map(d => {
+    const isDriveActive = APP.currentDrive === d.id && (APP.currentFolder === null || APP.currentFolder === undefined);
+    const isRootActive  = APP.currentDrive === d.id && APP.currentFolder === 'null';
+    const isExpanded    = APP.expandedDrives.has(d.id);
+    const folderBranches = buildFolderBranch(d.id, null, 0);
+
+    return `
+      <div class="drive-tree-group mb-2">
+        <!-- Drive Header -->
+        <div class="folder-tree-item ${isDriveActive ? 'active' : ''}" id="tree-drive-${d.id}" onclick="selectLibraryNode(${d.id}, null, event)" style="padding-left:8px" title="${escHtml(d.drive_name)}">
+          <button type="button" onclick="toggleDriveExpand(${d.id}, event)" class="p-1 hover:bg-white/10 rounded mr-0.5 text-slate-400 hover:text-white transition-all">
+            <i class="fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-[9px]" id="caret-${d.id}"></i>
+          </button>
+          <i class="fab fa-google-drive text-xs flex-shrink-0" style="color:#10b981"></i>
+          <span class="flex-1 truncate min-w-0 font-medium" title="${escHtml(d.drive_name)}">${escHtml(d.drive_name)}</span>
+        </div>
+
+        <!-- Drive Sub-Folders & Root -->
+        <div id="drive-children-${d.id}" class="${isExpanded ? '' : 'hidden'} space-y-0.5 mt-0.5">
+          <!-- Root / Unsorted Files row -->
+          <div class="folder-tree-item ${isRootActive ? 'active' : ''}" id="tree-folder-root-${d.id}" onclick="selectLibraryNode(${d.id}, 'null', event)" style="padding-left:24px" title="Root Files (Outside Folders)">
+            <span class="text-slate-500 font-mono text-xs mr-0.5" style="opacity:0.5">└</span>
+            <i class="far fa-file-video text-xs flex-shrink-0" style="color:#94a3b8"></i>
+            <span class="flex-1 truncate min-w-0 text-slate-400 font-normal italic">Root Files</span>
+          </div>
+
+          <!-- Nested Folders -->
+          ${folderBranches}
+        </div>
+      </div>
+    `;
+  }).join('');
+
   tree.innerHTML = html;
 }
 
-function selectDrive(id) {
-  APP.currentDrive = id;
-  APP.page = 1;
-  // Update active states for drives
-  document.querySelectorAll('#drive-tree .folder-tree-item, #drive-all').forEach(el => el.classList.remove('active'));
-  if (id === null) { 
-    $('drive-all').classList.add('active'); 
+function toggleDriveExpand(driveId, event) {
+  if (event) event.stopPropagation();
+  if (!APP.expandedDrives) APP.expandedDrives = new Set();
+  if (APP.expandedDrives.has(driveId)) {
+    APP.expandedDrives.delete(driveId);
   } else {
-    const el = $(`dtree-${id}`);
-    if (el) el.classList.add('active');
+    APP.expandedDrives.add(driveId);
   }
-  if (window.innerWidth <= 768) toggleFolderSidebar(false);
-  loadMedia();
+  renderMediaTree();
 }
 
-function renderFolderTree() {
-  const tree = $('folder-tree');
-  const buildItems = (parentId, depth = 0) => APP.folders
-    .filter(f => (f.parent_id || null) === parentId)
-    .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
-    .map(f => {
-      const paddingLeft = depth * 14 + 10;
-      const subPrefix = depth > 0 ? '<span class="text-slate-500 font-mono text-xs mr-0.5" style="opacity:0.6">└</span>' : '';
-      return `
-      <div class="folder-tree-item group ${APP.currentFolder === f.id ? 'active' : ''}" id="ftree-${f.id}" onclick="selectFolder(${f.id}, event)" style="padding-left:${paddingLeft}px" title="${escHtml(f.name)}">
-        ${subPrefix}
-        <i class="fas fa-folder text-xs flex-shrink-0" style="color:${f.color || '#6366f1'}"></i>
-        <span class="flex-1 truncate min-w-0" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
-        <button type="button" onclick="openEditFolderModal(${f.id}, event)" class="folder-action-btn opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all flex-shrink-0 ml-1" title="Edit / Move / Delete Folder">
-          <i class="fas fa-ellipsis-v text-xs"></i>
-        </button>
-      </div>
-      ${buildItems(f.id, depth + 1)}
-    `;
-    }).join('');
-  tree.innerHTML = buildItems(null, 0);
-}
-
-function selectFolder(id, event) {
-  if (event && event.target.closest('.folder-action-btn')) return;
-  APP.currentFolder = id;
+function selectLibraryNode(driveId, folderId, event) {
+  if (event) event.stopPropagation();
+  APP.currentDrive = driveId;
+  APP.currentFolder = folderId;
   APP.page = 1;
-  // Update active states for folders
-  document.querySelectorAll('#folder-tree .folder-tree-item, #folder-all, #folder-unsorted').forEach(el => el.classList.remove('active'));
-  if (id === null)    { $('folder-all').classList.add('active'); }
-  else if (id === 'null') { $('folder-unsorted').classList.add('active'); }
-  else if (id !== undefined) {
-    const el = $(`ftree-${id}`);
-    if (el) el.classList.add('active');
+
+  if (driveId && APP.expandedDrives && !APP.expandedDrives.has(driveId)) {
+    APP.expandedDrives.add(driveId);
   }
+
+  document.querySelectorAll('#unified-tree .folder-tree-item, #tree-item-all').forEach(el => el.classList.remove('active'));
+  if (driveId === null && folderId === null) {
+    $('tree-item-all')?.classList.add('active');
+  } else if (folderId === 'null') {
+    $(`tree-folder-root-${driveId}`)?.classList.add('active');
+  } else if (folderId !== null && folderId !== undefined) {
+    $(`tree-folder-${folderId}`)?.classList.add('active');
+  } else if (driveId !== null) {
+    $(`tree-drive-${driveId}`)?.classList.add('active');
+  }
+
+  const driveSelect = $('media-drive-filter');
+  if (driveSelect) driveSelect.value = driveId || '';
+
   if (window.innerWidth <= 768) toggleFolderSidebar(false);
   loadMedia();
 }
+
+// Legacy aliases for compatibility
+function selectDrive(id) { selectLibraryNode(id, null); }
+function selectFolder(id, event) { selectLibraryNode(APP.currentDrive, id, event); }
+function renderDriveTree() { renderMediaTree(); }
+function renderFolderTree() { renderMediaTree(); }
 
 async function loadMedia() {
   const search  = $('media-search')?.value || '';
@@ -2069,14 +2103,13 @@ async function loadMedia() {
 
   let url = `/api/media?search=${encodeURIComponent(search)}&sort_by=${sortBy}&sort_dir=${sortDir}&page=${APP.page}&limit=${limit}`;
   
-  if (driveFilter) {
-    url += `&drive_id=${driveFilter}`;
-  } else if (APP.currentDrive) {
-    url += `&drive_id=${APP.currentDrive}`;
+  const effectiveDrive = driveFilter || APP.currentDrive;
+  if (effectiveDrive) {
+    url += `&drive_id=${effectiveDrive}`;
   }
 
   if (APP.currentFolder === 'null') {
-    url += '&folder_id=null'; // Unsorted
+    url += '&folder_id=null'; // Unsorted / root files
   } else if (APP.currentFolder !== null && APP.currentFolder !== undefined) {
     url += `&folder_id=${APP.currentFolder}`; // Specific folder
   }
@@ -2089,7 +2122,10 @@ async function loadMedia() {
   APP.totalPages = Math.ceil(APP.totalItems / limit);
   APP.folders    = data.folders || [];
 
-  renderFolderTree();
+  const totalBadge = $('library-total-badge');
+  if (totalBadge) totalBadge.textContent = `${formatNumber(APP.totalItems)} files`;
+
+  renderMediaTree();
   renderMediaTable();
   updatePagination();
 }
@@ -3293,6 +3329,7 @@ function renderMediaTable() {
             
             <!-- Subtitle Actions Toolbar Under Title -->
             <div class="flex items-center gap-2 mt-1.5 text-xs flex-wrap" style="color:#64748b;font-size:11.5px">
+              ${v.folder_name ? `<span class="badge text-[10px] py-0.5 px-2 font-medium" style="background:rgba(99,102,241,0.15);color:#c7d2fe;border:1px solid rgba(99,102,241,0.25)"><i class="fas fa-folder mr-1 text-indigo-400"></i>${escHtml(v.folder_name)}</span>` : ''}
               <button type="button" onclick="openMediaInfoModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-indigo-400 font-medium" title="MediaInfo Inspector">
                 <i class="fas fa-file-waveform text-[10px]"></i> MediaInfo
               </button>
@@ -3311,9 +3348,6 @@ function renderMediaTable() {
               <a href="${streamLink}" target="_blank" download class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="Direct Download / Stream Link">
                 <i class="fas fa-download text-[10px]"></i> Download
               </a>
-              <button type="button" onclick="openMoveModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-emerald-400/90 hover:text-emerald-400" title="Move to Folder">
-                <i class="fas fa-folder-open text-[10px]"></i> Move
-              </button>
               <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
                 <i class="fas fa-trash text-[10px]"></i> Delete
               </button>
