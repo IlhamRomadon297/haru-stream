@@ -272,24 +272,13 @@ async function fetchAllDriveFolders(drive, db, validFolderIds) {
   let results = [];
 
   if (!validFolderIds) {
-    const query = encodeURIComponent("mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+    const query = encodeURIComponent("mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'me' in owners");
     let pageToken = null;
     do {
-      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
       if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!resp.ok) {
-        let fallbackUrl = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
-        if (pageToken) fallbackUrl += `&pageToken=${encodeURIComponent(pageToken)}`;
-        const fbResp = await fetch(fallbackUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (!fbResp.ok) break;
-        const fbData = await fbResp.json();
-        if (fbData.files) {
-          results.push(...fbData.files.filter(f => !f.trashed && f.name));
-        }
-        pageToken = fbData.nextPageToken;
-        continue;
-      }
+      if (!resp.ok) break;
       const data = await resp.json();
       if (data.files) {
         results.push(...data.files.filter(f => !f.trashed && f.name));
@@ -329,33 +318,15 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
   const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents,trashed)';
   let results = [];
 
-  // If validFolderIds is null (entire drive sync), query all active files directly
+  // If validFolderIds is null (entire drive sync), query active files owned by this account
   if (!validFolderIds) {
-    const query = encodeURIComponent("trashed = false");
+    const query = encodeURIComponent("trashed = false and 'me' in owners");
     let pageToken = null;
     do {
-      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
       if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!resp.ok) {
-        let fallbackUrl = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
-        if (pageToken) fallbackUrl += `&pageToken=${encodeURIComponent(pageToken)}`;
-        const fbResp = await fetch(fallbackUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-        if (!fbResp.ok) break;
-        const fbData = await fbResp.json();
-        if (fbData.files) {
-          const videos = fbData.files.filter(f => {
-            if (f.trashed) return false;
-            if (f.mimeType && f.mimeType.startsWith('video/')) return true;
-            if (!f.name) return false;
-            const ext = f.name.split('.').pop().toLowerCase();
-            return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
-          });
-          results.push(...videos);
-        }
-        pageToken = fbData.nextPageToken;
-        continue;
-      }
+      if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
       const data = await resp.json();
       if (data.files) {
         const videos = data.files.filter(f => {
@@ -371,6 +342,36 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
     } while (pageToken);
     return results;
   }
+  
+  const folderArray = Array.from(validFolderIds);
+  const CHUNK_SIZE = 25; // max safe size for query string
+  for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
+    const chunk = folderArray.slice(i, i + CHUNK_SIZE);
+    const parentQuery = chunk.map(id => `'${id}' in parents`).join(' or ');
+    const query = encodeURIComponent(`trashed = false and (${parentQuery})`);
+    
+    let pageToken = null;
+    do {
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
+      const data = await resp.json();
+      if (data.files) {
+        const videos = data.files.filter(f => {
+          if (f.trashed) return false;
+          if (f.mimeType && f.mimeType.startsWith('video/')) return true;
+          if (!f.name) return false;
+          const ext = f.name.split('.').pop().toLowerCase();
+          return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
+        });
+        results.push(...videos);
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+  }
+  return results;
+}
   
   const folderArray = Array.from(validFolderIds);
   const CHUNK_SIZE = 25; // max safe size for query string
