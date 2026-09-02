@@ -372,36 +372,6 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
   }
   return results;
 }
-  
-  const folderArray = Array.from(validFolderIds);
-  const CHUNK_SIZE = 25; // max safe size for query string
-  for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
-    const chunk = folderArray.slice(i, i + CHUNK_SIZE);
-    const parentQuery = chunk.map(id => `'${id}' in parents`).join(' or ');
-    const query = encodeURIComponent(`trashed = false and (${parentQuery})`);
-    
-    let pageToken = null;
-    do {
-      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
-      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
-      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!resp.ok) throw new Error(`GDrive list failed: ${await resp.text()}`);
-      const data = await resp.json();
-      if (data.files) {
-        const videos = data.files.filter(f => {
-          if (f.trashed) return false;
-          if (f.mimeType && f.mimeType.startsWith('video/')) return true;
-          if (!f.name) return false;
-          const ext = f.name.split('.').pop().toLowerCase();
-          return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
-        });
-        results.push(...videos);
-      }
-      pageToken = data.nextPageToken;
-    } while (pageToken);
-  }
-  return results;
-}
 
 async function getStartPageToken(drive, db) {
   const accessToken = await getAccessToken(drive, db);
@@ -2043,51 +2013,6 @@ async function handleExportTelegraph(request, env) {
   } catch (e) {
     return errorResponse(`Telegra.ph export error: ${e.message}`, 500);
   }
-}
-
-// ── CRON SCHEDULED HANDLER ────────────────────────────────────
-// Runs every 1 minute via Cloudflare Cron Triggers.
-// Cost: 1 D1 read per minute when idle (~1440 reads/day).
-// Only runs actual sync when: enabled AND (now - last_sync) >= interval.
-
-async function runAutoSync(env) {
-  // ── 1. Read settings (1 D1 read) ────────────────────────────
-  const rows = await env.DB.prepare(
-    `SELECT key, value FROM app_settings WHERE key IN ('auto_sync_enabled','auto_sync_interval_minutes','last_auto_sync_at')`
-  ).all();
-
-  const s = {};
-  for (const r of rows.results) s[r.key] = r.value;
-
-  if (s.auto_sync_enabled !== '1') return; // disabled → bail immediately
-
-  const intervalMs   = parseInt(s.auto_sync_interval_minutes || '30') * 60 * 1000;
-  const lastSyncTime = new Date(s.last_auto_sync_at || 0).getTime();
-  const now          = Date.now();
-
-  if (now - lastSyncTime < intervalMs) return; // not yet time → bail
-
-  // ── 2. Time to sync! Get all active drives ───────────────────
-  const drivesResult = await env.DB.prepare(
-    `SELECT * FROM drives WHERE is_active = 1`
-  ).all();
-  const drives = drivesResult.results;
-  if (!drives.length) return;
-
-  // ── 3. Perform sync for each drive ───────────────────────────
-  for (const drive of drives) {
-    try {
-      await performDriveSync(drive, env, false);
-    } catch (e) {
-      console.error(`Auto-sync error for drive ${drive.id}:`, e);
-    }
-  }
-
-  // ── 4. Update last_auto_sync_at ─────────────────────────────
-  await env.DB.prepare(
-    `INSERT INTO app_settings (key,value,updated_at) VALUES ('last_auto_sync_at',?,datetime('now'))
-     ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
-  ).bind(new Date().toISOString()).run();
 }
 
 async function handleGetMediaInfo(videoId, env, user) {
