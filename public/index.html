@@ -773,28 +773,28 @@
         <!-- Media Content -->
         <div class="flex-1 flex flex-col overflow-hidden min-w-0">
           <!-- Media Toolbar -->
-          <div class="flex flex-wrap items-center gap-3 px-4 py-3 flex-shrink-0" style="border-bottom:1px solid #1e1e38;background:#0c0c1e">
+          <div class="flex items-center gap-2 px-3.5 py-2.5 flex-nowrap overflow-x-auto flex-shrink-0" style="border-bottom:1px solid #1e1e38;background:#0c0c1e">
             <!-- Toggle Folder Sidebar Button (Desktop & Mobile) -->
-            <button onclick="if(window.innerWidth<=768){toggleFolderSidebar(true)}else{toggleFolderSidebarDesktop()}" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors" style="background:#1a1a30;color:#a5b4fc;border:1px solid #2a2a4a" title="Toggle Folders Sidebar">
+            <button onclick="if(window.innerWidth<=768){toggleFolderSidebar(true)}else{toggleFolderSidebarDesktop()}" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors flex-shrink-0" style="background:#1a1a30;color:#a5b4fc;border:1px solid #2a2a4a" title="Toggle Folders Sidebar">
               <i class="fas fa-folder-tree text-xs" style="color:#6366f1"></i>
               <span>Folders</span>
             </button>
             <!-- Search -->
-            <div class="relative flex-1 min-w-36">
+            <div class="relative w-36 sm:w-44 md:w-52 flex-shrink-0">
               <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs" style="color:#475569"></i>
-              <input type="text" id="media-search" class="form-input pl-9 pr-8 py-2 text-sm" style="padding-top:8px;padding-bottom:8px" placeholder="Search videos..." oninput="handleSearchInput(this)" onkeydown="if(event.key==='Escape'){clearSearchInput();}" />
-              <button id="search-clear-btn" type="button" onclick="clearSearchInput()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all cursor-pointer" title="Clear search">
-                <i class="fas fa-times text-xs"></i>
+              <input type="text" id="media-search" class="form-input pl-8 pr-7 py-1.5 text-xs w-full" style="padding-top:6px;padding-bottom:6px" placeholder="Search videos..." oninput="handleSearchInput(this)" onkeydown="if(event.key==='Escape'){clearSearchInput();}" />
+              <button id="search-clear-btn" type="button" onclick="clearSearchInput()" class="hidden absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all cursor-pointer" title="Clear search">
+                <i class="fas fa-times text-[10px]"></i>
               </button>
             </div>
 
             <!-- Drive Filter -->
-            <select id="media-drive-filter" class="form-input w-auto text-sm py-2" style="padding-top:8px;padding-bottom:8px" onchange="loadMedia()">
+            <select id="media-drive-filter" class="form-input w-auto text-xs py-1.5 px-2.5 flex-shrink-0" style="padding-top:6px;padding-bottom:6px" onchange="loadMedia()">
               <option value="">Semua Drive</option>
             </select>
 
             <!-- Sort -->
-            <select id="media-sort-by" class="form-input w-auto text-sm py-2" style="padding-top:8px;padding-bottom:8px" onchange="loadMedia()">
+            <select id="media-sort-by" class="form-input w-auto text-xs py-1.5 px-2.5 flex-shrink-0" style="padding-top:6px;padding-bottom:6px" onchange="loadMedia()">
               <option value="title">A → Z</option>
               <option value="size">Size</option>
               <option value="views">Most Viewed</option>
@@ -802,15 +802,15 @@
               <option value="created_at">Date Added</option>
               <option value="modified">Date Modified</option>
             </select>
-            <select id="media-sort-dir" class="form-input w-auto text-sm py-2" style="padding-top:8px;padding-bottom:8px" onchange="loadMedia()">
+            <select id="media-sort-dir" class="form-input w-auto text-xs py-1.5 px-2.5 flex-shrink-0" style="padding-top:6px;padding-bottom:6px" onchange="loadMedia()">
               <option value="asc">↑ Ascending</option>
               <option value="desc">↓ Descending</option>
             </select>
 
             <!-- Column toggle -->
-            <div class="relative">
-              <button onclick="toggleColumnDropdown()" id="col-toggle-btn" class="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
-                <i class="fas fa-columns text-xs"></i>Columns
+            <div class="relative flex-shrink-0">
+              <button onclick="toggleColumnDropdown()" id="col-toggle-btn" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+                <i class="fas fa-columns text-[10px]"></i>Columns
               </button>
               <div id="col-dropdown" class="hidden absolute right-0 top-full mt-1 p-3 rounded-xl z-20 w-48 space-y-2" style="background:#1a1a30;border:1px solid #2a2a4a;box-shadow:0 16px 48px rgba(0,0,0,0.7)">
                 <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:#94a3b8"><input type="checkbox" id="col-mediainfo"  checked class="accent-brand-500" onchange="renderMediaTable()"> MediaInfo</label>
@@ -822,9 +822,9 @@
             </div>
 
             <!-- View toggle -->
-            <div class="flex rounded-xl overflow-hidden" style="border:1px solid #2a2a4a">
-              <button id="view-list-btn" onclick="setMediaView('list')" class="px-3 py-2 text-xs transition-colors" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:none;cursor:pointer" title="List view"><i class="fas fa-list"></i></button>
-              <button id="view-grid-btn" onclick="setMediaView('grid')" class="px-3 py-2 text-xs transition-colors" style="background:transparent;color:#64748b;border:none;cursor:pointer" title="Grid view"><i class="fas fa-th-large"></i></button>
+            <div class="flex rounded-xl overflow-hidden flex-shrink-0" style="border:1px solid #2a2a4a">
+              <button id="view-list-btn" onclick="setMediaView('list')" class="px-2.5 py-1.5 text-xs transition-colors" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:none;cursor:pointer" title="List view"><i class="fas fa-list"></i></button>
+              <button id="view-grid-btn" onclick="setMediaView('grid')" class="px-2.5 py-1.5 text-xs transition-colors" style="background:transparent;color:#64748b;border:none;cursor:pointer" title="Grid view"><i class="fas fa-th-large"></i></button>
             </div>
           </div>
 
@@ -2087,23 +2087,20 @@ function toggleFolderExpand(folderId, event) {
 
 function selectLibraryNode(driveId, folderId, event) {
   if (event) event.stopPropagation();
-  APP.currentDrive = driveId;
-  APP.currentFolder = folderId;
+  APP.currentDrive = (driveId !== undefined && driveId !== 'null') ? driveId : null;
+  APP.currentFolder = (folderId !== undefined && folderId !== 'null') ? folderId : null;
   APP.page = 1;
 
-  document.querySelectorAll('#unified-tree .folder-tree-item, #tree-item-all').forEach(el => el.classList.remove('active'));
-  if (driveId === null && folderId === null) {
-    $('tree-item-all')?.classList.add('active');
-  } else if (folderId === 'null') {
-    $(`tree-folder-root-${driveId}`)?.classList.add('active');
-  } else if (folderId !== null && folderId !== undefined) {
-    $(`tree-folder-${folderId}`)?.classList.add('active');
-  } else if (driveId !== null) {
-    $(`tree-drive-${driveId}`)?.classList.add('active');
+  if (driveId && !APP.expandedDrives.has(driveId)) {
+    APP.expandedDrives.add(driveId);
   }
+  if (folderId && !APP.expandedFolders.has(folderId)) {
+    APP.expandedFolders.add(folderId);
+  }
+  renderMediaTree();
 
   const driveSelect = $('media-drive-filter');
-  if (driveSelect) driveSelect.value = driveId || '';
+  if (driveSelect) driveSelect.value = (driveId !== null && driveId !== undefined && driveId !== 'null') ? driveId : '';
 
   if (window.innerWidth <= 768) toggleFolderSidebar(false);
   loadMedia();

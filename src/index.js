@@ -828,7 +828,7 @@ async function handleListMedia(request, env, user) {
     ).bind(...bindings).first();
 
     const videos = await env.DB.prepare(
-      `SELECT v.id, v.drive_file_id, v.title, v.size, v.resolution, v.duration,
+      `SELECT v.id, v.drive_id, v.drive_file_id, v.title, v.size, v.resolution, v.duration,
               v.views, v.downloads, v.mime_type, v.thumbnail_url, v.folder_id,
               v.is_public, v.tags, v.drive_modified_at, v.created_at, v.updated_at,
               d.drive_name, f.name as folder_name
