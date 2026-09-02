@@ -1016,13 +1016,34 @@ async function handleEmbed(fileId, request, env) {
   });
 }
 
-async function handleStream(fileId, request, env) {
+async function handleStream(fileId, request, env, ctx) {
   const video = await env.DB.prepare(
     `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at, d.id as drive_row_id
      FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ? OR v.id = ?`
   ).bind(fileId, parseInt(fileId) || 0).first();
 
   if (!video) return new Response('Video not found.', { status: 404 });
+
+  // 0. Update Download or View Statistics
+  const url = new URL(request.url);
+  const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1' || url.pathname.startsWith('/d/') || url.pathname.startsWith('/download/');
+
+  if (request.method === 'GET') {
+    if (isDownload) {
+      const p = env.DB.prepare(
+        `UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+      ).bind(video.drive_file_id, video.id).run();
+      if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+    } else {
+      const range = request.headers.get('Range');
+      if (!range || range.startsWith('bytes=0-')) {
+        const p = env.DB.prepare(
+          `UPDATE videos SET views = COALESCE(views, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+        ).bind(video.drive_file_id, video.id).run();
+        if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+      }
+    }
+  }
 
   const fakeDrive = {
     id: video.drive_row_id,
@@ -1134,13 +1155,6 @@ async function handleStream(fileId, request, env) {
   // large files and prematurely terminating the connection with "Timeout at 0"
   responseHeaders.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
 
-  const url = new URL(request.url);
-  const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1' || url.pathname.startsWith('/d/') || url.pathname.startsWith('/download/');
-  if (isDownload && request.method === 'GET') {
-    env.DB.prepare(
-      `UPDATE videos SET downloads = downloads + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-    ).bind(fileId, parseInt(fileId) || 0).run().catch(() => {});
-  }
   const safeFilename = (video.title || 'video.mp4').replace(/"/g, '\\"');
   const encodedFilename = encodeURIComponent(video.title || 'video.mp4');
   const dispositionType = isDownload ? 'attachment' : 'inline';
@@ -1264,86 +1278,146 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <meta name="robots" content="noindex">
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
       --plyr-color-main: #6366f1;
       --plyr-video-background: #000;
-      --plyr-font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --plyr-control-radius: 8px;
+      --plyr-font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --plyr-control-radius: 10px;
     }
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    html,body{width:100vw;height:100vh;background:#000;overflow:hidden;margin:0;padding:0;}
+    html,body{width:100vw;height:100vh;background:#06060c;overflow:hidden;margin:0;padding:0;font-family:'Plus Jakarta Sans',sans-serif;}
     #player-container{position:absolute;top:0;left:0;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;background:#000;}
     .plyr{width:100%;height:100%;max-height:100vh;}
     .plyr__video-wrapper{height:100% !important;background:#000;}
     video{object-fit:contain !important;width:100% !important;height:100% !important;}
+    
+    video::cue {
+      font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif !important;
+      font-size: 1.15rem;
+      font-weight: 600;
+      background: rgba(10, 10, 20, 0.85);
+      color: #ffffff;
+      border-radius: 6px;
+      padding: 2px 8px;
+      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+    }
 
-    /* ── Warning Modal ─────────────────────────────────── */
+    /* ── Modern Sleek Format Modal ────────────────────── */
     #warn-modal {
       position:fixed;inset:0;z-index:9999;
-      background:#0b0b14;
+      background:rgba(4, 4, 10, 0.85);
+      backdrop-filter:blur(16px);
+      -webkit-backdrop-filter:blur(16px);
       display:flex;align-items:center;justify-content:center;
-      padding:8px;
+      padding:16px;
       overflow-y:auto;
       -webkit-overflow-scrolling:touch;
     }
     .warn-box {
-      background:linear-gradient(135deg,#141428,#1a1a36);
-      border:1px solid rgba(99,102,241,0.35);
-      border-radius:14px;padding:12px 16px;
-      max-width:500px;width:96%;text-align:center;margin:auto;
-      box-shadow:0 24px 60px rgba(0,0,0,0.9);
-      animation:warnIn .3s ease-out;
+      background:linear-gradient(135deg, rgba(20, 20, 42, 0.95), rgba(26, 26, 54, 0.95));
+      border:1px solid rgba(99,102,241,0.3);
+      border-radius:20px;padding:22px 24px;
+      max-width:520px;width:100%;text-align:center;margin:auto;
+      box-shadow:0 30px 80px rgba(0,0,0,0.85), 0 0 35px rgba(99,102,241,0.18);
+      animation:warnIn .3s cubic-bezier(0.16, 1, 0.3, 1);
       box-sizing:border-box;
-      max-height:98vh;
+      max-height:95vh;
       overflow-y:auto;
     }
-    @keyframes warnIn{from{opacity:0;transform:scale(.92) translateY(12px)}to{opacity:1;transform:scale(1) translateY(0)}}
-    .warn-icon{
-      width:36px;height:36px;border-radius:50%;
-      background:linear-gradient(135deg,rgba(239,68,68,.2),rgba(245,158,11,.15));
-      border:1.5px solid rgba(239,68,68,.4);
-      display:flex;align-items:center;justify-content:center;
-      margin:0 auto 6px;
+    @keyframes warnIn{from{opacity:0;transform:scale(.94) translateY(14px)}to{opacity:1;transform:scale(1) translateY(0)}}
+    
+    .warn-badge {
+      display:inline-flex;align-items:center;gap:6px;
+      background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
+      padding:4px 12px;border-radius:20px;
+      font-size:11px;font-weight:700;letter-spacing:0.5px;
+      color:#a5b4fc;text-transform:uppercase;margin-bottom:12px;
+      font-family:'Outfit',sans-serif;
     }
-    .warn-icon svg{width:20px;height:20px;}
-    .warn-title{font-size:14px;font-weight:700;color:#fff;margin-bottom:4px;font-family:Inter,sans-serif}
-    .warn-body{font-size:11.5px;line-height:1.4;color:#94a3b8;font-family:Inter,sans-serif;margin-bottom:8px}
-    .warn-ext-group{display:flex;flex-direction:column;gap:4px}
+    
+    .warn-title{
+      font-size:16px;font-weight:700;color:#fff;margin-bottom:6px;
+      font-family:'Outfit',sans-serif;letter-spacing:-0.2px;
+      line-height:1.3;word-break:break-word;
+    }
+    .warn-body{
+      font-size:12.5px;line-height:1.45;color:#94a3b8;margin-bottom:16px;
+    }
+    .warn-ext-group{display:flex;flex-direction:column;gap:10px}
+    
+    .warn-section-title {
+      text-align:left;font-size:11.5px;font-weight:700;color:#c7d2fe;
+      text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;
+      font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:6px;
+    }
+    
     .warn-ext-btn{
-      display:flex;align-items:center;gap:8px;
-      padding:6px 12px;border-radius:8px;border:1px solid rgba(99,102,241,0.35);
-      background:rgba(99,102,241,0.12);color:#a5b4fc;
-      font-size:11.5px;font-weight:600;cursor:pointer;
-      text-align:left;transition:all .15s;
-      font-family:Inter,sans-serif;
+      display:flex;align-items:center;gap:10px;
+      padding:10px 14px;border-radius:12px;border:1px solid rgba(99,102,241,0.25);
+      background:rgba(99,102,241,0.1);color:#e0e7ff;
+      font-size:12.5px;font-weight:600;cursor:pointer;
+      text-align:left;transition:all .2s ease;
+      font-family:'Plus Jakarta Sans',sans-serif;
     }
-    .warn-ext-btn:hover{background:rgba(99,102,241,0.28);color:#c7d2fe}
-    .warn-ext-btn svg{width:14px;height:14px;flex-shrink:0;opacity:.85}
-    .warn-force-btn{
-      width:100%;padding:6px 12px;border-radius:8px;
-      background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.2);
-      color:#e2e8f0;font-size:11.5px;font-weight:600;cursor:pointer;
-      transition:all .15s;font-family:Inter,sans-serif;text-align:left;
+    .warn-ext-btn:hover{
+      background:rgba(99,102,241,0.22);color:#fff;
+      border-color:rgba(99,102,241,0.45);transform:translateY(-1px);
     }
-    .warn-force-btn:hover{background:rgba(99,102,241,0.22);color:#fff}
+    .warn-ext-btn svg{width:16px;height:16px;flex-shrink:0;opacity:.9}
+    
+    .warn-app-btn {
+      flex:1;justify-content:center;padding:10px 8px;font-size:12px;
+      font-weight:600;border-radius:10px;border:1px solid rgba(255,255,255,0.1);
+      background:rgba(255,255,255,0.05);color:#cbd5e1;cursor:pointer;
+      transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
+    }
+    .warn-app-btn:hover {
+      background:rgba(99,102,241,0.2);border-color:rgba(99,102,241,0.4);
+      color:#fff;transform:translateY(-1px);
+    }
+    
+    .warn-primary-btn{
+      width:100%;padding:11px 16px;border-radius:12px;
+      background:linear-gradient(135deg, #6366f1, #8b5cf6);border:none;
+      color:#fff;font-size:13px;font-weight:700;cursor:pointer;
+      transition:all .2s ease;font-family:'Plus Jakarta Sans',sans-serif;
+      display:flex;align-items:center;justify-content:center;gap:8px;
+      box-shadow:0 4px 16px rgba(99,102,241,0.35);
+    }
+    .warn-primary-btn:hover{
+      background:linear-gradient(135deg, #4f46e5, #7c3aed);
+      transform:translateY(-1px);box-shadow:0 6px 22px rgba(99,102,241,0.5);
+    }
+    
+    .warn-secondary-btn{
+      width:100%;padding:10px 14px;border-radius:12px;
+      background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
+      color:#cbd5e1;font-size:12px;font-weight:600;cursor:pointer;
+      transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
+      display:flex;align-items:center;justify-content:center;gap:6px;
+    }
+    .warn-secondary-btn:hover{
+      background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.25);
+    }
 
-    @media (max-height: 520px), (max-width: 520px) {
-      #warn-modal { padding: 4px; align-items: flex-start; }
-      .warn-box { padding: 6px 8px; border-radius: 8px; max-height: 98vh; }
-      .warn-icon { width: 22px; height: 22px; margin-bottom: 2px; }
-      .warn-icon svg { width: 14px; height: 14px; }
-      .warn-title { font-size: 11px; margin-bottom: 1px; }
-      .warn-body { font-size: 9.5px; margin-bottom: 3px; }
-      .warn-ext-btn, .warn-force-btn { padding: 3px 6px; font-size: 9.5px; border-radius: 5px; }
-      .warn-ext-btn svg { width: 12px; height: 12px; }
+    @media (max-height: 540px), (max-width: 520px) {
+      #warn-modal { padding: 6px; }
+      .warn-box { padding: 14px 16px; border-radius: 14px; max-height: 98vh; }
+      .warn-title { font-size: 13.5px; }
+      .warn-body { font-size: 10.5px; margin-bottom: 10px; }
+      .warn-ext-btn, .warn-primary-btn, .warn-secondary-btn { padding: 8px 10px; font-size: 11px; }
+      .warn-app-btn { padding: 8px 4px; font-size: 10.5px; }
     }
   </style>
   <script>
     window.videoTitle  = ${JSON.stringify(video.title)};
     window.streamUrl   = ${JSON.stringify(streamUrl)};
     window.driveFileId = ${JSON.stringify(driveFileId)};
+    window.videoId     = ${JSON.stringify(video.id)};
     window.isHeavy     = ${isHeavy ? 'true' : 'false'};
 
     function copyStreamLink(e) {
@@ -1442,43 +1516,45 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 </head>
 <body>
 
-  <!-- ── Heavy Format Warning Modal ──────────────── -->
+  <!-- ── Format Mode Selection Modal ──────────────── -->
   ${isHeavy ? `
   <div id="warn-modal">
     <div class="warn-box">
-      <div class="warn-icon">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-          <line x1="12" y1="9" x2="12" y2="13"/>
-          <line x1="12" y1="17" x2="12.01" y2="17"/>
-        </svg>
+      <div class="warn-badge">
+        <span>🎬 Multi-Track Media</span>
       </div>
-      <div class="warn-title">⚠ Format Berat Terdeteksi (MKV/Multi-track)</div>
-      
-      <div class="warn-body" style="text-align: left; margin-bottom: 12px; font-size: 13px;">
-        Pilih mode pemutaran di bawah ini:
+      <div class="warn-title">${escapeHtml(video.title)}</div>
+      <div class="warn-body">
+        Format MKV/Multi-track terdeteksi. Silakan pilih mode pemutaran favorit Anda:
       </div>
 
       <div class="warn-ext-group">
-        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-bottom:4px; font-weight:600;">Opsi 1: Aplikasi Eksternal (100% Lancar)</div>
+        <!-- Option 1: Fast HTML5 Player (Recommended) -->
+        <button class="warn-primary-btn" onclick="dismissWarningAndPlay('plyr')">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          <span>Putar via Plyr.io (Instant HTML5)</span>
+        </button>
+
+        <!-- Option 2: External Media Players -->
+        <div class="warn-section-title" style="margin-top:8px;">
+          <span>🚀 Aplikasi Eksternal (100% Lancar)</span>
+        </div>
         <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-          <span id="copy-txt">Copy Link Streaming (Untuk VLC Desktop CTRL+N)</span>
+          <span id="copy-txt">Copy Link Streaming (VLC Desktop CTRL+N)</span>
         </button>
         <div style="display:flex; gap:6px;">
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('potplayer')">PotPlayer</button>
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('vlc')">VLC Mobile</button>
-            <button class="warn-ext-btn" style="flex:1; justify-content:center; padding:10px 4px; font-size:12px;" onclick="openExternal('mx')">MX Player</button>
+          <button class="warn-app-btn" onclick="openExternal('potplayer')">PotPlayer</button>
+          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC Mobile</button>
+          <button class="warn-app-btn" onclick="openExternal('mx')">MX Player</button>
         </div>
 
-        <div style="text-align:left; font-size:12px; color:#f87171; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 2: Movi-Player (Multi-Audio & Subs Native - Sering Error)</div>
-        <button class="warn-force-btn" style="text-align:left; color:#cbd5e1; background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.3);" onclick="dismissWarningAndPlay('movi')">
-          ▶ Coba Putar via Movi-Player (Sering Error / Timeout)
-        </button>
-        
-        <div style="text-align:left; font-size:12px; color:#a5b4fc; margin-top:12px; margin-bottom:4px; font-weight:600;">Opsi 3: Plyr.io HTML5 (Video & Audio Utama)</div>
-        <button class="warn-force-btn" style="text-align:left; color:#e2e8f0; background:rgba(99,102,241,0.1); border-color:rgba(99,102,241,0.2);" onclick="dismissWarningAndPlay('plyr')">
-          ▶ Putar via Plyr.io (Instant HTML5)
+        <!-- Option 3: Movi-Player -->
+        <div class="warn-section-title" style="margin-top:8px;">
+          <span>🎛️ Multi-Audio & Subtitle Native</span>
+        </div>
+        <button class="warn-secondary-btn" onclick="dismissWarningAndPlay('movi')">
+          <span>Putar via Movi-Player (WebAssembly)</span>
         </button>
       </div>
     </div>
@@ -1498,24 +1574,37 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <script>
     let plyrInstance = null;
 
+    // Send view tracking beacon
+    function trackVideoView() {
+      try {
+        navigator.sendBeacon('/api/media/track', JSON.stringify({
+          drive_file_id: window.driveFileId,
+          id: window.videoId,
+          event: 'view'
+        }));
+      } catch(_) {}
+    }
+
     window.initPlayer = function(mode) {
+      trackVideoView();
+
       if (mode === 'movi') {
         const container = document.getElementById('player-container');
-        container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;" controls></movi-player>';
+        container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;font-family:Plus Jakarta Sans,sans-serif;" controls></movi-player>';
         const playerEl = container.querySelector('movi-player');
         
         function showRetry(errMsg) {
             if (document.getElementById('retry-btn')) return;
             const errDiv = document.createElement('div');
             errDiv.id = 'retry-btn';
-            errDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:rgba(20,20,40,0.95);border:1px solid rgba(99,102,241,0.5);border-radius:14px;padding:16px 20px;max-width:440px;width:90%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.9);color:#fff;font-family:Inter,sans-serif;backdrop-filter:blur(8px);';
+            errDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:rgba(20,20,40,0.95);border:1px solid rgba(99,102,241,0.5);border-radius:16px;padding:18px 22px;max-width:440px;width:90%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.9);color:#fff;font-family:Plus Jakarta Sans,sans-serif;backdrop-filter:blur(12px);';
             errDiv.innerHTML =
-              '<div style="font-size:15px;font-weight:700;margin-bottom:6px;color:#f87171;">⚠️ Gagal Memuat MKV WebAssembly</div>' +
-              '<div style="font-size:12px;color:#94a3b8;margin-bottom:14px;line-height:1.4;">' + (errMsg || 'Format MKV berat/multi-track membutuhkan koneksi stabil.') + ' Silakan pilih solusi alternatif:</div>' +
+              '<div style="font-size:15px;font-weight:700;margin-bottom:6px;color:#f87171;font-family:Outfit,sans-serif;">⚠️ Gagal Memuat MKV WebAssembly</div>' +
+              '<div style="font-size:12px;color:#94a3b8;margin-bottom:14px;line-height:1.45;">' + (errMsg || 'Format MKV berat/multi-track membutuhkan koneksi stabil.') + ' Silakan pilih solusi alternatif:</div>' +
               '<div style="display:flex;flex-direction:column;gap:8px;">' +
-                '<button onclick="location.reload()" style="padding:8px 12px;background:rgba(99,102,241,0.25);border:1px solid rgba(99,102,241,0.5);color:#c7d2fe;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🔄 Coba Muat Ulang (Retry)</button>' +
-                '<button onclick="retryPlyr()" style="padding:8px 12px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:#e2e8f0;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🎬 Putar via Plyr (Instant HTML5)</button>' +
-                '<button onclick="retryVlc()" style="padding:8px 12px;background:rgba(34,197,94,0.2);border:1px solid rgba(34,197,94,0.4);color:#86efac;border-radius:8px;font-weight:600;cursor:pointer;font-size:12px;">🚀 Buka di PotPlayer / VLC (100% Smooth)</button>' +
+                '<button onclick="retryPlyr()" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;border-radius:10px;font-weight:700;cursor:pointer;font-size:12.5px;">🎬 Putar via Plyr (Instant HTML5)</button>' +
+                '<button onclick="retryVlc()" style="padding:10px 12px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.35);color:#86efac;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px;">🚀 Buka di PotPlayer / VLC (100% Smooth)</button>' +
+                '<button onclick="location.reload()" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#cbd5e1;border-radius:8px;font-weight:500;cursor:pointer;font-size:11.5px;">🔄 Muat Ulang Halaman</button>' +
               '</div>';
             container.appendChild(errDiv);
         }
@@ -1567,6 +1656,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         plyrInstance.on('ended', () => {
           navigator.sendBeacon('/api/media/track', JSON.stringify({
             drive_file_id: driveFileId,
+            id: window.videoId,
             event: 'complete'
           }));
         });
@@ -1579,7 +1669,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
     // ── Startup logic ─────────────────────────────────────
     if (isHeavy) {
-      // Heavy format: show the warning modal with 3 options
+      // Heavy format: show the modern selection modal
     } else {
       // Lightweight MP4/AVC: initialize player immediately
       initPlayer();
@@ -1597,16 +1687,26 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// ── TRACKING (fire-and-forget) ────────────────────────────────
-
-async function handleTrack(request, env) {
+// ── TRACKING (fire-and-forget with waitUntil) ────────────────
+async function handleTrack(request, env, ctx) {
   try {
-    const { drive_file_id, event } = await request.json();
-    if (!drive_file_id) return new Response('', { status: 204 });
+    const body = await request.json().catch(() => ({}));
+    const targetId = body.drive_file_id || body.id || body.video_id;
+    const event = body.event;
+    if (!targetId) return new Response('', { status: 204 });
+
     if (event === 'download') {
-      await env.DB.prepare(
-        `UPDATE videos SET downloads = downloads + 1 WHERE drive_file_id = ?`
-      ).bind(drive_file_id).run();
+      const p = env.DB.prepare(
+        `UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+      ).bind(targetId, parseInt(targetId) || 0).run();
+      if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+      else await p;
+    } else if (event === 'view' || event === 'play' || event === 'complete') {
+      const p = env.DB.prepare(
+        `UPDATE videos SET views = COALESCE(views, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+      ).bind(targetId, parseInt(targetId) || 0).run();
+      if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+      else await p;
     }
     return new Response('', { status: 204 });
   } catch {
@@ -1842,12 +1942,12 @@ export default {
     if ((method === 'GET' || method === 'HEAD') && (path.startsWith('/stream/') || path.startsWith('/d/') || path.startsWith('/download/'))) {
       const parts = path.split('/').filter(Boolean); // ['stream', '123', 'filename.mkv'] or ['d', '123']
       if (parts.length < 2) return errorResponse('Not Found', 404);
-      return await handleStream(parts[1], request, env);
+      return await handleStream(parts[1], request, env, ctx);
     }
 
     // ── Beacon (no auth) ────────────────────────────────────
     if (method === 'POST' && path === '/api/media/track') {
-      return await handleTrack(request, env);
+      return await handleTrack(request, env, ctx);
     }
 
     // ── Auth endpoints (no auth required) ───────────────────

@@ -406,8 +406,8 @@
       <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl mb-4" style="background:linear-gradient(135deg,#6366f1,#8b5cf6);box-shadow:0 0 24px rgba(99,102,241,0.5)">
         <i class="fas fa-play text-white text-xl"></i>
       </div>
-      <h1 class="text-2xl font-bold text-white">HaruStream <span style="color:#a5b4fc">PRO</span></h1>
-      <p class="text-sm mt-1" style="color:#64748b">Premium Video Management System</p>
+      <h1 class="text-2xl font-bold text-white">HaruStream</h1>
+      <p class="text-sm mt-1" style="color:#64748b">Video Streaming Aggregator & Management</p>
     </div>
 
     <!-- Login Form (only form — registration disabled) -->
@@ -448,7 +448,7 @@
       </div>
       <div class="sidebar-logo-text">
         <div class="text-white font-bold text-sm leading-none">HaruStream</div>
-        <div class="text-xs font-semibold mt-0.5" style="color:#6366f1">PRO</div>
+        <div class="text-[11px] font-medium mt-0.5" style="color:#818cf8">Streaming Core</div>
       </div>
     </div>
 
@@ -795,7 +795,10 @@
             <!-- Search -->
             <div class="relative flex-1 min-w-36">
               <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs" style="color:#475569"></i>
-              <input type="text" id="media-search" class="form-input pl-9 py-2 text-sm" style="padding-top:8px;padding-bottom:8px" placeholder="Search videos..." oninput="debounceSearch()" />
+              <input type="text" id="media-search" class="form-input pl-9 pr-8 py-2 text-sm" style="padding-top:8px;padding-bottom:8px" placeholder="Search videos..." oninput="handleSearchInput(this)" onkeydown="if(event.key==='Escape'){clearSearchInput();}" />
+              <button id="search-clear-btn" type="button" onclick="clearSearchInput()" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700/50 transition-all cursor-pointer" title="Clear search">
+                <i class="fas fa-times text-xs"></i>
+              </button>
             </div>
 
             <!-- Drive Filter -->
@@ -2089,6 +2092,36 @@ async function loadMedia() {
   renderFolderTree();
   renderMediaTable();
   updatePagination();
+}
+
+// ── SEARCH HELPERS ──────────────────────────────────────────
+function handleSearchInput(el) {
+  const clearBtn = $('search-clear-btn');
+  if (clearBtn) {
+    clearBtn.classList.toggle('hidden', !(el && el.value));
+  }
+  clearTimeout(APP.searchTimeout);
+  APP.searchTimeout = setTimeout(() => {
+    APP.page = 1;
+    loadMedia();
+  }, 300);
+}
+
+function clearSearchInput() {
+  const searchInput = $('media-search');
+  if (searchInput) {
+    searchInput.value = '';
+    searchInput.focus();
+  }
+  const clearBtn = $('search-clear-btn');
+  if (clearBtn) clearBtn.classList.add('hidden');
+  APP.page = 1;
+  loadMedia();
+}
+
+function debounceSearch() {
+  const searchInput = $('media-search');
+  handleSearchInput(searchInput || { value: '' });
 }
 
 // ── FULL-FEATURED MEDIAINFO ENGINE (100% ACCURATE & FAST) ───────
