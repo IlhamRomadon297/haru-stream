@@ -1365,6 +1365,50 @@ async function handleSetAutoSync(request, env) {
   return jsonResponse({ success: true, message: 'Auto-sync settings updated.' });
 }
 
+// ── AUTO-SYNC CRON EXECUTOR ─────────────────────────────────
+async function runAutoSync(env) {
+  try {
+    // 1. Check auto-sync settings
+    const settings = await handleGetAutoSync(env);
+    const data = await settings.json();
+    if (!data.auto_sync_enabled) return;
+
+    const intervalMinutes = data.auto_sync_interval_minutes || 30;
+    const lastSyncStr = data.last_auto_sync_at;
+
+    if (lastSyncStr) {
+      const lastSyncTime = new Date(lastSyncStr).getTime();
+      const now = Date.now();
+      const diffMinutes = (now - lastSyncTime) / (1000 * 60);
+      if (diffMinutes < intervalMinutes) {
+        return; // Skip if interval has not elapsed yet
+      }
+    }
+
+    // 2. Fetch all active drives
+    const drivesRes = await env.DB.prepare('SELECT * FROM drives WHERE is_active = 1').all();
+    const drives = drivesRes.results || [];
+    if (!drives.length) return;
+
+    // 3. Incrementally sync each drive
+    for (const drive of drives) {
+      try {
+        await performDriveSync(drive, env, false);
+      } catch (e) {
+        console.error(`[AutoSync] Failed to sync drive ${drive.id}:`, e.message);
+      }
+    }
+
+    // 4. Update last_auto_sync_at
+    await env.DB.prepare(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ('last_auto_sync_at', datetime('now'), datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
+    ).run();
+  } catch (err) {
+    console.error('[AutoSync] Cron error:', err.message);
+  }
+}
+
 // ── SINGLE VIDEO ─────────────────────────────────────────────
 
 async function handleGetVideo(videoId, env, user) {
