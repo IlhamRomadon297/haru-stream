@@ -2537,8 +2537,8 @@ function parseMatroskaEBML(bytes, v) {
             width: track.width || 1920, height: track.height || 1080,
             aspect: (track.displayWidth && track.displayHeight) ? `${(track.displayWidth/track.displayHeight).toFixed(2)}:1` : '16:9',
             frameRate: track.frameRate || '23.976 FPS',
-            colorSpace: 'YUV', chroma: '4:2:0', bitDepth: track.bitDepth || '10 bits',
-            language: track.language || 'Japanese',
+            colorSpace: 'YUV', chroma: '4:2:0', bitDepth: track.bitDepth || '8 bits',
+            language: track.language || '',
             isDefault: track.isDefault, isForced: track.isForced
           });
         } else if (track.type === 2) { // Audio
@@ -2555,8 +2555,8 @@ function parseMatroskaEBML(bytes, v) {
             format: fmt, codecId: cId,
             channels: track.channels || '2 channels (Stereo)',
             samplingRate: track.samplingRate || '48.0 kHz',
-            title: track.title || track.language || `Audio #${result.audio.length + 1}`,
-            language: track.language || 'Indonesian',
+            title: track.title || (track.language ? `${track.language} Audio` : `Audio #${result.audio.length + 1}`),
+            language: track.language || '',
             isDefault: track.isDefault, isForced: track.isForced
           });
         } else if (track.type === 17) { // Subtitle
@@ -2568,8 +2568,8 @@ function parseMatroskaEBML(bytes, v) {
           result.text.push({
             id: track.id || (result.text.length + 1),
             format: fmt, codecId: cId,
-            title: track.title || track.language || `Subtitle #${result.text.length + 1}`,
-            language: track.language || 'Indonesian',
+            title: track.title || (track.language ? `${track.language} Subtitle` : `Subtitle #${result.text.length + 1}`),
+            language: track.language || '',
             isDefault: track.isDefault, isForced: track.isForced
           });
         }
@@ -2925,13 +2925,13 @@ function generateSmartInitialMediaInfo(v) {
   audioTracks.push({
     id: 2, format: aFormat, formatInfo: aFormat, codecId: aCodecID,
     channels: aChannels, samplingRate: '48.0 kHz', bitRate: aBitrate,
-    title: 'Original Audio', language: 'Japanese', isDefault: true
+    title: 'Audio Track #1', language: '', isDefault: true
   });
 
-  // Subtitle track inference
+  // Subtitle track inference (only if filename mentions it)
   const subTracks = [];
-  if (isMkv && !title.includes('hardsub') && !title.includes('hardsubwm')) {
-    subTracks.push({ id: 3, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'Indonesian', language: 'Indonesian', isDefault: true });
+  if (isMkv && (title.includes('softsub') || title.includes('sub')) && !title.includes('hardsub') && !title.includes('hardsubwm')) {
+    subTracks.push({ id: 3, format: 'ASS', codecId: 'S_TEXT/ASS', title: 'Default Subtitle', language: '', isDefault: true });
   }
 
   return {
@@ -2942,8 +2942,8 @@ function generateSmartInitialMediaInfo(v) {
       fileSize: sizeFormatted,
       fileSizeBytes: sizeBytes,
       overallBitRate: sizeBytes > 0 ? `${Math.round((sizeBytes * 8) / (24 * 60 * 1000))} kb/s` : '1 500 kb/s',
-      writingApp: isMkv ? 'mkvmerge 98.0 / Lavf' : 'Lavf58.76.100 / ISOM',
-      writingLib: isMkv ? 'libebml v1.4.5 + libmatroska v1.7.1' : 'isom / mp42'
+      writingApp: isMkv ? 'mkvmerge / Lavf' : 'Lavf / ISOM',
+      writingLib: isMkv ? 'libebml + libmatroska' : 'isom / mp42'
     },
     video: [{
       id: 1, format: vFormat, formatInfo: vFormatInfo, profile: vProfile,
@@ -2983,7 +2983,7 @@ function parseMp4Boxes(bytes, v) {
   }
 
   function parseLanguage(langInt) {
-    if (!langInt) return 'Undetermined';
+    if (!langInt) return '';
     const c1 = String.fromCharCode(((langInt >> 10) & 0x1F) + 0x60);
     const c2 = String.fromCharCode(((langInt >> 5) & 0x1F) + 0x60);
     const c3 = String.fromCharCode((langInt & 0x1F) + 0x60);
@@ -3018,51 +3018,56 @@ function parseMp4Boxes(bytes, v) {
         }
       } else if (bType === 'mdia') {
         let mp = p + 8;
-        const mEnd = Math.min(p + bSize, end);
-        while (mp < mEnd && mp < len - 8) {
+        while (mp < p + bSize && mp < len - 8) {
           const mSize = view.getUint32(mp);
           const mType = readFourCC(mp + 4);
-          if (mSize < 8 || mp + mSize > mEnd) break;
+          if (mSize < 8 || mp + mSize > p + bSize) break;
 
           if (mType === 'mdhd') {
-            const vnum = bytes[mp + 8];
-            const langOffset = vnum === 1 ? mp + 28 : mp + 20;
-            if (langOffset + 2 <= mEnd) {
+            const version = bytes[mp + 8];
+            const langOffset = version === 1 ? mp + 28 : mp + 20;
+            if (langOffset + 2 <= len) {
               const langInt = view.getUint16(langOffset);
               track.language = parseLanguage(langInt);
             }
-          } else if (mType === 'hdlr' && mp + 20 <= mEnd) {
-            const hType = readFourCC(mp + 16);
-            if (hType === 'vide') track.type = 'video';
-            else if (hType === 'soun') track.type = 'audio';
-            else if (hType === 'sbtl' || hType === 'text' || hType === 'subt' || hType === 'clcp') track.type = 'text';
+          } else if (mType === 'hdlr') {
+            const hdlrType = readFourCC(mp + 16);
+            if (hdlrType === 'vide') track.type = 'video';
+            else if (hdlrType === 'soun') track.type = 'audio';
+            else if (hdlrType === 'sbtl' || hdlrType === 'text') track.type = 'text';
           } else if (mType === 'minf') {
-            let stp = mp + 8;
-            const sEnd = Math.min(mp + mSize, mEnd);
-            while (stp < sEnd && stp < len - 8) {
-              const stSize = view.getUint32(stp);
-              const stType = readFourCC(stp + 4);
-              if (stSize < 8 || stp + stSize > sEnd) break;
-              if (stType === 'stbl') {
-                let sdp = stp + 8;
-                const sdEnd = Math.min(stp + stSize, sEnd);
-                while (sdp < sdEnd && sdp < len - 8) {
-                  const sdSize = view.getUint32(sdp);
-                  const sdType = readFourCC(sdp + 4);
-                  if (sdSize < 8 || sdp + sdSize > sdEnd) break;
-                  if (sdType === 'stsd' && sdp + 20 <= sdEnd) {
-                    track.codecFourCC = readFourCC(sdp + 16);
-                    if (track.type === 'audio' && sdp + 44 <= sdEnd) {
-                      const channels = view.getUint16(sdp + 32);
-                      const sampleRate = view.getUint32(sdp + 40) >> 16;
-                      if (channels > 0) track.channels = channels === 1 ? '1 channel (Mono)' : channels === 2 ? '2 channels (Stereo)' : `${channels} channels`;
-                      if (sampleRate > 0) track.sampleRate = `${(sampleRate/1000).toFixed(1)} kHz`;
+            let sp = mp + 8;
+            while (sp < mp + mSize && sp < len - 8) {
+              const sSize = view.getUint32(sp);
+              const sType = readFourCC(sp + 4);
+              if (sSize < 8 || sp + sSize > mp + mSize) break;
+
+              if (sType === 'stbl') {
+                let stp = sp + 8;
+                while (stp < sp + sSize && stp < len - 8) {
+                  const stSize = view.getUint32(stp);
+                  const stType = readFourCC(stp + 4);
+                  if (stSize < 8 || stp + stSize > sp + sSize) break;
+
+                  if (stType === 'stsd') {
+                    const entryCount = view.getUint32(stp + 12);
+                    if (entryCount > 0 && stp + 20 <= len) {
+                      const codecFourCC = readFourCC(stp + 20);
+                      track.codecFourCC = codecFourCC;
+                      if (codecFourCC === 'avc1') { track.format = 'AVC'; track.codecId = 'avc1'; }
+                      else if (codecFourCC === 'hvc1' || codecFourCC === 'hev1') { track.format = 'HEVC'; track.codecId = 'hvc1'; }
+                      else if (codecFourCC === 'av01') { track.format = 'AV1'; track.codecId = 'av01'; }
+                      else if (codecFourCC === 'vp09') { track.format = 'VP9'; track.codecId = 'vp09'; }
+                      else if (codecFourCC === 'mp4a') { track.format = 'AAC LC'; track.codecId = 'mp4a-40-2'; }
+                      else if (codecFourCC === 'ac-3') { track.format = 'AC-3'; track.codecId = 'ac-3'; }
+                      else if (codecFourCC === 'ec-3') { track.format = 'E-AC-3'; track.codecId = 'ec-3'; }
+                      else if (codecFourCC === 'tx3g' || codecFourCC === 'wvtt') { track.format = 'Timed Text'; track.codecId = codecFourCC; }
                     }
                   }
-                  sdp += sdSize;
+                  stp += stSize;
                 }
               }
-              stp += stSize;
+              sp += sSize;
             }
           }
           mp += mSize;
@@ -3072,37 +3077,28 @@ function parseMp4Boxes(bytes, v) {
     }
 
     if (track.type === 'video') {
-      const c = track.codecFourCC || 'avc1';
-      let fmt = 'AVC', prof = 'High@L4.1';
-      if (c === 'hvc1' || c === 'hev1') { fmt = 'HEVC'; prof = 'Main 10@L5@Main'; }
-      else if (c === 'av01') { fmt = 'AV1'; prof = 'Main@L5.0'; }
-      else if (c === 'vp09') { fmt = 'VP9'; prof = 'Profile 0'; }
-
       result.video.push({
         id: result.video.length + 1,
-        format: fmt, profile: prof, codecId: c,
-        width: track.width || 1920, height: track.height || 1080,
-        aspect: `${(track.width / (track.height || 1)).toFixed(2)}:1`,
+        format: track.format || 'AVC',
+        profile: track.format === 'HEVC' ? 'Main 10@L5@Main' : 'High@L4.1',
+        codecId: track.codecId || 'avc1',
+        width: track.width || 1920,
+        height: track.height || 1080,
+        aspect: '16:9',
         frameRate: '23.976 FPS',
-        colorSpace: 'YUV', chroma: '4:2:0', bitDepth: fmt === 'HEVC' ? '10 bits' : '8 bits',
-        language: track.language || 'Japanese',
-        isDefault: true, isForced: false
+        bitDepth: track.format === 'HEVC' ? '10 bits' : '8 bits',
+        language: track.language || '',
+        isDefault: result.video.length === 0, isForced: false
       });
     } else if (track.type === 'audio') {
-      const c = track.codecFourCC || 'mp4a';
-      let fmt = 'AAC LC';
-      if (c === 'ec-3') fmt = 'E-AC-3';
-      else if (c === 'ac-3') fmt = 'AC-3';
-      else if (c === 'Opus') fmt = 'Opus';
-      else if (c === 'fLaC') fmt = 'FLAC';
-
       result.audio.push({
         id: result.audio.length + 2,
-        format: fmt, codecId: c,
-        channels: track.channels || '2 channels (Stereo)',
-        samplingRate: track.sampleRate || '48.0 kHz',
-        title: track.language !== 'Undetermined' ? track.language : `Audio #${result.audio.length + 1}`,
-        language: track.language !== 'Undetermined' ? track.language : 'Indonesian',
+        format: track.format || 'AAC LC',
+        codecId: track.codecId || 'mp4a-40-2',
+        channels: '2 channels (Stereo)',
+        samplingRate: '48.0 kHz',
+        title: track.language ? `${track.language} Audio` : `Audio #${result.audio.length + 1}`,
+        language: track.language || '',
         isDefault: result.audio.length === 0, isForced: false
       });
     } else if (track.type === 'text') {
@@ -3110,8 +3106,8 @@ function parseMp4Boxes(bytes, v) {
         id: result.text.length + 3,
         format: 'Timed Text',
         codecId: track.codecFourCC || 'tx3g',
-        title: track.language || `Subtitle #${result.text.length + 1}`,
-        language: track.language || 'Indonesian',
+        title: track.language ? `${track.language} Subtitle` : `Subtitle #${result.text.length + 1}`,
+        language: track.language || '',
         isDefault: result.text.length === 0, isForced: false
       });
     }
@@ -3163,7 +3159,7 @@ async function startBinaryMediaInfoScan(force = false) {
 
   try {
     const res = await fetch(streamUrl, {
-      headers: { 'Range': 'bytes=0-262143' } // Fetch first 256KB
+      headers: { 'Range': 'bytes=0-524287' } // Fetch first 512KB for full header coverage
     });
     if (res.ok || res.status === 206) {
       const buffer = await res.arrayBuffer();
