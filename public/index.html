@@ -744,7 +744,7 @@
         <div id="folder-sidebar-backdrop" onclick="toggleFolderSidebar(false)" class="hidden fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"></div>
 
         <!-- Folder Tree Sidebar -->
-        <div id="folder-sidebar" class="flex-shrink-0 w-64 p-3 overflow-y-auto" style="border-right:1px solid #1e1e38;background:#0c0c1e">
+        <div id="folder-sidebar" class="flex-shrink-0 w-72 p-3 overflow-y-auto transition-all duration-200" style="border-right:1px solid #1e1e38;background:#0c0c1e">
           
           <!-- Mobile Close Button Header -->
           <div class="flex md:hidden items-center justify-between pb-3 mb-3" style="border-bottom:1px solid #1e1e38">
@@ -774,8 +774,8 @@
         <div class="flex-1 flex flex-col overflow-hidden min-w-0">
           <!-- Media Toolbar -->
           <div class="flex flex-wrap items-center gap-3 px-4 py-3 flex-shrink-0" style="border-bottom:1px solid #1e1e38;background:#0c0c1e">
-            <!-- Mobile Toggle Folder Sidebar Button -->
-            <button onclick="toggleFolderSidebar(true)" class="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold" style="background:#1a1a30;color:#a5b4fc;border:1px solid #2a2a4a">
+            <!-- Toggle Folder Sidebar Button (Desktop & Mobile) -->
+            <button onclick="if(window.innerWidth<=768){toggleFolderSidebar(true)}else{toggleFolderSidebarDesktop()}" class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold hover:bg-white/10 transition-colors" style="background:#1a1a30;color:#a5b4fc;border:1px solid #2a2a4a" title="Toggle Folders Sidebar">
               <i class="fas fa-folder-tree text-xs" style="color:#6366f1"></i>
               <span>Folders</span>
             </button>
@@ -1984,7 +1984,10 @@ function renderMediaTree() {
   }
 
   if (!APP.expandedDrives) {
-    APP.expandedDrives = new Set(APP.drives.map(d => d.id)); // expand all by default
+    APP.expandedDrives = new Set(); // start collapsed by default
+  }
+  if (!APP.expandedFolders) {
+    APP.expandedFolders = new Set(); // subfolders start collapsed by default
   }
 
   const buildFolderBranch = (driveId, parentId, depth = 0) => {
@@ -1994,16 +1997,32 @@ function renderMediaTree() {
       .sort((a, b) => a.name.localeCompare(b.name))
       .map(f => {
         const isCurrent = APP.currentDrive === driveId && APP.currentFolder === f.id;
-        const paddingLeft = depth * 12 + 24;
-        const countBadge = (f.video_count !== undefined && f.video_count !== null) ? `<span class="text-[10px] font-mono px-1.5 py-0.2 rounded text-slate-400 bg-white/5 ml-auto">${f.video_count}</span>` : '';
+        const childFolders = driveFolders.filter(c => c.parent_id === f.id);
+        const hasChildren  = childFolders.length > 0;
+        const isExpanded   = APP.expandedFolders.has(f.id);
+        const paddingLeft  = depth * 14 + 14;
+        const countBadge   = (f.video_count !== undefined && f.video_count !== null) 
+          ? `<span class="text-[10px] font-mono px-1.5 py-0.2 rounded text-slate-400 bg-white/5 ml-auto flex-shrink-0">${f.video_count}</span>` 
+          : '';
+
+        const expandBtn = hasChildren ? `
+          <button type="button" onclick="toggleFolderExpand(${f.id}, event)" class="p-1 hover:bg-white/10 rounded mr-0.5 text-slate-400 hover:text-white transition-all flex-shrink-0" title="${isExpanded ? 'Collapse' : 'Expand'}">
+            <i class="fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-[8.5px]"></i>
+          </button>
+        ` : `<span class="w-4 inline-block flex-shrink-0 text-center text-slate-600 font-mono text-[11px] mr-0.5">└</span>`;
+
         return `
           <div class="folder-tree-item group ${isCurrent ? 'active' : ''}" id="tree-folder-${f.id}" onclick="selectLibraryNode(${driveId}, ${f.id}, event)" style="padding-left:${paddingLeft}px" title="${escHtml(f.name)}">
-            <span class="text-slate-500 font-mono text-xs mr-0.5" style="opacity:0.5">└</span>
+            ${expandBtn}
             <i class="${isCurrent ? 'fas fa-folder-open' : 'fas fa-folder'} text-xs flex-shrink-0" style="color:${isCurrent ? '#818cf8' : '#6366f1'}"></i>
-            <span class="flex-1 truncate min-w-0 font-normal">${escHtml(f.name)}</span>
+            <span class="flex-1 truncate min-w-0 font-normal ml-1" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
             ${countBadge}
           </div>
-          ${buildFolderBranch(driveId, f.id, depth + 1)}
+          ${hasChildren ? `
+            <div id="folder-children-${f.id}" class="${isExpanded ? '' : 'hidden'} space-y-0.5">
+              ${buildFolderBranch(driveId, f.id, depth + 1)}
+            </div>
+          ` : ''}
         `;
       }).join('');
   };
@@ -2018,20 +2037,20 @@ function renderMediaTree() {
       <div class="drive-tree-group mb-2">
         <!-- Drive Header -->
         <div class="folder-tree-item ${isDriveActive ? 'active' : ''}" id="tree-drive-${d.id}" onclick="selectLibraryNode(${d.id}, null, event)" style="padding-left:8px" title="${escHtml(d.drive_name)}">
-          <button type="button" onclick="toggleDriveExpand(${d.id}, event)" class="p-1 hover:bg-white/10 rounded mr-0.5 text-slate-400 hover:text-white transition-all">
+          <button type="button" onclick="toggleDriveExpand(${d.id}, event)" class="p-1 hover:bg-white/10 rounded mr-1 text-slate-400 hover:text-white transition-all flex-shrink-0" title="${isExpanded ? 'Collapse' : 'Expand'}">
             <i class="fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-[9px]" id="caret-${d.id}"></i>
           </button>
           <i class="fab fa-google-drive text-xs flex-shrink-0" style="color:#10b981"></i>
-          <span class="flex-1 truncate min-w-0 font-medium" title="${escHtml(d.drive_name)}">${escHtml(d.drive_name)}</span>
+          <span class="flex-1 truncate min-w-0 font-medium ml-1" title="${escHtml(d.drive_name)}">${escHtml(d.drive_name)}</span>
         </div>
 
         <!-- Drive Sub-Folders & Root -->
         <div id="drive-children-${d.id}" class="${isExpanded ? '' : 'hidden'} space-y-0.5 mt-0.5">
           <!-- Root / Unsorted Files row -->
-          <div class="folder-tree-item ${isRootActive ? 'active' : ''}" id="tree-folder-root-${d.id}" onclick="selectLibraryNode(${d.id}, 'null', event)" style="padding-left:24px" title="Root Files (Outside Folders)">
-            <span class="text-slate-500 font-mono text-xs mr-0.5" style="opacity:0.5">└</span>
+          <div class="folder-tree-item ${isRootActive ? 'active' : ''}" id="tree-folder-root-${d.id}" onclick="selectLibraryNode(${d.id}, 'null', event)" style="padding-left:22px" title="Root Files (Outside Folders)">
+            <span class="w-4 inline-block flex-shrink-0 text-center text-slate-600 font-mono text-[11px] mr-0.5">└</span>
             <i class="far fa-file-video text-xs flex-shrink-0" style="color:#94a3b8"></i>
-            <span class="flex-1 truncate min-w-0 text-slate-400 font-normal italic">Root Files</span>
+            <span class="flex-1 truncate min-w-0 text-slate-400 font-normal italic ml-1">Root Files</span>
           </div>
 
           <!-- Nested Folders -->
@@ -2055,15 +2074,22 @@ function toggleDriveExpand(driveId, event) {
   renderMediaTree();
 }
 
+function toggleFolderExpand(folderId, event) {
+  if (event) event.stopPropagation();
+  if (!APP.expandedFolders) APP.expandedFolders = new Set();
+  if (APP.expandedFolders.has(folderId)) {
+    APP.expandedFolders.delete(folderId);
+  } else {
+    APP.expandedFolders.add(folderId);
+  }
+  renderMediaTree();
+}
+
 function selectLibraryNode(driveId, folderId, event) {
   if (event) event.stopPropagation();
   APP.currentDrive = driveId;
   APP.currentFolder = folderId;
   APP.page = 1;
-
-  if (driveId && APP.expandedDrives && !APP.expandedDrives.has(driveId)) {
-    APP.expandedDrives.add(driveId);
-  }
 
   document.querySelectorAll('#unified-tree .folder-tree-item, #tree-item-all').forEach(el => el.classList.remove('active'));
   if (driveId === null && folderId === null) {
@@ -2081,6 +2107,13 @@ function selectLibraryNode(driveId, folderId, event) {
 
   if (window.innerWidth <= 768) toggleFolderSidebar(false);
   loadMedia();
+}
+
+function toggleFolderSidebarDesktop() {
+  const sidebar = $('folder-sidebar');
+  if (sidebar) {
+    sidebar.classList.toggle('hidden');
+  }
 }
 
 // Legacy aliases for compatibility
