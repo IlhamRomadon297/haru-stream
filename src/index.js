@@ -763,27 +763,18 @@ async function handleListMedia(request, env, user) {
     }
 
     if (folderId && folderId !== 'null') {
-      const targetFid = parseInt(folderId);
-      let targetFolderIds = [targetFid];
-      try {
-        const allUserFolders = await env.DB.prepare(
-          'SELECT id, parent_id FROM folders WHERE user_id = ?'
-        ).bind(user.sub).all();
-
-        const getFolderAndSubfolderIds = (rootId) => {
-          let ids = [rootId];
-          const children = (allUserFolders.results || []).filter(f => f.parent_id === rootId);
-          for (const child of children) {
-            ids = ids.concat(getFolderAndSubfolderIds(child.id));
-          }
-          return ids;
-        };
-        targetFolderIds = getFolderAndSubfolderIds(targetFid);
-      } catch (_) {}
-
-      const placeholders = targetFolderIds.map(() => '?').join(',');
-      whereClause += ` AND v.folder_id IN (${placeholders})`;
-      bindings.push(...targetFolderIds);
+      const targetFid = parseInt(folderId, 10);
+      if (!isNaN(targetFid)) {
+        whereClause += ` AND (v.folder_id = ? OR v.folder_id IN (
+          WITH RECURSIVE subfolders(id) AS (
+            SELECT id FROM folders WHERE parent_id = ? AND user_id = ?
+            UNION ALL
+            SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id WHERE f.user_id = ?
+          )
+          SELECT id FROM subfolders
+        ))`;
+        bindings.push(targetFid, targetFid, user.sub, user.sub);
+      }
     } else if (folderId === 'null') {
       whereClause += ' AND v.folder_id IS NULL';
     }
