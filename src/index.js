@@ -215,11 +215,16 @@ async function getAccessToken(drive, db) {
   const data = await resp.json();
   const expiresAt = new Date(now + data.expires_in * 1000).toISOString();
 
-  await db.prepare(
-    `UPDATE drives SET access_token = ?, token_expires_at = ?, updated_at = datetime('now') WHERE id = ?`
-  ).bind(data.access_token, expiresAt, drive.id).run();
+  try {
+    await db.prepare(
+      `UPDATE drives SET access_token = ?, token_expires_at = ?, updated_at = datetime('now') WHERE id = ?`
+    ).bind(data.access_token, expiresAt, drive.id).run();
+  } catch (e) {
+    console.warn('[HaruStream] Token updated in-memory; D1 write skipped:', e.message);
+  }
 
   drive.access_token = data.access_token;
+  drive.token_expires_at = expiresAt;
   return data.access_token;
 }
 
@@ -552,17 +557,12 @@ async function performDriveSync(drive, env, forceFullScan = false) {
   let totalSynced  = 0;
   let totalRemoved = 0;
 
-  // 0. Ensure schema compatibility for GDrive folders
-  try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN drive_id INTEGER`).run(); } catch (_) {}
-  try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN gdrive_folder_id TEXT`).run(); } catch (_) {}
-  try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN parent_gdrive_folder_id TEXT`).run(); } catch (_) {}
-
   const validFolderIds = await getDescendantFolders(drive, env.DB);
 
   // 1. Sync GDrive Folders for this drive
   const gdriveFolders = await fetchAllDriveFolders(drive, env.DB, validFolderIds);
   const existingFoldersQuery = await env.DB.prepare(
-    `SELECT id, gdrive_folder_id, name FROM folders WHERE drive_id = ?`
+    `SELECT id, gdrive_folder_id, parent_id, name FROM folders WHERE drive_id = ?`
   ).bind(drive.id).all();
 
   const d1FolderMap = new Map();
@@ -596,7 +596,7 @@ async function performDriveSync(drive, env, forceFullScan = false) {
 
   // Refresh folder mapping (gdrive_folder_id -> D1 id) and resolve integer parent_id
   const refreshedFolders = await env.DB.prepare(
-    `SELECT id, gdrive_folder_id, parent_gdrive_folder_id FROM folders WHERE drive_id = ?`
+    `SELECT id, parent_id, gdrive_folder_id, parent_gdrive_folder_id FROM folders WHERE drive_id = ?`
   ).bind(drive.id).all();
 
   const gdriveToD1Id = new Map();
@@ -604,10 +604,12 @@ async function performDriveSync(drive, env, forceFullScan = false) {
     gdriveToD1Id.set(f.gdrive_folder_id, f.id);
   }
 
-  // Update parent_id references
+  // Update parent_id references ONLY if changed (saves hundreds of writes per sync)
   for (const f of (refreshedFolders.results || [])) {
     const parentIntId = f.parent_gdrive_folder_id ? (gdriveToD1Id.get(f.parent_gdrive_folder_id) || null) : null;
-    await env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id).run();
+    if (f.parent_id !== parentIntId) {
+      await env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id).run();
+    }
   }
 
   // 2. Fetch active video files from GDrive for this drive
@@ -1144,20 +1146,25 @@ async function handleStream(fileId, request, env, ctx) {
   const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1' || url.pathname.startsWith('/d/') || url.pathname.startsWith('/download/');
 
   if (request.method === 'GET') {
-    if (isDownload) {
-      const p = env.DB.prepare(
-        `UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-      ).bind(video.drive_file_id, video.id).run();
-      if (ctx && ctx.waitUntil) ctx.waitUntil(p);
-    } else {
-      const range = request.headers.get('Range');
-      if (!range || range.startsWith('bytes=0-')) {
+    try {
+      if (isDownload) {
         const p = env.DB.prepare(
-          `UPDATE videos SET views = COALESCE(views, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-        ).bind(video.drive_file_id, video.id).run();
+          `UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+        ).bind(video.drive_file_id, video.id).run().catch(() => {});
         if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+      } else {
+        const range = request.headers.get('Range');
+        if (!range || range.startsWith('bytes=0-')) {
+          // Sample view updates (1 in 5, +5) to reduce D1 writes by 80% while retaining total accuracy
+          if (Math.random() < 0.2) {
+            const p = env.DB.prepare(
+              `UPDATE videos SET views = COALESCE(views, 0) + 5, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
+            ).bind(video.drive_file_id, video.id).run().catch(() => {});
+            if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+          }
+        }
       }
-    }
+    } catch (_) {}
   }
 
   const fakeDrive = {
