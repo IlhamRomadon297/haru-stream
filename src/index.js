@@ -765,15 +765,8 @@ async function handleListMedia(request, env, user) {
     if (folderId && folderId !== 'null') {
       const targetFid = parseInt(folderId, 10);
       if (!isNaN(targetFid)) {
-        whereClause += ` AND (v.folder_id = ? OR v.folder_id IN (
-          WITH RECURSIVE subfolders(id) AS (
-            SELECT id FROM folders WHERE parent_id = ? AND user_id = ?
-            UNION ALL
-            SELECT f.id FROM folders f JOIN subfolders s ON f.parent_id = s.id WHERE f.user_id = ?
-          )
-          SELECT id FROM subfolders
-        ))`;
-        bindings.push(targetFid, targetFid, user.sub, user.sub);
+        whereClause += ' AND v.folder_id = ?';
+        bindings.push(targetFid);
       }
     } else if (folderId === 'null') {
       whereClause += ' AND v.folder_id IS NULL';
