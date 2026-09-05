@@ -562,7 +562,7 @@ async function performDriveSync(drive, env, forceFullScan = false) {
   // 1. Sync GDrive Folders for this drive
   const gdriveFolders = await fetchAllDriveFolders(drive, env.DB, validFolderIds);
   const existingFoldersQuery = await env.DB.prepare(
-    `SELECT id, gdrive_folder_id, parent_id, name FROM folders WHERE drive_id = ?`
+    `SELECT id, gdrive_folder_id, parent_id, parent_gdrive_folder_id, name FROM folders WHERE drive_id = ?`
   ).bind(drive.id).all();
 
   const d1FolderMap = new Map();
@@ -571,26 +571,50 @@ async function performDriveSync(drive, env, forceFullScan = false) {
   }
 
   const gdriveFolderMap = new Map();
+  const folderInsertStmts = [];
+  const folderUpdateStmts = [];
+
   for (const gf of gdriveFolders) {
     gdriveFolderMap.set(gf.id, gf);
     const parentGdriveId = (gf.parents && gf.parents.length > 0) ? gf.parents[0] : null;
     const existing = d1FolderMap.get(gf.id);
     if (!existing) {
-      await env.DB.prepare(
-        `INSERT INTO folders (user_id, drive_id, gdrive_folder_id, parent_gdrive_folder_id, name, color)
-         VALUES (?, ?, ?, ?, ?, '#6366f1')`
-      ).bind(drive.user_id, drive.id, gf.id, parentGdriveId, gf.name).run();
-    } else if (existing.name !== gf.name) {
-      await env.DB.prepare(
-        `UPDATE folders SET name = ?, parent_gdrive_folder_id = ?, updated_at = datetime('now') WHERE id = ?`
-      ).bind(gf.name, parentGdriveId, existing.id).run();
+      folderInsertStmts.push(
+        env.DB.prepare(
+          `INSERT INTO folders (user_id, drive_id, gdrive_folder_id, parent_gdrive_folder_id, name, color)
+           VALUES (?, ?, ?, ?, ?, '#6366f1')`
+        ).bind(drive.user_id, drive.id, gf.id, parentGdriveId, gf.name)
+      );
+    } else if (existing.name !== gf.name || existing.parent_gdrive_folder_id !== parentGdriveId) {
+      folderUpdateStmts.push(
+        env.DB.prepare(
+          `UPDATE folders SET name = ?, parent_gdrive_folder_id = ?, updated_at = datetime('now') WHERE id = ?`
+        ).bind(gf.name, parentGdriveId, existing.id)
+      );
+    }
+  }
+
+  if (folderInsertStmts.length > 0) {
+    for (let i = 0; i < folderInsertStmts.length; i += 50) {
+      await env.DB.batch(folderInsertStmts.slice(i, i + 50));
+    }
+  }
+  if (folderUpdateStmts.length > 0) {
+    for (let i = 0; i < folderUpdateStmts.length; i += 50) {
+      await env.DB.batch(folderUpdateStmts.slice(i, i + 50));
     }
   }
 
   // Delete removed folders
+  const folderDeleteStmts = [];
   for (const [gdriveId, d1Folder] of d1FolderMap.entries()) {
     if (!gdriveFolderMap.has(gdriveId)) {
-      await env.DB.prepare(`DELETE FROM folders WHERE id = ?`).bind(d1Folder.id).run();
+      folderDeleteStmts.push(env.DB.prepare(`DELETE FROM folders WHERE id = ?`).bind(d1Folder.id));
+    }
+  }
+  if (folderDeleteStmts.length > 0) {
+    for (let i = 0; i < folderDeleteStmts.length; i += 50) {
+      await env.DB.batch(folderDeleteStmts.slice(i, i + 50));
     }
   }
 
@@ -605,10 +629,18 @@ async function performDriveSync(drive, env, forceFullScan = false) {
   }
 
   // Update parent_id references ONLY if changed (saves hundreds of writes per sync)
+  const folderParentUpdates = [];
   for (const f of (refreshedFolders.results || [])) {
     const parentIntId = f.parent_gdrive_folder_id ? (gdriveToD1Id.get(f.parent_gdrive_folder_id) || null) : null;
     if (f.parent_id !== parentIntId) {
-      await env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id).run();
+      folderParentUpdates.push(
+        env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id)
+      );
+    }
+  }
+  if (folderParentUpdates.length > 0) {
+    for (let i = 0; i < folderParentUpdates.length; i += 50) {
+      await env.DB.batch(folderParentUpdates.slice(i, i + 50));
     }
   }
 
