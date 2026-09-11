@@ -2275,28 +2275,9 @@ function buildNotFoundPage(fileId) {
         <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
       </svg>
     </div>
-    <h2>Video Tidak Ditemukan</h2>
-    <p>Video ID <code>#${escapeHtml(fileId)}</code> belum terindeks atau ID telah diperbarui di HaruStream.</p>
-    <div class="btn-row">
-      <button class="btn btn-reload" onclick="window.location.reload()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        Muat Ulang
-      </button>
-      <button class="btn btn-report" onclick="reportIssue()">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-        <span id="report-txt">Lapor Rusak</span>
-      </button>
-    </div>
+    <h2>Video Tidak Tersedia</h2>
+    <p style="margin-bottom:0;">Video ID <code>#${escapeHtml(fileId)}</code> belum terdaftar atau tautan telah diperbarui.</p>
   </div>
-  <script>
-    function reportIssue() {
-      try {
-        window.parent.postMessage({ type: 'harustream_stream_error', videoId: ${JSON.stringify(fileId)} }, '*');
-      } catch(_) {}
-      const txt = document.getElementById('report-txt');
-      if (txt) txt.innerText = 'Terkirim ✔';
-    }
-  </script>
 </body>
 </html>`;
 }
