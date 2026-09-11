@@ -3325,6 +3325,7 @@ export default {
       res = await handleTransferRenew(driveId, env, user);
     }
 
+
     // Sync
     else if (path === '/api/media/sync' && method === 'POST') {
       res = await handleSync(request, env, user);

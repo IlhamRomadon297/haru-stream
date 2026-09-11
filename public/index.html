@@ -2313,23 +2313,19 @@ function renderMediaTree() {
     const isRootActive  = APP.currentDrive === d.id && APP.currentFolder === 'null';
     const isExpanded    = APP.expandedDrives.has(d.id);
     const pType         = (d.provider_type || 'gdrive').toLowerCase();
-    const isTransfer    = pType === 'transfer_it';
-    const folderBranches = isTransfer ? '' : buildFolderBranch(d.id, null, 0);
+    const folderBranches = buildFolderBranch(d.id, null, 0);
 
     return `
       <div class="drive-tree-group mb-2">
         <!-- Drive Header -->
         <div class="folder-tree-item ${isDriveActive ? 'active' : ''}" id="tree-drive-${d.id}" onclick="selectLibraryNode(${d.id}, null, event)" style="padding-left:8px" title="${escHtml(d.drive_name)}">
-          ${isTransfer ? '<span class="w-4 inline-block flex-shrink-0 mr-1"></span>' : `
           <button type="button" onclick="toggleDriveExpand(${d.id}, event)" class="p-1 hover:bg-white/10 rounded mr-1 text-slate-400 hover:text-white transition-all flex-shrink-0" title="${isExpanded ? 'Collapse' : 'Expand'}">
             <i class="fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-[9px]" id="caret-${d.id}"></i>
           </button>
-          `}
           ${getProviderIcon(d.provider_type, 'text-xs')}
           <span class="flex-1 truncate min-w-0 font-medium ml-1" title="${escHtml(d.drive_name)}">${escHtml(d.drive_name)}</span>
         </div>
 
-        ${!isTransfer ? `
         <!-- Drive Sub-Folders & Root -->
         <div id="drive-children-${d.id}" class="${isExpanded ? '' : 'hidden'} space-y-0.5 mt-0.5">
           <!-- Root / Unsorted Files row -->
@@ -2342,7 +2338,6 @@ function renderMediaTree() {
           <!-- Nested Folders -->
           ${folderBranches}
         </div>
-        ` : ''}
       </div>
     `;
   }).join('');
