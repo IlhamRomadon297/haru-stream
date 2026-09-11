@@ -2668,97 +2668,99 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     #opts-sheet {
       position: fixed; inset: 0; z-index: 10000;
       background: rgba(4, 4, 10, 0.85);
-      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
       display: none; align-items: center; justify-content: center;
-      padding: 12px;
+      padding: 8px;
     }
     .sheet-card {
       background: linear-gradient(135deg, rgba(22, 22, 44, 0.98), rgba(16, 16, 34, 0.98));
       border: 1px solid rgba(99, 102, 241, 0.4);
-      border-radius: 16px; padding: 14px 16px;
-      max-width: 360px; width: 100%; text-align: center;
-      box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+      border-radius: 14px; padding: 10px 14px;
+      max-width: 330px; width: 95%; text-align: center;
+      box-shadow: 0 16px 40px rgba(0,0,0,0.9);
       animation: popIn .2s ease;
+      max-height: 94vh; overflow-y: auto;
     }
     .sheet-header {
       display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.08);
+      margin-bottom: 6px; padding-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.08);
     }
     .sheet-header span {
-      font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 700; color: #c7d2fe;
+      font-family: 'Outfit', sans-serif; font-size: 12px; font-weight: 700; color: #c7d2fe;
     }
     .sheet-close {
       background: transparent; border: none; color: #94a3b8; cursor: pointer;
-      font-size: 16px; line-height: 1; padding: 2px 6px;
+      font-size: 15px; line-height: 1; padding: 1px 5px;
     }
     .sheet-close:hover { color: #fff; }
 
-    /* ── Modern Sleek Format Modal (Desktop Spacious View) ─ */
+    /* ── Modern Sleek Format Modal (Desktop Iframe & Spacious View) ─ */
     #warn-modal {
       position:fixed;inset:0;z-index:9999;
       background:rgba(4, 4, 10, 0.85);
-      backdrop-filter:blur(16px);
-      -webkit-backdrop-filter:blur(16px);
+      backdrop-filter:blur(14px);
+      -webkit-backdrop-filter:blur(14px);
       display:flex;align-items:center;justify-content:center;
-      padding:16px;
+      padding:10px;
       overflow-y:auto;
       -webkit-overflow-scrolling:touch;
     }
     .warn-box {
-      background:linear-gradient(135deg, rgba(20, 20, 42, 0.95), rgba(26, 26, 54, 0.95));
-      border:1px solid rgba(99,102,241,0.3);
-      border-radius:20px;padding:22px 24px;
-      max-width:520px;width:100%;text-align:center;margin:auto;
-      box-shadow:0 30px 80px rgba(0,0,0,0.85), 0 0 35px rgba(99,102,241,0.18);
-      animation:warnIn .3s cubic-bezier(0.16, 1, 0.3, 1);
+      position:relative;
+      background:linear-gradient(135deg, rgba(20, 20, 42, 0.96), rgba(26, 26, 54, 0.96));
+      border:1px solid rgba(99,102,241,0.35);
+      border-radius:16px;padding:14px 18px;
+      max-width:480px;width:95%;text-align:center;margin:auto;
+      box-shadow:0 20px 60px rgba(0,0,0,0.85), 0 0 30px rgba(99,102,241,0.18);
+      animation:warnIn .25s cubic-bezier(0.16, 1, 0.3, 1);
       box-sizing:border-box;
-      max-height:95vh;
+      max-height:94vh;
       overflow-y:auto;
     }
-    @keyframes warnIn{from{opacity:0;transform:scale(.94) translateY(14px)}to{opacity:1;transform:scale(1) translateY(0)}}
+    @keyframes warnIn{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
     
     .warn-badge {
-      display:inline-flex;align-items:center;gap:6px;
+      display:inline-flex;align-items:center;gap:5px;
       background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
-      padding:4px 12px;border-radius:20px;
-      font-size:11px;font-weight:700;letter-spacing:0.5px;
-      color:#a5b4fc;text-transform:uppercase;margin-bottom:12px;
+      padding:3px 10px;border-radius:16px;
+      font-size:10.5px;font-weight:700;letter-spacing:0.5px;
+      color:#a5b4fc;text-transform:uppercase;margin-bottom:8px;
       font-family:'Outfit',sans-serif;
     }
     
     .warn-title{
-      font-size:16px;font-weight:700;color:#fff;margin-bottom:6px;
+      font-size:13.5px;font-weight:700;color:#fff;margin-bottom:4px;
       font-family:'Outfit',sans-serif;letter-spacing:-0.2px;
       line-height:1.3;word-break:break-word;
     }
     .warn-body{
-      font-size:12.5px;line-height:1.45;color:#94a3b8;margin-bottom:16px;
+      font-size:11.5px;line-height:1.4;color:#94a3b8;margin-bottom:12px;
     }
-    .warn-ext-group{display:flex;flex-direction:column;gap:10px}
+    .warn-ext-group{display:flex;flex-direction:column;gap:7px}
     
     .warn-section-title {
-      text-align:left;font-size:11.5px;font-weight:700;color:#c7d2fe;
-      text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;
-      font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:6px;
+      text-align:left;font-size:11px;font-weight:700;color:#c7d2fe;
+      text-transform:uppercase;letter-spacing:0.5px;margin-bottom:1px;
+      font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:5px;
     }
     
     .warn-ext-btn{
-      display:flex;align-items:center;gap:10px;
-      padding:10px 14px;border-radius:12px;border:1px solid rgba(99,102,241,0.25);
+      display:flex;align-items:center;gap:8px;
+      padding:8px 12px;border-radius:10px;border:1px solid rgba(99,102,241,0.25);
       background:rgba(99,102,241,0.1);color:#e0e7ff;
-      font-size:12.5px;font-weight:600;cursor:pointer;
-      text-align:left;transition:all .2s ease;
+      font-size:11.5px;font-weight:600;cursor:pointer;
+      text-align:left;transition:all .15s ease;
       font-family:'Plus Jakarta Sans',sans-serif;
     }
     .warn-ext-btn:hover{
       background:rgba(99,102,241,0.22);color:#fff;
       border-color:rgba(99,102,241,0.45);transform:translateY(-1px);
     }
-    .warn-ext-btn svg{width:16px;height:16px;flex-shrink:0;opacity:.9}
+    .warn-ext-btn svg{width:15px;height:15px;flex-shrink:0;opacity:.9}
     
     .warn-app-btn {
-      flex:1;justify-content:center;padding:10px 8px;font-size:12px;
-      font-weight:600;border-radius:10px;border:1px solid rgba(255,255,255,0.1);
+      flex:1;justify-content:center;padding:7px 4px;font-size:11px;
+      font-weight:600;border-radius:9px;border:1px solid rgba(255,255,255,0.1);
       background:rgba(255,255,255,0.05);color:#cbd5e1;cursor:pointer;
       transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
     }
@@ -2768,36 +2770,33 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     }
     
     .warn-primary-btn{
-      width:100%;padding:11px 16px;border-radius:12px;
+      width:100%;padding:9px 14px;border-radius:10px;
       background:linear-gradient(135deg, #6366f1, #8b5cf6);border:none;
-      color:#fff;font-size:13px;font-weight:700;cursor:pointer;
-      transition:all .2s ease;font-family:'Plus Jakarta Sans',sans-serif;
-      display:flex;align-items:center;justify-content:center;gap:8px;
-      box-shadow:0 4px 16px rgba(99,102,241,0.35);
+      color:#fff;font-size:12px;font-weight:700;cursor:pointer;
+      transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
+      display:flex;align-items:center;justify-content:center;gap:6px;
+      box-shadow:0 3px 12px rgba(99,102,241,0.3);
     }
     .warn-primary-btn:hover{
       background:linear-gradient(135deg, #4f46e5, #7c3aed);
-      transform:translateY(-1px);box-shadow:0 6px 22px rgba(99,102,241,0.5);
+      transform:translateY(-1px);box-shadow:0 5px 18px rgba(99,102,241,0.45);
     }
     
     .warn-secondary-btn{
-      width:100%;padding:10px 14px;border-radius:12px;
+      width:100%;padding:8px 12px;border-radius:10px;
       background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
-      color:#cbd5e1;font-size:12px;font-weight:600;cursor:pointer;
+      color:#cbd5e1;font-size:11px;font-weight:600;cursor:pointer;
       transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
-      display:flex;align-items:center;justify-content:center;gap:6px;
+      display:flex;align-items:center;justify-content:center;gap:5px;
     }
     .warn-secondary-btn:hover{
       background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.25);
     }
 
-    @media (max-height: 480px), (max-width: 600px) {
+    #mobile-opt-btn { display: inline-flex; }
+
+    @media (max-height: 240px) {
       #warn-modal { display: none !important; }
-      #player-container { display: flex !important; }
-      #mobile-opt-btn { display: inline-flex !important; }
-    }
-    @media (min-height: 481px) and (min-width: 601px) {
-      #mobile-opt-btn { display: inline-flex !important; }
     }
   </style>
   <script>
@@ -2916,12 +2915,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   ${isHeavy ? `
   <div id="warn-modal">
     <div class="warn-box">
+      <button class="sheet-close" style="position:absolute;top:10px;right:14px;font-size:18px;" onclick="dismissWarningAndPlay('plyr')" title="Tutup dan Putar">✕</button>
       <div class="warn-badge">
         <span>🎬 Multi-Track Media</span>
       </div>
       <div class="warn-title">${escapeHtml(video.title)}</div>
       <div class="warn-body">
-        Format MKV/Multi-track terdeteksi. Silakan pilih mode pemutaran favorit Anda:
+        Format MKV/Multi-track terdeteksi. Silakan pilih mode pemutaran:
       </div>
 
       <div class="warn-ext-group">
@@ -3098,11 +3098,18 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     };
 
     // ── Startup logic ─────────────────────────────────────
-    const isMobileOrShort = window.innerWidth <= 640 || window.innerHeight <= 480;
-    if (isHeavy && !isMobileOrShort) {
-      // Spacious desktop: show the modern selection modal
+    const isTouchMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                          (navigator.maxTouchPoints > 2 && window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 640);
+
+    if (isHeavy && !isTouchMobile && window.innerHeight > 240) {
+      // Desktop Laptop / PC (including iframes on Sontolfilm/HaruFilm):
+      // Show the modern format selection modal!
+      const modal = document.getElementById('warn-modal');
+      if (modal) modal.style.display = 'flex';
     } else {
-      // Mobile or compact view or lightweight: show player immediately!
+      // Mobile touch screen, tiny container, or lightweight: start player immediately!
+      const modal = document.getElementById('warn-modal');
+      if (modal) modal.style.display = 'none';
       const container = document.getElementById('player-container');
       if (container) container.style.display = 'flex';
       initPlayer('plyr');
