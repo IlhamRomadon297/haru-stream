@@ -741,6 +741,62 @@ async function handleTransferRenew(driveId, env, user) {
   return jsonResponse({ success: true, renewed: renewedCount, message: `Berhasil renew ${renewedCount} transfer ke 90 hari!` });
 }
 
+async function handleUpdateDrive(driveId, request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?').bind(driveId, user.sub).first();
+  if (!drive) return errorResponse('Drive not found.', 404);
+
+  const { drive_name, transfer_sid } = body;
+  const updates = [];
+  const params = [];
+
+  if (drive_name && drive_name.trim()) {
+    updates.push('drive_name = ?');
+    params.push(drive_name.trim());
+  }
+
+  if (drive.provider_type === 'transfer_it' && transfer_sid) {
+    const cleanSid = transfer_sid.trim();
+    // Validate with MEGA cluster bt7
+    try {
+      const testResp = await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(cleanSid)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://transfer.it',
+          'Referer': 'https://transfer.it/',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+        },
+        body: JSON.stringify([{ a: 'xl' }])
+      });
+      const testData = await testResp.json();
+      const code = typeof testData === 'number' ? testData : (Array.isArray(testData) && typeof testData[0] === 'number' ? testData[0] : null);
+      if (code !== null && code < 0) {
+        return errorResponse(`SID baru tidak valid (kode error: ${code}). Pastikan SID masih aktif.`);
+      }
+    } catch (err) {
+      return errorResponse(`Gagal memvalidasi SID baru: ${err.message}`);
+    }
+    updates.push('transfer_sid = ?');
+    params.push(cleanSid);
+  }
+
+  if (!updates.length) return errorResponse('No fields to update.');
+
+  updates.push("updated_at = datetime('now')");
+  params.push(driveId);
+
+  await env.DB.prepare(`UPDATE drives SET ${updates.join(', ')} WHERE id = ?`).bind(...params).run();
+
+  // If SID was updated, trigger sync to update files without modifying existing video IDs
+  if (transfer_sid) {
+    const updatedDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
+    try { await performTransferItSync(updatedDrive, env, false); } catch (_) {}
+  }
+
+  return jsonResponse({ success: true, message: 'Drive berhasil diperbarui.' });
+}
+
 // ── SYNC HELPERS & MULTI-CLOUD PROVIDERS ────────────────────
 
 function getMimeTypeFromFilename(filename) {
@@ -1062,21 +1118,24 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
     const downloadLimit = typeof t.mc === 'number' ? t.mc : 100;
     const storageUri = `https://transfer.it/t/${xh}`;
     const mimeType = getMimeTypeFromFilename(title);
+    const fileCount = (Array.isArray(t.size) && t.size.length > 1 && typeof t.size[1] === 'number' && t.size[1] > 1) ? t.size[1] : 1;
+    const description = fileCount > 1 ? `${fileCount} Files` : null;
 
     const existing = d1Map.get(driveFileId);
     if (!existing) {
       insertStmts.push(
         env.DB.prepare(
           `INSERT INTO videos
-            (user_id, drive_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, is_accessible, status, drive_modified_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, 1, 'active', datetime('now'))`
-        ).bind(drive.user_id, drive.id, driveFileId, title, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount)
+            (user_id, drive_id, drive_file_id, title, description, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, is_accessible, status, drive_modified_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, 1, 'active', datetime('now'))`
+        ).bind(drive.user_id, drive.id, driveFileId, title, description, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount)
       );
     } else {
       insertStmts.push(
         env.DB.prepare(
           `UPDATE videos SET
             title = ?,
+            description = ?,
             size = ?,
             mime_type = ?,
             storage_uri = ?,
@@ -1085,7 +1144,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
             provider_downloads = ?,
             updated_at = datetime('now')
            WHERE id = ?`
-        ).bind(title, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount, existing.id)
+        ).bind(title, description, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount, existing.id)
       );
     }
   }
@@ -2809,6 +2868,10 @@ export default {
     else if (path.startsWith('/api/settings/drives/') && method === 'DELETE') {
       const driveId = parseInt(path.split('/').pop());
       res = await handleDeleteDrive(driveId, env, user);
+    }
+    else if (path.startsWith('/api/settings/drives/') && method === 'PUT') {
+      const driveId = parseInt(path.split('/').pop());
+      res = await handleUpdateDrive(driveId, request, env, user);
     }
     else if (path.startsWith('/api/settings/drives/') && path.endsWith('/renew') && method === 'POST') {
       const parts = path.split('/');
