@@ -2886,34 +2886,25 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
     function initSmartDeviceUI() {
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      const isAndroid = /Android/i.test(navigator.userAgent);
-
-      let appBtns = '';
-      let copyLabel = 'Copy Link Streaming (VLC Desktop CTRL+N)';
+      const isAndroid = /android/i.test(navigator.userAgent);
 
       if (isIOS) {
-        copyLabel = 'Salin Link Streaming (Cadangan)';
-        appBtns = '<button class="warn-app-btn" onclick="openExternal(\'vlc\')">VLC iOS</button>' +
-                  '<button class="warn-app-btn" onclick="openExternal(\'outplayer\')">Outplayer</button>';
+        const d1 = document.getElementById('ios-apps'); if (d1) d1.style.display = 'flex';
+        const s1 = document.getElementById('sheet-ios-apps'); if (s1) s1.style.display = 'flex';
+        const c1 = document.getElementById('copy-txt'); if (c1) c1.innerText = 'Salin Link Streaming (Cadangan)';
+        const c2 = document.getElementById('sheet-copy-txt'); if (c2) c2.innerText = 'Salin Link Streaming (Cadangan)';
       } else if (isAndroid) {
-        copyLabel = 'Salin Link Streaming (Cadangan)';
-        appBtns = '<button class="warn-app-btn" onclick="openExternal(\'vlc\')">VLC Mobile</button>' +
-                  '<button class="warn-app-btn" onclick="openExternal(\'mx\')">MX Player</button>';
+        const d2 = document.getElementById('android-apps'); if (d2) d2.style.display = 'flex';
+        const s2 = document.getElementById('sheet-android-apps'); if (s2) s2.style.display = 'flex';
+        const c1 = document.getElementById('copy-txt'); if (c1) c1.innerText = 'Salin Link Streaming (Cadangan)';
+        const c2 = document.getElementById('sheet-copy-txt'); if (c2) c2.innerText = 'Salin Link Streaming (Cadangan)';
       } else {
         // Desktop Laptop / PC
-        copyLabel = 'Copy Link Streaming (VLC Desktop CTRL+N)';
-        appBtns = '<button class="warn-app-btn" style="flex:1;" onclick="openExternal(\'potplayer\')">PotPlayer (1-Klik Windows)</button>';
+        const d3 = document.getElementById('desktop-apps'); if (d3) d3.style.display = 'flex';
+        const s3 = document.getElementById('sheet-desktop-apps'); if (s3) s3.style.display = 'flex';
+        const c1 = document.getElementById('copy-txt'); if (c1) c1.innerText = 'Copy Link Streaming (VLC Desktop CTRL+N)';
+        const c2 = document.getElementById('sheet-copy-txt'); if (c2) c2.innerText = 'Copy Link Streaming (VLC Desktop CTRL+N)';
       }
-
-      const el1 = document.getElementById('smart-device-btns');
-      if (el1) el1.innerHTML = appBtns;
-      const el2 = document.getElementById('sheet-smart-device-btns');
-      if (el2) el2.innerHTML = appBtns;
-
-      const copyEl1 = document.getElementById('copy-txt');
-      if (copyEl1) copyEl1.innerText = copyLabel;
-      const copyEl2 = document.getElementById('sheet-copy-txt');
-      if (copyEl2) copyEl2.innerText = copyLabel;
     }
 
     function dismissWarningAndPlay(mode) {
@@ -2974,9 +2965,16 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         <div class="warn-section-title" style="margin-top:8px;">
           <span>🚀 Aplikasi Eksternal (100% Lancar)</span>
         </div>
-        <div id="smart-device-btns" style="display:flex; gap:6px;">
-          <button class="warn-app-btn" onclick="openExternal('potplayer')">PotPlayer</button>
-          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC</button>
+        <div id="desktop-apps" style="display:none; gap:6px;">
+          <button class="warn-app-btn" style="flex:1;" onclick="openExternal('potplayer')">PotPlayer (1-Klik Windows)</button>
+        </div>
+        <div id="android-apps" style="display:none; gap:6px;">
+          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC Mobile</button>
+          <button class="warn-app-btn" onclick="openExternal('mx')">MX Player</button>
+        </div>
+        <div id="ios-apps" style="display:none; gap:6px;">
+          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC iOS</button>
+          <button class="warn-app-btn" onclick="openExternal('outplayer')">Outplayer</button>
         </div>
         <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
@@ -3009,9 +3007,16 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         <button class="sheet-close" onclick="toggleOptsSheet(false)">✕</button>
       </div>
       <div style="display:flex; flex-direction:column; gap:7px;">
-        <div id="sheet-smart-device-btns" style="display:flex; gap:6px;">
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('potplayer')">PotPlayer</button>
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC</button>
+        <div id="sheet-desktop-apps" style="display:none; gap:6px;">
+          <button class="warn-app-btn" style="flex:1; padding:8px 4px; font-size:11.5px;" onclick="openExternal('potplayer')">PotPlayer (1-Klik Windows)</button>
+        </div>
+        <div id="sheet-android-apps" style="display:none; gap:6px;">
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC Mobile</button>
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('mx')">MX Player</button>
+        </div>
+        <div id="sheet-ios-apps" style="display:none; gap:6px;">
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC iOS</button>
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('outplayer')">Outplayer</button>
         </div>
         <button type="button" class="warn-ext-btn" style="padding:8px 12px; font-size:11.5px;" onclick="copyStreamLink(event)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
