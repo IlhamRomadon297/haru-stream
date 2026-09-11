@@ -109,6 +109,27 @@ async function verifyJwt(token, secret) {
 }
 
 /**
+ * Generate a compact HMAC signature token for stream access.
+ */
+async function generateStreamToken(videoId, expiresAt, secret) {
+  const key = await getJwtKey(secret);
+  const encoder = new TextEncoder();
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(`stream:${videoId}:${expiresAt}`));
+  return base64url(sig).slice(0, 24);
+}
+
+/**
+ * Verify a stream access token.
+ */
+async function verifyStreamToken(videoId, token, expiresAt, secret) {
+  if (!token || !expiresAt) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (parseInt(expiresAt) < now) return false;
+  const expected = await generateStreamToken(videoId, expiresAt, secret);
+  return expected === token;
+}
+
+/**
  * Hash a password with PBKDF2 (WebCrypto safe for Cloudflare Workers).
  */
 async function hashPassword(password, salt = null) {
@@ -2064,9 +2085,11 @@ async function handleEmbed(fileId, request, env) {
     return new Response(buildNotFoundPage(fileId), { status: 404, headers: HTML_HEADERS });
   }
 
-  // Build clean relative stream URL using video ID
-  const streamUrl = `/stream/${video.id}`;
-
+  // Build clean relative stream URL with signed expiring token (valid 4 hours)
+  const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+  const expiresAt = Math.floor(Date.now() / 1000) + 14400;
+  const token = await generateStreamToken(video.id, expiresAt, secret);
+  const streamUrl = `/stream/${video.id}?token=${token}&exp=${expiresAt}`;
 
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
   return new Response(html, { 
@@ -2092,6 +2115,21 @@ async function handleStream(fileId, request, env, ctx) {
   // 0. Update Download or View Statistics
   const url = new URL(request.url);
   const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1' || url.pathname.startsWith('/d/') || url.pathname.startsWith('/download/');
+
+  // 0.1 Validate expiring stream token if present
+  const streamToken = url.searchParams.get('token');
+  const streamExp   = url.searchParams.get('exp');
+  if (streamToken && streamExp) {
+    const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+    const isValid = await verifyStreamToken(video.id, streamToken, streamExp, secret);
+    if (!isValid) {
+      const now = Math.floor(Date.now() / 1000);
+      if (parseInt(streamExp) < now) {
+        return new Response('Link streaming telah kedaluwarsa (expired). Silakan refresh halaman pemutar.', { status: 403 });
+      }
+      return new Response('Token streaming tidak valid.', { status: 403 });
+    }
+  }
 
   if (request.method === 'GET') {
     try {
@@ -2808,15 +2846,15 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
     function copyStreamLink(e) {
       if (e && e.preventDefault) e.preventDefault();
-      let baseUrl = new URL(window.streamUrl, window.location.origin).href;
+      const u = new URL(window.streamUrl, window.location.origin);
       if (window.videoTitle) {
         const cleanTitle = window.videoTitle.replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
         const encodedTitle = encodeURIComponent(cleanTitle);
-        if (!baseUrl.includes('/' + encodedTitle)) {
-          baseUrl += '/' + encodedTitle;
+        if (!u.pathname.endsWith('/' + encodedTitle)) {
+          u.pathname += '/' + encodedTitle;
         }
       }
-      const absoluteUrl = baseUrl;
+      const absoluteUrl = u.href;
       const doSuccess = () => {
         const txt = document.getElementById('copy-txt') || document.getElementById('sheet-copy-txt');
         if (txt) {
@@ -2850,19 +2888,19 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     }
 
     function openExternal(player) {
-      let baseUrl = new URL(window.streamUrl, window.location.origin).href;
+      const u = new URL(window.streamUrl, window.location.origin);
       const cleanTitle = (window.videoTitle || 'video.mkv').replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
       const encodedTitle = encodeURIComponent(cleanTitle);
 
-      if (!baseUrl.includes('/' + encodedTitle)) {
-        baseUrl += '/' + encodedTitle;
+      if (!u.pathname.endsWith('/' + encodedTitle)) {
+        u.pathname += '/' + encodedTitle;
       }
 
-      let absoluteUrl = baseUrl;
-      if (!absoluteUrl.includes('download=1')) {
-        absoluteUrl += (absoluteUrl.includes('?') ? '&' : '?') + 'download=1';
+      if (!u.searchParams.has('download')) {
+        u.searchParams.set('download', '1');
       }
 
+      const absoluteUrl = u.href;
       let urlWithoutProto = absoluteUrl.split('://')[1] || absoluteUrl;
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isAndroid = /android/i.test(navigator.userAgent);
