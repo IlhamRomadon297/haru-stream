@@ -2864,17 +2864,56 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       }
 
       let urlWithoutProto = absoluteUrl.split('://')[1] || absoluteUrl;
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isAndroid = /android/i.test(navigator.userAgent);
+
       if (player === 'potplayer') {
         window.location.href = 'potplayer://' + absoluteUrl;
       } else if (player === 'vlc') {
-        if (/android/i.test(navigator.userAgent)) {
+        if (isIOS) {
+          window.location.href = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(absoluteUrl);
+        } else if (isAndroid) {
           window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=org.videolan.vlc;S.title=' + encodedTitle + ';type=video/*;end';
         } else {
           window.location.href = 'vlc://' + absoluteUrl;
         }
       } else if (player === 'mx') {
         window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;S.title=' + encodedTitle + ';type=video/*;end';
+      } else if (player === 'outplayer') {
+        window.location.href = 'outplayer://' + absoluteUrl;
       }
+    }
+
+    function initSmartDeviceUI() {
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isAndroid = /Android/i.test(navigator.userAgent);
+
+      let appBtns = '';
+      let copyLabel = 'Copy Link Streaming (VLC Desktop CTRL+N)';
+
+      if (isIOS) {
+        copyLabel = 'Salin Link Streaming (Cadangan)';
+        appBtns = '<button class="warn-app-btn" onclick="openExternal(\'vlc\')">VLC iOS</button>' +
+                  '<button class="warn-app-btn" onclick="openExternal(\'outplayer\')">Outplayer</button>';
+      } else if (isAndroid) {
+        copyLabel = 'Salin Link Streaming (Cadangan)';
+        appBtns = '<button class="warn-app-btn" onclick="openExternal(\'vlc\')">VLC Mobile</button>' +
+                  '<button class="warn-app-btn" onclick="openExternal(\'mx\')">MX Player</button>';
+      } else {
+        // Desktop Laptop / PC
+        copyLabel = 'Copy Link Streaming (VLC Desktop CTRL+N)';
+        appBtns = '<button class="warn-app-btn" style="flex:1;" onclick="openExternal(\'potplayer\')">PotPlayer (1-Klik Windows)</button>';
+      }
+
+      const el1 = document.getElementById('smart-device-btns');
+      if (el1) el1.innerHTML = appBtns;
+      const el2 = document.getElementById('sheet-smart-device-btns');
+      if (el2) el2.innerHTML = appBtns;
+
+      const copyEl1 = document.getElementById('copy-txt');
+      if (copyEl1) copyEl1.innerText = copyLabel;
+      const copyEl2 = document.getElementById('sheet-copy-txt');
+      if (copyEl2) copyEl2.innerText = copyLabel;
     }
 
     function dismissWarningAndPlay(mode) {
@@ -2935,15 +2974,14 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         <div class="warn-section-title" style="margin-top:8px;">
           <span>🚀 Aplikasi Eksternal (100% Lancar)</span>
         </div>
+        <div id="smart-device-btns" style="display:flex; gap:6px;">
+          <button class="warn-app-btn" onclick="openExternal('potplayer')">PotPlayer</button>
+          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC</button>
+        </div>
         <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
           <span id="copy-txt">Copy Link Streaming (VLC Desktop CTRL+N)</span>
         </button>
-        <div style="display:flex; gap:6px;">
-          <button class="warn-app-btn" onclick="openExternal('potplayer')">PotPlayer</button>
-          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC Mobile</button>
-          <button class="warn-app-btn" onclick="openExternal('mx')">MX Player</button>
-        </div>
 
         <!-- Option 3: Movi-Player -->
         <div class="warn-section-title" style="margin-top:8px;">
@@ -2971,10 +3009,9 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         <button class="sheet-close" onclick="toggleOptsSheet(false)">✕</button>
       </div>
       <div style="display:flex; flex-direction:column; gap:7px;">
-        <div style="display:flex; gap:6px;">
+        <div id="sheet-smart-device-btns" style="display:flex; gap:6px;">
           <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('potplayer')">PotPlayer</button>
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC Mobile</button>
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('mx')">MX Player</button>
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC</button>
         </div>
         <button type="button" class="warn-ext-btn" style="padding:8px 12px; font-size:11.5px;" onclick="copyStreamLink(event)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
@@ -2991,8 +3028,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   </div>` : ''}
 
   <div id="player-container" style="${isHeavy ? 'display:none;' : ''}">
-    <video id="player" playsinline controls controlsList="nodownload" oncontextmenu="return false;" preload="metadata" style="width:100%;height:100%;object-fit:contain;">
-      <source src="${streamUrl}" type="${video.mime_type || 'video/mp4'}">
+    <video id="player" playsinline controls controlsList="nodownload" oncontextmenu="return false;" preload="none" style="width:100%;height:100%;object-fit:contain;">
+      ${!isHeavy ? `<source src="${streamUrl}" type="${video.mime_type || 'video/mp4'}">` : ''}
     </video>
   </div>
 
@@ -3058,6 +3095,14 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
       const videoEl = document.getElementById('player');
       if (videoEl) {
+        if (!videoEl.querySelector('source') && !videoEl.src) {
+          const srcEl = document.createElement('source');
+          srcEl.src = window.streamUrl;
+          srcEl.type = ${JSON.stringify(video.mime_type || 'video/mp4')};
+          videoEl.appendChild(srcEl);
+          videoEl.load();
+        }
+
         plyrInstance = new Plyr(videoEl, {
           controls: [
             'play-large',
@@ -3098,6 +3143,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     };
 
     // ── Startup logic ─────────────────────────────────────
+    initSmartDeviceUI();
+
     const isTouchMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
                           (navigator.maxTouchPoints > 2 && window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 640);
 
