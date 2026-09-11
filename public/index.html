@@ -232,30 +232,73 @@
       position: fixed;
       bottom: 24px;
       left: calc(50% + 32px);
-      transform: translateX(-50%);
+      transform: translate(-50%, 0);
       background: rgba(18, 18, 38, 0.96);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border: 1px solid rgba(99, 102, 241, 0.4);
       border-radius: 20px;
-      padding: 10px 20px;
+      padding: 10px 18px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       z-index: 100;
       box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8), 0 0 20px rgba(99, 102, 241, 0.2);
-      animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      animation: bulkBarInDesktop 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      box-sizing: border-box;
+    }
+    @keyframes bulkBarInDesktop {
+      from {
+        opacity: 0;
+        transform: translate(-50%, 18px);
+      }
+      to {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
+    }
+    @keyframes bulkBarInMobile {
+      from {
+        opacity: 0;
+        transform: translate(-50%, 16px);
+      }
+      to {
+        opacity: 1;
+        transform: translate(-50%, 0);
+      }
     }
     @media (max-width: 768px) {
       #bulk-bar {
-        bottom: 76px;
+        bottom: 74px;
         left: 50%;
-        transform: translateX(-50%);
-        width: 92%;
-        max-width: 380px;
+        transform: translate(-50%, 0);
+        width: calc(100% - 20px);
+        max-width: 400px;
         justify-content: space-between;
-        padding: 8px 14px;
+        padding: 6px 8px;
+        gap: 4px;
         border-radius: 14px;
+        animation: bulkBarInMobile 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        box-sizing: border-box;
+      }
+      #bulk-bar .bulk-action-btn {
+        padding: 6px 7px !important;
+        font-size: 11px !important;
+        gap: 3.5px !important;
+      }
+      #bulk-bar .bulk-action-btn i {
+        font-size: 10px !important;
+      }
+      #bulk-bar .bulk-sep {
+        display: none !important;
+      }
+      #bulk-bar .bulk-count-pill {
+        padding: 5px 7px !important;
+        font-size: 11px !important;
+      }
+      #bulk-bar .bulk-close-btn {
+        width: 26px !important;
+        height: 26px !important;
       }
     }
 
@@ -993,18 +1036,24 @@
 
 <!-- Bulk Action Bar -->
 <div id="bulk-bar" style="display:none">
-  <div class="text-sm font-semibold text-white"><span id="bulk-count">0</span> selected</div>
-  <div style="width:1px;height:20px;background:#2a2a4a"></div>
-  <button onclick="bulkMove()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)">
-    <i class="fas fa-folder-open"></i>Move
+  <button type="button" onclick="clearSelection()" id="bulk-count-btn" class="bulk-count-pill flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all text-white hover:bg-white/10 flex-shrink-0" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.35)" title="Klik untuk batal pilih semua">
+    <span id="bulk-count">0</span>
+    <span class="bulk-count-label hidden sm:inline font-medium text-indigo-200">selected</span>
+    <i class="fas fa-times text-[10px] text-indigo-300 ml-0.5 opacity-70"></i>
   </button>
-  <button onclick="bulkDelete()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)">
-    <i class="fas fa-trash"></i>Delete
+  <div class="bulk-sep" style="width:1px;height:20px;background:#2a2a4a"></div>
+  <button type="button" onclick="bulkMove()" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)">
+    <i class="fas fa-folder-open text-xs"></i><span>Move</span>
   </button>
-  <button onclick="openExportModal(true)" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.3)">
-    <i class="fas fa-file-export"></i>Export
+  <button type="button" onclick="bulkDelete()" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(239,68,68,0.15);color:#f87171;border:1px solid rgba(239,68,68,0.3)">
+    <i class="fas fa-trash text-xs"></i><span>Delete</span>
   </button>
-  <button onclick="clearSelection()" style="color:#475569;background:none;border:none;cursor:pointer;font-size:16px">✕</button>
+  <button type="button" onclick="openExportModal(true)" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.3)">
+    <i class="fas fa-file-export text-xs"></i><span>Export</span>
+  </button>
+  <button type="button" onclick="clearSelection()" class="bulk-close-btn w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors" title="Batal Pilih (Clear Selection)">
+    <i class="fas fa-times text-xs"></i>
+  </button>
 </div>
 
 <!-- ── MODALS ─────────────────────────────────────────────── -->
