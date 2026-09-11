@@ -259,6 +259,34 @@
       }
     }
 
+    /* Modern Export and Provider Tab Cards */
+    .export-checkbox-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .export-checkbox-card:hover {
+      background: rgba(99, 102, 241, 0.08);
+      border-color: rgba(99, 102, 241, 0.25);
+    }
+    .export-checkbox-card:has(input:checked) {
+      background: rgba(99, 102, 241, 0.12);
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+    .provider-tab-btn {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+    }
+    .provider-tab-btn:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-color: rgba(255, 255, 255, 0.16);
+    }
+    .provider-tab-btn.active {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: rgba(99, 102, 241, 0.5);
+      box-shadow: 0 0 14px rgba(99, 102, 241, 0.2);
+    }
+
     /* Grid card */
     .video-grid-card {
       background: #141428; border: 1px solid #1e1e38;
@@ -832,7 +860,16 @@
           <div class="flex-1 overflow-y-auto p-4">
             <!-- List View -->
             <div id="media-list-view">
-              <div class="glass-card rounded-2xl overflow-hidden">
+              <!-- Mobile Cards View (< md) -->
+              <div id="media-mobile-cards" class="block md:hidden space-y-3 mb-4">
+                <div class="glass-card rounded-2xl p-8 text-center text-slate-500 text-xs">
+                  <i class="fas fa-circle-notch fa-spin text-lg mb-3 block text-indigo-500"></i>
+                  Loading media...
+                </div>
+              </div>
+
+              <!-- Desktop Table View (>= md) -->
+              <div class="glass-card rounded-2xl overflow-hidden hidden md:block">
                 <div class="overflow-x-auto">
                   <table class="data-table" id="media-table">
                     <thead>
@@ -856,13 +893,13 @@
                 </div>
               </div>
               <!-- Pagination -->
-              <div id="pagination-bar" class="flex items-center justify-between mt-4 text-sm hidden">
-                <span id="pagination-info" style="color:#64748b"></span>
-                <div class="flex gap-2">
-                  <button onclick="changePage(-1)" id="btn-prev" class="px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-40 transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+              <div id="pagination-bar" class="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 text-sm hidden">
+                <span id="pagination-info" style="color:#64748b" class="text-xs sm:text-sm text-center sm:text-left"></span>
+                <div class="flex gap-2 w-full sm:w-auto justify-center">
+                  <button onclick="changePage(-1)" id="btn-prev" class="px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-40 transition-all flex-1 sm:flex-none justify-center flex items-center" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
                     <i class="fas fa-chevron-left mr-1"></i>Prev
                   </button>
-                  <button onclick="changePage(1)" id="btn-next" class="px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-40 transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+                  <button onclick="changePage(1)" id="btn-next" class="px-4 py-2 rounded-xl text-sm font-medium disabled:opacity-40 transition-all flex-1 sm:flex-none justify-center flex items-center" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
                     Next<i class="fas fa-chevron-right ml-1"></i>
                   </button>
                 </div>
@@ -963,43 +1000,112 @@
 
 <!-- ── MODALS ─────────────────────────────────────────────── -->
 
-<!-- Add Drive Modal -->
+<!-- Add Storage Provider Modal -->
 <div id="modal-add-drive" class="modal-overlay hidden">
-  <div class="modal-box">
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h3 class="text-lg font-bold text-white">Add Google Drive Account</h3>
-        <p class="text-xs mt-1" style="color:#64748b">Enter your OAuth2 credentials. These are stored encrypted in the database.</p>
+  <div class="modal-box w-full max-w-lg mx-3 p-4 sm:p-6 max-h-[92vh] overflow-y-auto">
+    <div class="flex items-center justify-between mb-5 pb-3 border-b border-white/5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.15)">
+          <i class="fas fa-cloud-arrow-up text-indigo-400"></i>
+        </div>
+        <div>
+          <h3 class="text-base sm:text-lg font-bold text-white leading-tight">Add Cloud Storage</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Google Drive, Hugging Face Datasets, atau Transfer.it</p>
+        </div>
       </div>
-      <button onclick="closeModal('modal-add-drive')" style="color:#64748b;background:none;border:none;cursor:pointer;font-size:20px">✕</button>
+      <button onclick="closeModal('modal-add-drive')" class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <!-- Provider Selection Tabs -->
+    <div class="grid grid-cols-3 gap-2 mb-5">
+      <button type="button" id="tab-provider-gdrive" onclick="switchAddDriveProvider('gdrive')" class="provider-tab-btn active p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all">
+        <i class="fab fa-google-drive text-emerald-400 text-lg"></i>
+        <span class="text-xs font-semibold text-white">Google Drive</span>
+      </button>
+      <button type="button" id="tab-provider-hf" onclick="switchAddDriveProvider('huggingface')" class="provider-tab-btn p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all">
+        <span class="text-lg leading-none">🤗</span>
+        <span class="text-xs font-semibold text-white">Hugging Face</span>
+      </button>
+      <button type="button" id="tab-provider-transfer" onclick="switchAddDriveProvider('transfer_it')" class="provider-tab-btn p-2.5 rounded-xl border flex flex-col items-center gap-1.5 transition-all">
+        <i class="fas fa-bolt text-cyan-400 text-lg"></i>
+        <span class="text-xs font-semibold text-white">Transfer.it</span>
+      </button>
     </div>
 
     <form onsubmit="submitAddDrive(event)" class="space-y-4">
+      <input type="hidden" id="drive-provider-type" value="gdrive" />
+
       <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">DRIVE DISPLAY NAME</label>
-        <input type="text" id="drive-name" class="form-input" placeholder="e.g. My Anime Drive" required />
-      </div>
-      <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">OAUTH CLIENT ID</label>
-        <input type="text" id="drive-client-id" class="form-input font-mono text-xs" placeholder="xxxxxxxxxxxxx.apps.googleusercontent.com" required />
-      </div>
-      <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">OAUTH CLIENT SECRET</label>
-        <input type="password" id="drive-client-secret" class="form-input font-mono text-xs" placeholder="GOCSPX-xxxxxxxxxxxxx" required />
-      </div>
-      <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">REFRESH TOKEN</label>
-        <input type="password" id="drive-refresh-token" class="form-input font-mono text-xs" placeholder="1//xxxxxxxxxxxxxxxxxxxxxxxxxx" required />
-      </div>
-      <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">ROOT FOLDER ID (optional — restrict to subfolder)</label>
-        <input type="text" id="drive-root-folder" class="form-input font-mono text-xs" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">STORAGE DISPLAY NAME</label>
+        <input type="text" id="drive-name" class="form-input" placeholder="e.g. Kaela Anime Storage" required />
       </div>
 
-      <div class="flex justify-end gap-3 pt-2">
+      <!-- Google Drive Fields -->
+      <div id="fields-provider-gdrive" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">OAUTH CLIENT ID</label>
+          <input type="text" id="drive-client-id" class="form-input font-mono text-xs" placeholder="xxxxxxxxxxxxx.apps.googleusercontent.com" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">OAUTH CLIENT SECRET</label>
+          <input type="password" id="drive-client-secret" class="form-input font-mono text-xs" placeholder="GOCSPX-xxxxxxxxxxxxx" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">REFRESH TOKEN</label>
+          <input type="password" id="drive-refresh-token" class="form-input font-mono text-xs" placeholder="1//xxxxxxxxxxxxxxxxxxxxxxxxxx" required />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">ROOT FOLDER ID (optional — restrict to subfolder)</label>
+          <input type="text" id="drive-root-folder" class="form-input font-mono text-xs" placeholder="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms" />
+        </div>
+      </div>
+
+      <!-- Hugging Face Fields -->
+      <div id="fields-provider-hf" class="space-y-4 hidden">
+        <div class="p-3 rounded-xl text-xs flex items-start gap-2.5" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#fcd34d">
+          <span class="text-base leading-none">🤗</span>
+          <div>
+            <strong>Hugging Face Datasets:</strong> Gratis storage hingga ~8.7TB per dataset publik. File video otomatis disinkronkan secara rekursif termasuk struktur folder.
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">DATASET REPO ID</label>
+          <input type="text" id="hf-repo-id" class="form-input font-mono text-xs" placeholder="username/my-anime-dataset" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">ACCESS TOKEN (hf_... Opsional jika dataset Public)</label>
+          <input type="password" id="hf-token" class="form-input font-mono text-xs" placeholder="hf_xxxxxxxxxxxxxxxxxxxxxx" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">BRANCH (Default: main)</label>
+          <input type="text" id="hf-branch" class="form-input font-mono text-xs" value="main" placeholder="main" />
+        </div>
+      </div>
+
+      <!-- Transfer.it Fields -->
+      <div id="fields-provider-transfer" class="space-y-4 hidden">
+        <div class="p-3 rounded-xl text-xs flex items-start gap-2.5" style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.25);color:#67e8f9">
+          <i class="fas fa-bolt text-cyan-400 mt-0.5"></i>
+          <div>
+            <strong>Transfer.it:</strong> Unlimited storage tanpa folder. Berlaku 90 hari (dapat diperpanjang/renewal) dengan batas 100x download per transfer.
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">TRANSFER LINK / URL</label>
+          <input type="url" id="transfer-url" class="form-input font-mono text-xs" placeholder="https://transfer.it/t/xxxxxxxx" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">EXPIRY DATE (Default: 90 hari dari sekarang)</label>
+          <input type="date" id="transfer-expires" class="form-input text-xs" />
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-3 border-t border-white/5">
         <button type="button" onclick="closeModal('modal-add-drive')" class="px-5 py-2 rounded-xl text-sm font-semibold" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">Cancel</button>
         <button type="submit" id="add-drive-btn" class="btn-gradient px-6 py-2 rounded-xl text-sm font-semibold text-white">
-          <i class="fas fa-plug mr-2"></i>Connect Drive
+          <i class="fas fa-plug mr-2"></i>Connect Storage
         </button>
       </div>
     </form>
@@ -1086,10 +1192,19 @@
 
         <!-- Drive info -->
         <div class="mt-4 pt-4" style="border-top:1px solid #2a2a4a">
-          <div class="text-xs" style="color:#64748b">Drive File ID</div>
-          <div id="vd-fileid" class="text-xs font-mono mt-1" style="color:#475569;word-break:break-all"></div>
-          <div class="text-xs mt-2" style="color:#64748b">Source Drive</div>
-          <div id="vd-drive" class="text-xs mt-1" style="color:#94a3b8"></div>
+          <div class="flex items-center justify-between">
+            <span class="text-xs" style="color:#64748b">Storage Provider &amp; Drive</span>
+            <span id="vd-provider-badge"></span>
+          </div>
+          <div id="vd-drive" class="text-xs font-medium text-slate-200 mt-1"></div>
+
+          <div class="text-xs mt-2.5" style="color:#64748b">Drive / Storage ID</div>
+          <div id="vd-fileid" class="text-xs font-mono mt-0.5" style="color:#94a3b8;word-break:break-all"></div>
+
+          <div id="vd-uri-box" class="hidden mt-2.5">
+            <div class="text-xs" style="color:#64748b">Direct Storage URI</div>
+            <div id="vd-storage-uri" class="text-xs font-mono mt-0.5 text-cyan-400 break-all select-all"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1283,69 +1398,90 @@
 
 <!-- Export Modal -->
 <div id="modal-export" class="modal-overlay hidden">
-  <div class="modal-box" style="max-width:700px">
-    <div class="flex items-center justify-between mb-5">
-      <div>
-        <h3 class="text-base font-bold text-white">Export to File / View Text</h3>
-        <p class="text-xs mt-0.5" style="color:#64748b">Output opens in a new tab for easy bulk-copying (Player4Me style).</p>
+  <div class="modal-box w-full max-w-xl mx-3 p-4 sm:p-6 max-h-[92vh] overflow-y-auto flex flex-col">
+    <!-- Header -->
+    <div class="flex items-center justify-between pb-4 mb-4 border-b border-white/5">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.15)">
+          <i class="fas fa-file-export text-indigo-400"></i>
+        </div>
+        <div>
+          <h3 class="text-base sm:text-lg font-bold text-white leading-tight">Export Links & Metadata</h3>
+          <p class="text-xs mt-0.5 text-slate-400">Pilih kolom dan format output untuk bulk copy (Player4Me style)</p>
+        </div>
       </div>
-      <button onclick="closeModal('modal-export')" style="color:#64748b;background:none;border:none;cursor:pointer;font-size:20px">✕</button>
+      <button onclick="closeModal('modal-export')" class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
     </div>
 
     <!-- Field selector -->
     <div class="mb-4">
-      <div class="text-xs font-semibold mb-3" style="color:#64748b">SELECT FIELDS TO EXPORT</div>
-      <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-title"       checked class="accent-brand-500"> Title
+      <div class="flex items-center justify-between mb-2.5">
+        <div class="text-xs font-bold uppercase tracking-wider text-slate-400">Data Fields to Include</div>
+        <button type="button" onclick="toggleAllExportFields(this)" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Toggle All</button>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-title" checked class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">Title</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-file-id"     class="accent-brand-500"> Drive File ID
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-embed-link" checked class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">Embed Link</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-resolution"  class="accent-brand-500"> Resolution
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-stream-link" class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">Stream Link</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-size"        class="accent-brand-500"> Size
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-embed-code" class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">Embed Code (iFrame)</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-embed-link"  checked class="accent-brand-500"> Embed Link
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-download-link" class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">Download Link</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-embed-code"  class="accent-brand-500"> Embed Code
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-resolution" class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">Resolution</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-stream-link" class="accent-brand-500"> Stream Link
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-size" class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">File Size</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-download-link" class="accent-brand-500"> Download Link
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-views" class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">Views</span>
         </label>
-        <label class="flex items-center gap-2 text-sm cursor-pointer p-3 rounded-xl transition-colors hover:bg-white/5" style="color:#94a3b8;border:1px solid #2a2a4a">
-          <input type="checkbox" id="exp-views"       class="accent-brand-500"> Views
+        <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
+          <input type="checkbox" id="exp-file-id" class="accent-brand-500 w-4 h-4 rounded">
+          <span class="font-medium text-slate-200">File / Storage ID</span>
         </label>
       </div>
     </div>
 
     <!-- Separator -->
     <div class="mb-5">
-      <div class="text-xs font-semibold mb-2" style="color:#64748b">FIELD SEPARATOR</div>
-      <div class="flex gap-2">
-        <button class="tab-btn active text-xs" id="sep-newline" onclick="setExportSeparator('newline')">Newline (one per row)</button>
-        <button class="tab-btn text-xs"        id="sep-tab"     onclick="setExportSeparator('tab')">Tab</button>
-        <button class="tab-btn text-xs"        id="sep-csv"     onclick="setExportSeparator('csv')">Comma (CSV)</button>
-        <button class="tab-btn text-xs"        id="sep-pipe"    onclick="setExportSeparator('pipe')">Pipe ( | )</button>
+      <div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Pemisah Kolom (Separator)</div>
+      <div class="flex flex-wrap gap-2">
+        <button class="tab-btn active text-xs py-2 px-3 flex-1 sm:flex-none text-center" id="sep-newline" onclick="setExportSeparator('newline')">Baris Baru (1 per baris)</button>
+        <button class="tab-btn text-xs py-2 px-3 flex-1 sm:flex-none text-center"        id="sep-tab"     onclick="setExportSeparator('tab')">Tab (\t)</button>
+        <button class="tab-btn text-xs py-2 px-3 flex-1 sm:flex-none text-center"        id="sep-csv"     onclick="setExportSeparator('csv')">Koma (CSV)</button>
+        <button class="tab-btn text-xs py-2 px-3 flex-1 sm:flex-none text-center"        id="sep-pipe"    onclick="setExportSeparator('pipe')">Pipe ( | )</button>
       </div>
     </div>
 
-    <div class="flex justify-end gap-3">
-      <button onclick="exportToTelegraph()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white" style="background:linear-gradient(135deg, #2563eb, #3b82f6)">
-        <i class="fas fa-paper-plane mr-2"></i>Telegra.ph
+    <!-- Actions -->
+    <div class="flex flex-col sm:flex-row justify-end gap-2.5 pt-3 border-t border-white/5">
+      <button onclick="exportToTelegraph()" class="btn-gradient px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white flex items-center justify-center gap-2" style="background:linear-gradient(135deg, #2563eb, #3b82f6)">
+        <i class="fas fa-paper-plane"></i>Export Telegra.ph
       </button>
-      <button onclick="openExportBlob()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white">
-        <i class="fas fa-external-link-alt mr-2"></i>Open in New Tab
+      <button onclick="openExportBlob()" class="btn-gradient px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white flex items-center justify-center gap-2">
+        <i class="fas fa-external-link-alt"></i>Buka Tab Baru
       </button>
-      <button onclick="downloadExport()" class="tab-btn text-sm">
-        <i class="fas fa-download mr-1"></i>Download .txt
+      <button onclick="downloadExport()" class="tab-btn text-xs sm:text-sm py-2.5 px-4 flex items-center justify-center gap-2">
+        <i class="fas fa-download"></i>Download .txt
       </button>
     </div>
   </div>
@@ -1870,6 +2006,70 @@ async function triggerSync(driveId) {
   }
 }
 
+function getProviderIcon(providerType, sizeClass = 'text-xs') {
+  const p = (providerType || 'gdrive').toLowerCase();
+  if (p === 'huggingface') {
+    return `<span class="${sizeClass} flex-shrink-0 select-none" title="Hugging Face">🤗</span>`;
+  }
+  if (p === 'transfer_it') {
+    return `<i class="fas fa-bolt text-cyan-400 ${sizeClass} flex-shrink-0" title="Transfer.it"></i>`;
+  }
+  return `<i class="fab fa-google-drive text-emerald-400 ${sizeClass} flex-shrink-0" title="Google Drive"></i>`;
+}
+
+function getProviderBadge(providerType) {
+  const p = (providerType || 'gdrive').toLowerCase();
+  if (p === 'huggingface') {
+    return `<span class="badge" style="background:rgba(245,158,11,0.15);color:#fde047;border:1px solid rgba(245,158,11,0.3);font-size:10px;padding:2px 6px">🤗 HF</span>`;
+  }
+  if (p === 'transfer_it') {
+    return `<span class="badge" style="background:rgba(6,182,212,0.15);color:#22d3ee;border:1px solid rgba(6,182,212,0.3);font-size:10px;padding:2px 6px"><i class="fas fa-bolt text-[9px] mr-1"></i>Transfer.it</span>`;
+  }
+  return `<span class="badge" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);font-size:10px;padding:2px 6px"><i class="fab fa-google-drive text-[9px] mr-1"></i>GDrive</span>`;
+}
+
+function switchAddDriveProvider(provider) {
+  $('drive-provider-type').value = provider;
+  ['gdrive', 'hf', 'transfer'].forEach(p => {
+    const tab = $(`tab-provider-${p}`);
+    const fields = $(`fields-provider-${p}`);
+    if (tab) tab.classList.remove('active');
+    if (fields) fields.classList.add('hidden');
+  });
+
+  if (provider === 'gdrive') {
+    $('tab-provider-gdrive')?.classList.add('active');
+    $('fields-provider-gdrive')?.classList.remove('hidden');
+    $('drive-client-id').required = true;
+    $('drive-client-secret').required = true;
+    $('drive-refresh-token').required = true;
+    if ($('hf-repo-id')) $('hf-repo-id').required = false;
+    if ($('transfer-url')) $('transfer-url').required = false;
+  } else if (provider === 'huggingface') {
+    $('tab-provider-hf')?.classList.add('active');
+    $('fields-provider-hf')?.classList.remove('hidden');
+    $('drive-client-id').required = false;
+    $('drive-client-secret').required = false;
+    $('drive-refresh-token').required = false;
+    if ($('hf-repo-id')) $('hf-repo-id').required = true;
+    if ($('transfer-url')) $('transfer-url').required = false;
+  } else if (provider === 'transfer_it') {
+    $('tab-provider-transfer')?.classList.add('active');
+    $('fields-provider-transfer')?.classList.remove('hidden');
+    $('drive-client-id').required = false;
+    $('drive-client-secret').required = false;
+    $('drive-refresh-token').required = false;
+    if ($('hf-repo-id')) $('hf-repo-id').required = false;
+    if ($('transfer-url')) $('transfer-url').required = true;
+
+    if (!$('transfer-expires').value) {
+      const d = new Date();
+      d.setDate(d.getDate() + 90);
+      $('transfer-expires').value = d.toISOString().split('T')[0];
+    }
+  }
+}
+
 async function loadDrives() {
   const { ok, data } = await apiFetch('/api/settings/drives');
   if (!ok) return;
@@ -1885,28 +2085,72 @@ function renderDrivesList() {
     container.innerHTML = `
       <div class="glass-card rounded-2xl p-10 text-center">
         <div class="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center" style="background:rgba(99,102,241,0.1)">
-          <i class="fab fa-google-drive text-2xl" style="color:#6366f1"></i>
+          <i class="fas fa-cloud-arrow-up text-2xl" style="color:#6366f1"></i>
         </div>
-        <div class="text-sm font-semibold text-white mb-2">No drives connected yet</div>
-        <div class="text-xs mb-5" style="color:#64748b">Add your first Google Drive account to start indexing videos.</div>
-        <button onclick="openAddDriveModal()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white"><i class="fas fa-plus mr-2"></i>Connect First Drive</button>
+        <div class="text-sm font-semibold text-white mb-2">Belum ada storage terhubung</div>
+        <div class="text-xs mb-5" style="color:#64748b">Hubungkan Google Drive, Hugging Face Datasets, atau Transfer.it untuk mengindeks video.</div>
+        <button onclick="openAddDriveModal()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white"><i class="fas fa-plus mr-2"></i>Connect Cloud Storage</button>
       </div>`;
     return;
   }
 
   container.innerHTML = APP.drives.map(d => {
+    const pType = (d.provider_type || 'gdrive').toLowerCase();
     const pct = d.quota_total > 0 ? Math.round((d.quota_used / d.quota_total) * 100) : 0;
     const synced = d.last_synced_at ? new Date(d.last_synced_at).toLocaleString() : 'Never';
+
+    let iconHtml = `<i class="fab fa-google-drive" style="color:#10b981;font-size:20px"></i>`;
+    let subInfo = `Last synced: ${synced}`;
+    let extraMeta = '';
+
+    if (pType === 'huggingface') {
+      iconHtml = `<span style="font-size:22px;line-height:1">🤗</span>`;
+      subInfo = `Hugging Face Dataset: <span class="font-mono text-indigo-300">${escHtml(d.hf_repo_id || '')}</span> (${escHtml(d.hf_branch || 'main')}) • Last synced: ${synced}`;
+      extraMeta = `
+        <div class="mt-3 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-slate-400">
+          <span>Public Dataset Storage: <strong>${formatBytes(d.quota_used)}</strong> used (Batas ~8.7TB)</span>
+          <a href="https://huggingface.co/datasets/${escHtml(d.hf_repo_id || '')}" target="_blank" class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+            <i class="fas fa-external-link-alt text-[10px]"></i>Buka di HF
+          </a>
+        </div>
+      `;
+    } else if (pType === 'transfer_it') {
+      iconHtml = `<i class="fas fa-bolt text-cyan-400" style="font-size:20px"></i>`;
+      let expiryStatus = '';
+      if (d.transfer_expires_at) {
+        const daysLeft = Math.ceil((new Date(d.transfer_expires_at).getTime() - Date.now()) / (1000 * 3600 * 24));
+        if (daysLeft <= 0) {
+          expiryStatus = `<span class="badge badge-red text-xs font-bold ml-2">EXPIRED (Perlu Renewal)</span>`;
+        } else if (daysLeft <= 15) {
+          expiryStatus = `<span class="badge badge-yellow text-xs font-bold ml-2">Sisa ${daysLeft} hari (Renewal segera)</span>`;
+        } else {
+          expiryStatus = `<span class="badge text-xs font-medium ml-2" style="background:rgba(6,182,212,0.15);color:#22d3ee;border:1px solid rgba(6,182,212,0.3)">Sisa ${daysLeft} hari</span>`;
+        }
+      }
+      subInfo = `Transfer.it Storage • Download limit: <strong class="text-white">${d.transfer_download_count || 0}/100</strong> downloads ${expiryStatus}`;
+      extraMeta = `
+        <div class="mt-3 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-slate-400 flex-wrap gap-2">
+          <span class="truncate max-w-sm font-mono text-slate-400"><i class="fas fa-link mr-1.5 text-cyan-400"></i>${escHtml(d.transfer_url || '')}</span>
+          <a href="${escHtml(d.transfer_url || '#')}" target="_blank" class="text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
+            <i class="fas fa-external-link-alt text-[10px]"></i>Open Transfer
+          </a>
+        </div>
+      `;
+    }
+
     return `
       <div class="glass-card rounded-2xl p-5 transition-all" id="drive-card-${d.id}">
         <div class="flex items-start justify-between gap-4">
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 min-w-0">
             <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.15)">
-              <i class="fab fa-google-drive" style="color:#6366f1;font-size:18px"></i>
+              ${iconHtml}
             </div>
-            <div>
-              <div class="font-semibold text-sm text-white">${escHtml(d.drive_name)}</div>
-              <div class="text-xs mt-0.5" style="color:#64748b">Last synced: ${synced}</div>
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-semibold text-sm text-white">${escHtml(d.drive_name)}</span>
+                ${getProviderBadge(d.provider_type)}
+              </div>
+              <div class="text-xs mt-0.5 text-slate-400">${subInfo}</div>
             </div>
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
@@ -1914,12 +2158,13 @@ function renderDrivesList() {
             <button onclick="triggerSync(${d.id})" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)">
               <i class="fas fa-sync-alt mr-1"></i>Sync
             </button>
-            <button onclick="deleteDrive(${d.id})" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-red-500/20" style="color:#f87171;background:none;border:none;cursor:pointer">
+            <button onclick="deleteDrive(${d.id})" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-red-500/20" style="color:#f87171;background:none;border:none;cursor:pointer" title="Remove Storage">
               <i class="fas fa-trash"></i>
             </button>
           </div>
         </div>
-        ${d.quota_total > 0 ? `
+        ${extraMeta}
+        ${pType === 'gdrive' && d.quota_total > 0 ? `
         <div class="mt-4">
           <div class="flex justify-between text-xs mb-1.5" style="color:#64748b">
             <span>Storage Usage</span>
@@ -1933,29 +2178,48 @@ function renderDrivesList() {
   }).join('');
 }
 
-function openAddDriveModal() { $('modal-add-drive').classList.remove('hidden'); }
+function openAddDriveModal() {
+  switchAddDriveProvider('gdrive');
+  $('modal-add-drive').classList.remove('hidden');
+}
 
 async function submitAddDrive(e) {
   e.preventDefault();
   setButtonLoading('add-drive-btn', true);
+  const providerType = $('drive-provider-type')?.value || 'gdrive';
+
+  const payload = {
+    drive_name: $('drive-name').value,
+    provider_type: providerType,
+  };
+
+  if (providerType === 'gdrive') {
+    payload.client_id      = $('drive-client-id').value;
+    payload.client_secret  = $('drive-client-secret').value;
+    payload.refresh_token  = $('drive-refresh-token').value;
+    payload.root_folder_id = $('drive-root-folder').value || undefined;
+  } else if (providerType === 'huggingface') {
+    payload.hf_repo_id = $('hf-repo-id').value;
+    payload.hf_token   = $('hf-token').value || undefined;
+    payload.hf_branch  = $('hf-branch').value || 'main';
+  } else if (providerType === 'transfer_it') {
+    payload.transfer_url         = $('transfer-url').value;
+    payload.transfer_expires_at  = $('transfer-expires').value || undefined;
+  }
+
   const { ok, data } = await apiFetch('/api/settings/drives', {
     method: 'POST',
-    body: {
-      drive_name:     $('drive-name').value,
-      client_id:      $('drive-client-id').value,
-      client_secret:  $('drive-client-secret').value,
-      refresh_token:  $('drive-refresh-token').value,
-      root_folder_id: $('drive-root-folder').value || undefined,
-    },
+    body: payload,
   });
   setButtonLoading('add-drive-btn', false);
   if (ok) {
-    showToast('Drive connected successfully!', 'success');
+    showToast('Storage connected successfully!', 'success');
     closeModal('modal-add-drive');
     e.target.reset();
+    switchAddDriveProvider('gdrive');
     loadDrives();
   } else {
-    showToast(data.error || 'Failed to connect drive.', 'error', 5000);
+    showToast(data.error || 'Failed to connect storage.', 'error', 5000);
   }
 }
 
@@ -1979,15 +2243,15 @@ function renderMediaTree() {
   const tree = $('unified-tree');
   if (!tree) return;
   if (!APP.drives || !APP.drives.length) {
-    tree.innerHTML = '<div class="text-xs px-3 py-2 text-slate-500 italic">No drives connected</div>';
+    tree.innerHTML = '<div class="text-xs px-3 py-2 text-slate-500 italic">No storage connected</div>';
     return;
   }
 
   if (!APP.expandedDrives) {
-    APP.expandedDrives = new Set(); // start collapsed by default
+    APP.expandedDrives = new Set();
   }
   if (!APP.expandedFolders) {
-    APP.expandedFolders = new Set(); // subfolders start collapsed by default
+    APP.expandedFolders = new Set();
   }
 
   const buildFolderBranch = (driveId, parentId, depth = 0) => {
@@ -2031,19 +2295,24 @@ function renderMediaTree() {
     const isDriveActive = APP.currentDrive === d.id && (APP.currentFolder === null || APP.currentFolder === undefined);
     const isRootActive  = APP.currentDrive === d.id && APP.currentFolder === 'null';
     const isExpanded    = APP.expandedDrives.has(d.id);
-    const folderBranches = buildFolderBranch(d.id, null, 0);
+    const pType         = (d.provider_type || 'gdrive').toLowerCase();
+    const isTransfer    = pType === 'transfer_it';
+    const folderBranches = isTransfer ? '' : buildFolderBranch(d.id, null, 0);
 
     return `
       <div class="drive-tree-group mb-2">
         <!-- Drive Header -->
         <div class="folder-tree-item ${isDriveActive ? 'active' : ''}" id="tree-drive-${d.id}" onclick="selectLibraryNode(${d.id}, null, event)" style="padding-left:8px" title="${escHtml(d.drive_name)}">
+          ${isTransfer ? '<span class="w-4 inline-block flex-shrink-0 mr-1"></span>' : `
           <button type="button" onclick="toggleDriveExpand(${d.id}, event)" class="p-1 hover:bg-white/10 rounded mr-1 text-slate-400 hover:text-white transition-all flex-shrink-0" title="${isExpanded ? 'Collapse' : 'Expand'}">
             <i class="fas ${isExpanded ? 'fa-chevron-down' : 'fa-chevron-right'} text-[9px]" id="caret-${d.id}"></i>
           </button>
-          <i class="fab fa-google-drive text-xs flex-shrink-0" style="color:#10b981"></i>
+          `}
+          ${getProviderIcon(d.provider_type, 'text-xs')}
           <span class="flex-1 truncate min-w-0 font-medium ml-1" title="${escHtml(d.drive_name)}">${escHtml(d.drive_name)}</span>
         </div>
 
+        ${!isTransfer ? `
         <!-- Drive Sub-Folders & Root -->
         <div id="drive-children-${d.id}" class="${isExpanded ? '' : 'hidden'} space-y-0.5 mt-0.5">
           <!-- Root / Unsorted Files row -->
@@ -2056,6 +2325,7 @@ function renderMediaTree() {
           <!-- Nested Folders -->
           ${folderBranches}
         </div>
+        ` : ''}
       </div>
     `;
   }).join('');
@@ -3317,88 +3587,182 @@ function renderMediaTable() {
   if ($('th-downloads'))  $('th-downloads').style.display  = showDownloads ? '' : 'none';
 
   const tbody = $('media-tbody');
+  const mobileCards = $('media-mobile-cards');
+
   if (!APP.mediaData.length) {
     let extraMsg = '';
     if (APP.currentFolder !== null && APP.currentFolder !== undefined) {
       extraMsg = `<div class="mt-3"><button type="button" onclick="selectFolder(null)" class="px-3 py-1.5 rounded-lg text-xs font-semibold" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)"><i class="fas fa-layer-group mr-1.5"></i>Search across All Folders</button></div>`;
     }
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-14" style="color:#475569">
-      <i class="fas fa-film text-3xl mb-3 block" style="color:#1e1e38"></i>
-      No videos found in this folder.
-      ${extraMsg}
-    </td></tr>`;
+    const emptyHtml = `
+      <div class="text-center py-14" style="color:#475569">
+        <i class="fas fa-film text-3xl mb-3 block" style="color:#1e1e38"></i>
+        No videos found in this storage/folder.
+        ${extraMsg}
+      </div>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7">${emptyHtml}</td></tr>`;
+    if (mobileCards) mobileCards.innerHTML = emptyHtml;
     return;
   }
 
-  tbody.innerHTML = APP.mediaData.map(v => {
-    const isSelected = APP.selectedIds.has(v.id);
-    const embedLink  = `${BASE_URL}/embed/${v.id}`;
-    const streamLink = `${BASE_URL}/stream/${v.id}?download=1`;
-    const info = getMediaInfoDetails(v);
+  // 1. Render Mobile Cards (< md)
+  if (mobileCards) {
+    mobileCards.innerHTML = APP.mediaData.map(v => {
+      const isSelected = APP.selectedIds.has(v.id);
+      const embedLink  = `${BASE_URL}/embed/${v.id}`;
+      const streamLink = `${BASE_URL}/stream/${v.id}?download=1`;
+      const info = getMediaInfoDetails(v);
 
-    return `<tr class="${isSelected ? 'selected' : ''}" id="tr-${v.id}">
-      <td class="align-top py-3" style="width:40px"><input type="checkbox" class="accent-brand-500 cursor-pointer mt-1" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
-      <td class="align-top py-3" style="width:auto">
-        <div class="flex items-start gap-3">
-          <div class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.2)">
-            <i class="fas fa-play text-xs" style="color:#818cf8"></i>
-          </div>
-          <div class="filename-cell flex-1 min-w-0">
-            <div class="fname text-sm font-semibold text-white transition-colors hover:text-indigo-300 cursor-pointer leading-snug break-words"
-              onclick="openVideoDetail(${v.id})"
-              title="${escHtml(v.title)}">${escHtml(v.title)}</div>
-            
-            <!-- Folder Location Tag (Clean Breadcrumb Row) -->
-            ${v.folder_name ? `
-              <div class="flex items-center gap-1.5 mt-1">
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors hover:border-indigo-400/50 cursor-pointer"
-                  onclick="selectLibraryNode(${v.drive_id || 'null'}, ${v.folder_id || 'null'}, event)"
-                  style="background:rgba(99,102,241,0.08);color:#c7d2fe;border:1px solid rgba(99,102,241,0.2)"
-                  title="Filter by folder: ${escHtml(v.folder_name)}">
-                  <i class="fas fa-folder text-[10px] text-indigo-400"></i>
-                  <span class="truncate max-w-sm">${escHtml(v.folder_name)}</span>
-                </span>
+      let expiryBadge = '';
+      if (v.provider_type === 'transfer_it' && v.expires_at) {
+        const daysLeft = Math.ceil((new Date(v.expires_at).getTime() - Date.now()) / (1000 * 3600 * 24));
+        if (daysLeft <= 0) {
+          expiryBadge = `<span class="badge badge-red text-[9px] font-bold">EXPIRED</span>`;
+        } else if (daysLeft <= 15) {
+          expiryBadge = `<span class="badge badge-yellow text-[9px] font-bold">Sisa ${daysLeft}h</span>`;
+        } else {
+          expiryBadge = `<span class="badge text-[9px]" style="background:rgba(6,182,212,0.15);color:#22d3ee;border:1px solid rgba(6,182,212,0.3)">Sisa ${daysLeft}h</span>`;
+        }
+      }
+
+      return `
+        <div class="glass-card rounded-2xl p-3.5 transition-all ${isSelected ? 'border-brand-500/50 bg-brand-500/5' : ''}" id="mobile-card-${v.id}">
+          <div class="flex items-start gap-2.5">
+            <input type="checkbox" class="accent-brand-500 cursor-pointer w-4 h-4 mt-1 rounded flex-shrink-0" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" />
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-1.5 flex-wrap mb-1">
+                ${getProviderBadge(v.provider_type || v.drive_provider_type)}
+                <span class="badge ${info.format === 'MKV' ? 'badge-purple' : 'badge-green'} text-[10px] font-bold">${info.format}</span>
+                ${v.resolution ? fmtResolutionBadge(v.resolution) : ''}
+                ${expiryBadge}
               </div>
-            ` : ''}
-
-            <!-- Subtitle Actions Toolbar Under Title -->
-            <div class="flex items-center gap-2 mt-1.5 text-xs flex-wrap" style="color:#64748b;font-size:11.5px">
-              <button type="button" onclick="openMediaInfoModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-indigo-400 font-medium" title="MediaInfo Inspector">
-                <i class="fas fa-file-waveform text-[10px]"></i> MediaInfo
-              </button>
-              <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
-                <i class="fas fa-info-circle text-[10px]"></i> Detail
-              </button>
-              <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
-                <i class="fas fa-external-link-alt text-[10px]"></i> Open
-              </a>
-              <button type="button" onclick="copyEmbedLink(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
-                <i class="fas fa-link text-[10px]"></i> Embed Link
-              </button>
-              <button type="button" onclick="copyEmbedCode(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy iFrame HTML Code">
-                <i class="fas fa-code text-[10px]"></i> Embed Code
-              </button>
-              <a href="${streamLink}" target="_blank" download class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="Direct Download / Stream Link">
-                <i class="fas fa-download text-[10px]"></i> Download
-              </a>
-              <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
-                <i class="fas fa-trash text-[10px]"></i> Delete
-              </button>
+              <div class="text-xs sm:text-sm font-semibold text-white leading-snug break-words cursor-pointer hover:text-indigo-300" onclick="openVideoDetail(${v.id})">
+                ${escHtml(v.title)}
+              </div>
+              <div class="flex items-center gap-2.5 mt-2 text-[11px] text-slate-400 flex-wrap">
+                <span><i class="fas fa-hdd mr-1 text-slate-500"></i>${formatBytes(v.size)}</span>
+                <span><i class="fas fa-eye mr-1 text-slate-500"></i>${formatNumber(v.views)}</span>
+                ${v.provider_type === 'transfer_it' ? `<span class="text-cyan-400 font-mono"><i class="fas fa-download mr-1"></i>${v.provider_downloads || 0}/${v.download_limit || 100}</span>` : ''}
+                ${v.folder_name ? `
+                  <span class="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 truncate max-w-[130px]" onclick="selectLibraryNode(${v.drive_id || 'null'}, ${v.folder_id || 'null'}, event)">
+                    <i class="fas fa-folder text-[8px]"></i>${escHtml(v.folder_name)}
+                  </span>
+                ` : ''}
+              </div>
             </div>
           </div>
+
+          <!-- Action buttons with clear touch targets -->
+          <div class="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mt-2.5 pt-2.5 border-t border-white/5">
+            <a href="${embedLink}" target="_blank" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-indigo-300 text-[10px] font-medium transition-all" title="Play">
+              <i class="fas fa-play text-xs mb-0.5"></i>Play
+            </a>
+            <button type="button" onclick="copyEmbedLink(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-medium transition-all" title="Embed Link">
+              <i class="fas fa-link text-xs mb-0.5"></i>Link
+            </button>
+            <button type="button" onclick="copyEmbedCode(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-medium transition-all" title="Embed Code">
+              <i class="fas fa-code text-xs mb-0.5"></i>iFrame
+            </button>
+            <a href="${streamLink}" target="_blank" download class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="Download">
+              <i class="fas fa-download text-xs mb-0.5"></i>DL
+            </a>
+            <button type="button" onclick="openMediaInfoModal(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-amber-300 text-[10px] font-medium transition-all" title="MediaInfo">
+              <i class="fas fa-file-waveform text-xs mb-0.5"></i>Info
+            </button>
+            <button type="button" onclick="openVideoDetail(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-medium transition-all" title="Detail">
+              <i class="fas fa-info-circle text-xs mb-0.5"></i>Detail
+            </button>
+            <button type="button" onclick="deleteVideo(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 text-[10px] font-medium transition-all" title="Delete">
+              <i class="fas fa-trash text-xs mb-0.5"></i>Del
+            </button>
+          </div>
         </div>
-      </td>
-      <td class="align-top py-3 text-center whitespace-nowrap" style="width:130px;display:${showMediaInfo ? '' : 'none'}">
-        <span class="badge ${info.format === 'MKV' ? 'badge-purple' : 'badge-green'} text-[10px] font-bold">${info.format}</span>
-        <span class="text-[11px] font-mono ml-1" style="color:#a5b4fc">${info.codec.split(' ')[0]}</span>
-        ${info.bitdepth ? `<span class="badge badge-yellow text-[9px] ml-1">${info.bitdepth}</span>` : ''}
-      </td>
-      <td class="align-top py-3 text-center whitespace-nowrap" style="width:100px;display:${showResolution ? '' : 'none'}">${fmtResolutionBadge(v.resolution)}</td>
-      <td class="align-top py-3 text-right whitespace-nowrap" style="width:110px;display:${showSize ? '' : 'none'}"><span class="text-xs font-mono" style="color:#64748b">${formatBytes(v.size)}</span></td>
-      <td class="align-top py-3 text-right whitespace-nowrap" style="width:80px;display:${showViews ? '' : 'none'}"><span class="text-xs font-mono" style="color:#94a3b8">${formatNumber(v.views)}</span></td>
-      <td class="align-top py-3 text-right whitespace-nowrap" style="width:80px;display:${showDownloads ? '' : 'none'}"><span class="text-xs font-mono" style="color:#34d399">${formatNumber(v.downloads || 0)}</span></td>
-    </tr>`;
-  }).join('');
+      `;
+    }).join('');
+  }
+
+  // 2. Render Desktop Table (>= md)
+  if (tbody) {
+    tbody.innerHTML = APP.mediaData.map(v => {
+      const isSelected = APP.selectedIds.has(v.id);
+      const embedLink  = `${BASE_URL}/embed/${v.id}`;
+      const streamLink = `${BASE_URL}/stream/${v.id}?download=1`;
+      const info = getMediaInfoDetails(v);
+
+      let expiryInfo = '';
+      if (v.provider_type === 'transfer_it' && v.expires_at) {
+        const daysLeft = Math.ceil((new Date(v.expires_at).getTime() - Date.now()) / (1000 * 3600 * 24));
+        expiryInfo = `<span class="badge ${daysLeft <= 15 ? 'badge-yellow' : 'badge-green'} text-[9px] ml-1.5">${daysLeft}d</span>`;
+      }
+
+      return `<tr class="${isSelected ? 'selected' : ''}" id="tr-${v.id}">
+        <td class="align-top py-3" style="width:40px"><input type="checkbox" class="accent-brand-500 cursor-pointer mt-1" ${isSelected ? 'checked' : ''} onchange="toggleRowSelect(${v.id}, this)" /></td>
+        <td class="align-top py-3" style="width:auto">
+          <div class="flex items-start gap-3">
+            <div class="w-8 h-8 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.2)">
+              ${getProviderIcon(v.provider_type || v.drive_provider_type, 'text-xs')}
+            </div>
+            <div class="filename-cell flex-1 min-w-0">
+              <div class="flex items-center gap-2 flex-wrap mb-0.5">
+                <span class="fname text-sm font-semibold text-white transition-colors hover:text-indigo-300 cursor-pointer leading-snug break-words"
+                  onclick="openVideoDetail(${v.id})"
+                  title="${escHtml(v.title)}">${escHtml(v.title)}</span>
+                ${getProviderBadge(v.provider_type || v.drive_provider_type)}
+                ${expiryInfo}
+              </div>
+              
+              <!-- Folder Location Tag (Clean Breadcrumb Row) -->
+              ${v.folder_name ? `
+                <div class="flex items-center gap-1.5 mt-1">
+                  <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors hover:border-indigo-400/50 cursor-pointer"
+                    onclick="selectLibraryNode(${v.drive_id || 'null'}, ${v.folder_id || 'null'}, event)"
+                    style="background:rgba(99,102,241,0.08);color:#c7d2fe;border:1px solid rgba(99,102,241,0.2)"
+                    title="Filter by folder: ${escHtml(v.folder_name)}">
+                    <i class="fas fa-folder text-[10px] text-indigo-400"></i>
+                    <span class="truncate max-w-sm">${escHtml(v.folder_name)}</span>
+                  </span>
+                </div>
+              ` : ''}
+
+              <!-- Subtitle Actions Toolbar Under Title -->
+              <div class="flex items-center gap-2 mt-1.5 text-xs flex-wrap" style="color:#64748b;font-size:11.5px">
+                <button type="button" onclick="openMediaInfoModal(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors text-indigo-400 font-medium" title="MediaInfo Inspector">
+                  <i class="fas fa-file-waveform text-[10px]"></i> MediaInfo
+                </button>
+                <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
+                  <i class="fas fa-info-circle text-[10px]"></i> Detail
+                </button>
+                <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
+                  <i class="fas fa-external-link-alt text-[10px]"></i> Open
+                </a>
+                <button type="button" onclick="copyEmbedLink(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
+                  <i class="fas fa-link text-[10px]"></i> Embed Link
+                </button>
+                <button type="button" onclick="copyEmbedCode(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy iFrame HTML Code">
+                  <i class="fas fa-code text-[10px]"></i> Embed Code
+                </button>
+                <a href="${streamLink}" target="_blank" download class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="Direct Download / Stream Link">
+                  <i class="fas fa-download text-[10px]"></i> Download
+                </a>
+                <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
+                  <i class="fas fa-trash text-[10px]"></i> Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </td>
+        <td class="align-top py-3 text-center whitespace-nowrap" style="width:130px;display:${showMediaInfo ? '' : 'none'}">
+          <span class="badge ${info.format === 'MKV' ? 'badge-purple' : 'badge-green'} text-[10px] font-bold">${info.format}</span>
+          <span class="text-[11px] font-mono ml-1" style="color:#a5b4fc">${info.codec.split(' ')[0]}</span>
+          ${info.bitdepth ? `<span class="badge badge-yellow text-[9px] ml-1">${info.bitdepth}</span>` : ''}
+        </td>
+        <td class="align-top py-3 text-center whitespace-nowrap" style="width:100px;display:${showResolution ? '' : 'none'}">${fmtResolutionBadge(v.resolution)}</td>
+        <td class="align-top py-3 text-right whitespace-nowrap" style="width:110px;display:${showSize ? '' : 'none'}"><span class="text-xs font-mono" style="color:#64748b">${formatBytes(v.size)}</span></td>
+        <td class="align-top py-3 text-right whitespace-nowrap" style="width:80px;display:${showViews ? '' : 'none'}"><span class="text-xs font-mono" style="color:#94a3b8">${formatNumber(v.views)}</span></td>
+        <td class="align-top py-3 text-right whitespace-nowrap" style="width:80px;display:${showDownloads ? '' : 'none'}"><span class="text-xs font-mono" style="color:#34d399">${formatNumber(v.downloads || 0)}</span></td>
+      </tr>`;
+    }).join('');
+  }
 }
 
 function renderMediaGrid() {
@@ -3440,13 +3804,18 @@ function renderMediaGrid() {
 
 function setMediaView(view) {
   APP.mediaView = view;
-  $('media-list-view').classList.toggle('hidden', view !== 'list');
-  $('media-grid-view').classList.toggle('hidden', view !== 'grid');
-  $('view-list-btn').style.background = view === 'list' ? 'rgba(99,102,241,0.2)' : 'transparent';
-  $('view-list-btn').style.color      = view === 'list' ? '#a5b4fc' : '#64748b';
-  $('view-grid-btn').style.background = view === 'grid' ? 'rgba(99,102,241,0.2)' : 'transparent';
-  $('view-grid-btn').style.color      = view === 'grid' ? '#a5b4fc' : '#64748b';
-  renderMediaTable();
+  $('media-list-view')?.classList.toggle('hidden', view !== 'list');
+  $('media-grid-view')?.classList.toggle('hidden', view !== 'grid');
+  if ($('view-list-btn')) {
+    $('view-list-btn').style.background = view === 'list' ? 'rgba(99,102,241,0.2)' : 'transparent';
+    $('view-list-btn').style.color      = view === 'list' ? '#a5b4fc' : '#64748b';
+  }
+  if ($('view-grid-btn')) {
+    $('view-grid-btn').style.background = view === 'grid' ? 'rgba(99,102,241,0.2)' : 'transparent';
+    $('view-grid-btn').style.color      = view === 'grid' ? '#a5b4fc' : '#64748b';
+  }
+  if (view === 'list') renderMediaTable();
+  else renderMediaGrid();
 }
 
 function updatePagination() {
@@ -3487,6 +3856,17 @@ function toggleRowSelect(id, cb) {
   else            APP.selectedIds.delete(id);
   const tr = $(`tr-${id}`);
   if (tr) tr.classList.toggle('selected', cb.checked);
+  const card = $(`mobile-card-${id}`);
+  if (card) {
+    card.classList.toggle('border-brand-500/50', cb.checked);
+    card.classList.toggle('bg-brand-500/5', cb.checked);
+    const mcb = card.querySelector('input[type="checkbox"]');
+    if (mcb && mcb !== cb) mcb.checked = cb.checked;
+  }
+  if (tr) {
+    const tcb = tr.querySelector('input[type="checkbox"]');
+    if (tcb && tcb !== cb) tcb.checked = cb.checked;
+  }
   updateBulkBar();
 }
 
@@ -3873,9 +4253,20 @@ function _populateVideoDetailModal(v) {
   // Open tab button
   $('vd-open-tab').href = embedLink;
 
-  // Drive info
-  $('vd-fileid').textContent = v.id;
+  // Drive & Provider info
+  $('vd-fileid').textContent = v.drive_file_id || v.id;
   $('vd-drive').textContent  = v.drive_name || '—';
+  const providerBadgeEl = $('vd-provider-badge');
+  if (providerBadgeEl) providerBadgeEl.innerHTML = getProviderBadge(v.provider_type || v.drive_provider_type);
+  const uriBox = $('vd-uri-box');
+  if (uriBox) {
+    if (v.storage_uri) {
+      uriBox.classList.remove('hidden');
+      $('vd-storage-uri').textContent = v.storage_uri;
+    } else {
+      uriBox.classList.add('hidden');
+    }
+  }
 
   // Load iframe (use embed URL; player handles heavy/light detection itself)
   const iframe = $('vd-iframe');
@@ -3955,6 +4346,15 @@ let exportBulkOnly = false;
 function openExportModal(bulkOnly = false) {
   exportBulkOnly = bulkOnly;
   $('modal-export').classList.remove('hidden');
+}
+
+function toggleAllExportFields(btn) {
+  const ids = ['exp-title', 'exp-file-id', 'exp-resolution', 'exp-size', 'exp-embed-link', 'exp-embed-code', 'exp-stream-link', 'exp-download-link', 'exp-views'];
+  const anyUnchecked = ids.some(id => !$(id)?.checked);
+  ids.forEach(id => {
+    const el = $(id);
+    if (el) el.checked = anyUnchecked;
+  });
 }
 
 function setExportSeparator(type) {

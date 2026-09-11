@@ -452,6 +452,24 @@ async function seedAdminAccount(env) {
     try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN drive_id INTEGER`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN gdrive_folder_id TEXT`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN parent_gdrive_folder_id TEXT`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE folders ADD COLUMN provider_type TEXT DEFAULT 'gdrive'`).run(); } catch (_) {}
+
+    // Ensure DB columns exist for drives
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN provider_type TEXT DEFAULT 'gdrive'`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN hf_repo_id TEXT`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN hf_token TEXT`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN hf_branch TEXT DEFAULT 'main'`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN transfer_url TEXT`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN transfer_expires_at DATETIME`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN transfer_download_count INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN config_json TEXT`).run(); } catch (_) {}
+
+    // Ensure DB columns exist for videos
+    try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN provider_type TEXT DEFAULT 'gdrive'`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN storage_uri TEXT`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN expires_at DATETIME`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN download_limit INTEGER DEFAULT 0`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN provider_downloads INTEGER DEFAULT 0`).run(); } catch (_) {}
 
     const existing = await env.DB.prepare(
       `SELECT id FROM users WHERE username = 'harumisato' LIMIT 1`
@@ -499,26 +517,107 @@ async function handleLogin(request, env) {
 
 async function handleListDrives(request, env, user) {
   const drives = await env.DB.prepare(
-    `SELECT id, drive_name, root_folder_id, quota_used, quota_total, last_synced_at, is_active, created_at
+    `SELECT id, drive_name, provider_type, root_folder_id, quota_used, quota_total, last_synced_at, is_active,
+            hf_repo_id, hf_branch, transfer_url, transfer_expires_at, transfer_download_count, config_json, created_at
      FROM drives WHERE user_id = ? ORDER BY created_at DESC`
   ).bind(user.sub).all();
-  return jsonResponse({ success: true, drives: drives.results });
+  return jsonResponse({ success: true, drives: drives.results || [] });
 }
 
 async function handleAddDrive(request, env, user) {
-  const { drive_name, client_id, client_secret, refresh_token, root_folder_id } =
-    await request.json().catch(() => ({}));
-  if (!drive_name || !client_id || !client_secret || !refresh_token) {
-    return errorResponse('drive_name, client_id, client_secret, and refresh_token are required.');
+  const body = await request.json().catch(() => ({}));
+  const {
+    drive_name,
+    provider_type = 'gdrive',
+    client_id,
+    client_secret,
+    refresh_token,
+    root_folder_id,
+    hf_repo_id,
+    hf_token,
+    hf_branch = 'main',
+    transfer_url,
+    transfer_expires_at,
+  } = body;
+
+  if (!drive_name || !drive_name.trim()) {
+    return errorResponse('drive_name is required.');
+  }
+
+  const pType = (provider_type || 'gdrive').toLowerCase();
+
+  // ── 1. Hugging Face Datasets Provider ───────────────────────
+  if (pType === 'huggingface') {
+    if (!hf_repo_id || !hf_repo_id.trim()) {
+      return errorResponse('Hugging Face Repo ID (e.g. username/dataset-name) is required.');
+    }
+    const cleanRepo = hf_repo_id.trim();
+    const branch = (hf_branch || 'main').trim();
+
+    try {
+      const testHeaders = { 'User-Agent': 'HaruStream/1.0' };
+      if (hf_token && hf_token.trim()) testHeaders['Authorization'] = `Bearer ${hf_token.trim()}`;
+      const testResp = await fetch(`https://huggingface.co/api/datasets/${cleanRepo}`, { headers: testHeaders });
+      if (!testResp.ok && testResp.status === 404) {
+        return errorResponse(`Hugging Face dataset '${cleanRepo}' not found or is private. If private, please provide a valid User Access Token.`, 422);
+      }
+    } catch (err) {
+      return errorResponse(`Could not connect to Hugging Face: ${err.message}`, 502);
+    }
+
+    const result = await env.DB.prepare(
+      `INSERT INTO drives
+        (user_id, drive_name, provider_type, hf_repo_id, hf_token, hf_branch, is_active, created_at, updated_at)
+       VALUES (?, ?, 'huggingface', ?, ?, ?, 1, datetime('now'), datetime('now'))`
+    ).bind(user.sub, drive_name.trim(), cleanRepo, (hf_token && hf_token.trim()) || null, branch).run();
+
+    const driveId = result.meta?.last_row_id;
+    const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
+    if (newDrive) {
+      try { await performHuggingFaceSync(newDrive, env, true); } catch (_) {}
+    }
+
+    return jsonResponse({ success: true, drive_id: driveId }, 201);
+  }
+
+  // ── 2. Transfer.it Provider ─────────────────────────────────
+  if (pType === 'transfer_it') {
+    if (!transfer_url || !transfer_url.trim()) {
+      return errorResponse('Transfer.it URL or download link is required.');
+    }
+    const expiresAt = transfer_expires_at
+      ? new Date(transfer_expires_at).toISOString()
+      : new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+
+    const result = await env.DB.prepare(
+      `INSERT INTO drives
+        (user_id, drive_name, provider_type, transfer_url, transfer_expires_at, transfer_download_count, is_active, created_at, updated_at)
+       VALUES (?, ?, 'transfer_it', ?, ?, 0, 1, datetime('now'), datetime('now'))`
+    ).bind(user.sub, drive_name.trim(), transfer_url.trim(), expiresAt).run();
+
+    const driveId = result.meta?.last_row_id;
+    const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
+    if (newDrive) {
+      try { await performTransferItSync(newDrive, env, true); } catch (_) {}
+    }
+
+    return jsonResponse({ success: true, drive_id: driveId }, 201);
+  }
+
+  // ── 3. Google Drive Provider (Default) ──────────────────────
+  if (!client_id || !client_secret || !refresh_token) {
+    return errorResponse('drive_name, client_id, client_secret, and refresh_token are required for Google Drive.');
   }
 
   try {
-    // Validate the refresh token by attempting to fetch a new access token
     const testResp = await fetch(GOOGLE_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id, client_secret, refresh_token, grant_type: 'refresh_token',
+        client_id: client_id.trim(),
+        client_secret: client_secret.trim(),
+        refresh_token: refresh_token.trim(),
+        grant_type: 'refresh_token',
       }),
     });
     if (!testResp.ok) {
@@ -531,9 +630,18 @@ async function handleAddDrive(request, env, user) {
 
     const result = await env.DB.prepare(
       `INSERT INTO drives
-        (user_id, drive_name, client_id, client_secret, refresh_token, access_token, token_expires_at, root_folder_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(user.sub, drive_name, client_id, client_secret, refresh_token, accessToken, expiresAt, root_folder_id || null).run();
+        (user_id, drive_name, provider_type, client_id, client_secret, refresh_token, access_token, token_expires_at, root_folder_id, created_at, updated_at)
+       VALUES (?, ?, 'gdrive', ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+    ).bind(
+      user.sub,
+      drive_name.trim(),
+      client_id.trim(),
+      client_secret.trim(),
+      refresh_token.trim(),
+      accessToken,
+      expiresAt,
+      root_folder_id ? root_folder_id.trim() : null
+    ).run();
 
     return jsonResponse({ success: true, drive_id: result.meta?.last_row_id }, 201);
   } catch (e) {
@@ -548,12 +656,252 @@ async function handleDeleteDrive(driveId, env, user) {
 
   await env.DB.prepare('DELETE FROM drives WHERE id = ?').bind(driveId).run();
   await env.DB.prepare('DELETE FROM folders WHERE drive_id = ?').bind(driveId).run();
+  await env.DB.prepare('DELETE FROM videos WHERE drive_id = ?').bind(driveId).run();
   return jsonResponse({ success: true, message: 'Drive removed.' });
 }
 
-// ── SYNC ────────────────────────────────────────────────────
+// ── SYNC HELPERS & MULTI-CLOUD PROVIDERS ────────────────────
+
+function getMimeTypeFromFilename(filename) {
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  const mimeMap = {
+    mp4: 'video/mp4',
+    m4v: 'video/mp4',
+    mkv: 'video/x-matroska',
+    webm: 'video/webm',
+    mov: 'video/quicktime',
+    avi: 'video/x-msvideo',
+    ts: 'video/mp2t',
+    flv: 'video/x-flv',
+    wmv: 'video/x-ms-wmv',
+    mp3: 'audio/mpeg',
+    flac: 'audio/flac',
+    wav: 'audio/wav',
+    srt: 'text/plain',
+    vtt: 'text/vtt',
+  };
+  return mimeMap[ext] || 'video/mp4';
+}
+
+async function performHuggingFaceSync(drive, env, forceFullScan = false) {
+  let totalSynced = 0;
+  let totalRemoved = 0;
+
+  const repo = drive.hf_repo_id;
+  const branch = drive.hf_branch || 'main';
+  const hfHeaders = { 'User-Agent': 'HaruStream/1.0' };
+  if (drive.hf_token) hfHeaders['Authorization'] = `Bearer ${drive.hf_token}`;
+
+  // 1. Fetch entire recursive tree of the repository
+  const treeUrl = `https://huggingface.co/api/datasets/${repo}/tree/${branch}?recursive=true`;
+  const treeResp = await fetch(treeUrl, { headers: hfHeaders });
+  if (!treeResp.ok) {
+    const errText = await treeResp.text();
+    throw new Error(`Failed to fetch Hugging Face repo tree (${treeResp.status}): ${errText}`);
+  }
+
+  const treeItems = await treeResp.json();
+  if (!Array.isArray(treeItems)) {
+    throw new Error('Invalid response from Hugging Face tree API.');
+  }
+
+  // 2. Identify all video files
+  const videoExtRegex = /\.(mp4|mkv|webm|avi|mov|ts|m4v|flv|wmv|3gp|ogv)$/i;
+  const videoFiles = treeItems.filter(item => item.type === 'file' && videoExtRegex.test(item.path));
+
+  // 3. Extract and synchronize folder structure
+  const dirPaths = new Set();
+  for (const v of videoFiles) {
+    const lastSlash = v.path.lastIndexOf('/');
+    if (lastSlash > 0) {
+      const parts = v.path.substring(0, lastSlash).split('/');
+      let currentPath = '';
+      for (const p of parts) {
+        currentPath = currentPath ? `${currentPath}/${p}` : p;
+        dirPaths.add(currentPath);
+      }
+    }
+  }
+
+  const existingFoldersQuery = await env.DB.prepare(
+    `SELECT id, gdrive_folder_id, parent_id, parent_gdrive_folder_id, name FROM folders WHERE drive_id = ?`
+  ).bind(drive.id).all();
+
+  const d1FolderMap = new Map();
+  for (const f of (existingFoldersQuery.results || [])) {
+    if (f.gdrive_folder_id) d1FolderMap.set(f.gdrive_folder_id, f);
+  }
+
+  const sortedDirPaths = Array.from(dirPaths).sort((a, b) => a.split('/').length - b.split('/').length);
+
+  for (const dirPath of sortedDirPaths) {
+    const folderKey = `hf_dir:${drive.id}:${dirPath}`;
+    const name = dirPath.split('/').pop();
+    const lastSlash = dirPath.lastIndexOf('/');
+    const parentKey = lastSlash > 0 ? `hf_dir:${drive.id}:${dirPath.substring(0, lastSlash)}` : null;
+
+    const existing = d1FolderMap.get(folderKey);
+    if (!existing) {
+      await env.DB.prepare(
+        `INSERT INTO folders (user_id, drive_id, gdrive_folder_id, parent_gdrive_folder_id, name, color, provider_type)
+         VALUES (?, ?, ?, ?, ?, '#f59e0b', 'huggingface')`
+      ).bind(drive.user_id, drive.id, folderKey, parentKey, name).run();
+    }
+  }
+
+  const refreshedFolders = await env.DB.prepare(
+    `SELECT id, parent_id, gdrive_folder_id, parent_gdrive_folder_id FROM folders WHERE drive_id = ?`
+  ).bind(drive.id).all();
+
+  const keyToD1Id = new Map();
+  for (const f of (refreshedFolders.results || [])) {
+    keyToD1Id.set(f.gdrive_folder_id, f.id);
+  }
+
+  const folderParentUpdates = [];
+  for (const f of (refreshedFolders.results || [])) {
+    const parentIntId = f.parent_gdrive_folder_id ? (keyToD1Id.get(f.parent_gdrive_folder_id) || null) : null;
+    if (f.parent_id !== parentIntId) {
+      folderParentUpdates.push(
+        env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id)
+      );
+    }
+  }
+  if (folderParentUpdates.length > 0) {
+    for (let i = 0; i < folderParentUpdates.length; i += 50) {
+      await env.DB.batch(folderParentUpdates.slice(i, i + 50));
+    }
+  }
+
+  // 4. Fetch existing video records for this drive in D1
+  const d1Query = await env.DB.prepare(
+    `SELECT drive_file_id, title, size, folder_id FROM videos WHERE drive_id = ?`
+  ).bind(drive.id).all();
+
+  const d1Map = new Map();
+  if (d1Query.results) {
+    for (const row of d1Query.results) {
+      d1Map.set(row.drive_file_id, row);
+    }
+  }
+
+  const hfMap = new Map();
+  const insertStmts = [];
+  let totalBytes = 0;
+
+  for (const file of videoFiles) {
+    const fileId = `hf:${drive.id}:${file.path}`;
+    hfMap.set(fileId, file);
+    const size = parseInt(file.size || 0);
+    totalBytes += size;
+
+    const lastSlash = file.path.lastIndexOf('/');
+    const dirPath = lastSlash > 0 ? file.path.substring(0, lastSlash) : null;
+    const folderKey = dirPath ? `hf_dir:${drive.id}:${dirPath}` : null;
+    const targetFolderId = folderKey ? (keyToD1Id.get(folderKey) || null) : null;
+    const fileName = file.path.split('/').pop();
+    const mimeType = getMimeTypeFromFilename(fileName);
+    const storageUri = `https://huggingface.co/datasets/${repo}/resolve/${branch}/${encodeURI(file.path)}`;
+
+    const existing = d1Map.get(fileId);
+    if (existing && existing.title === fileName && existing.size === size && existing.folder_id === targetFolderId) {
+      continue;
+    }
+
+    insertStmts.push(
+      env.DB.prepare(
+        `INSERT INTO videos
+          (user_id, drive_id, folder_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, drive_modified_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'huggingface', ?, datetime('now'))
+         ON CONFLICT(drive_file_id) DO UPDATE SET
+          title=excluded.title,
+          size=excluded.size,
+          mime_type=excluded.mime_type,
+          folder_id=excluded.folder_id,
+          storage_uri=excluded.storage_uri,
+          provider_type=excluded.provider_type,
+          drive_id=excluded.drive_id,
+          drive_modified_at=datetime('now')`
+      ).bind(drive.user_id, drive.id, targetFolderId, fileId, fileName, size, mimeType, storageUri)
+    );
+  }
+
+  // 5. Diff: remove deleted files
+  const deleteStmts = [];
+  for (const [d1FileId] of d1Map.entries()) {
+    if (!hfMap.has(d1FileId)) {
+      deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ? AND drive_id = ?`).bind(d1FileId, drive.id));
+    }
+  }
+
+  if (deleteStmts.length > 0) {
+    for (let i = 0; i < deleteStmts.length; i += 50) {
+      await env.DB.batch(deleteStmts.slice(i, i + 50));
+    }
+    totalRemoved = deleteStmts.length;
+  }
+
+  if (insertStmts.length > 0) {
+    for (let i = 0; i < insertStmts.length; i += 50) {
+      await env.DB.batch(insertStmts.slice(i, i + 50));
+    }
+    totalSynced = insertStmts.length;
+  }
+
+  // 6. Update quota and last_synced_at (~8.7TB free public dataset limit indicator)
+  await env.DB.prepare(
+    `UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).bind(totalBytes, 8.7 * 1024 * 1024 * 1024 * 1024, drive.id).run().catch(() => {});
+
+  return { synced: totalSynced, removed: totalRemoved };
+}
+
+async function performTransferItSync(drive, env, forceFullScan = false) {
+  if (!drive.transfer_url) return { synced: 0, removed: 0 };
+
+  const fileId = `transferit:${drive.id}`;
+  const existing = await env.DB.prepare('SELECT id FROM videos WHERE drive_file_id = ?').bind(fileId).first();
+
+  const title = drive.drive_name || 'Transfer.it Media';
+  const expiresAt = drive.transfer_expires_at || new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+  const downloadLimit = 100;
+  const downloads = drive.transfer_download_count || 0;
+
+  if (!existing) {
+    await env.DB.prepare(
+      `INSERT INTO videos
+        (user_id, drive_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
+       VALUES (?, ?, ?, ?, 0, 'video/mp4', 'transfer_it', ?, ?, ?, ?, datetime('now'))`
+    ).bind(drive.user_id, drive.id, fileId, title, drive.transfer_url, expiresAt, downloadLimit, downloads).run();
+  } else {
+    await env.DB.prepare(
+      `UPDATE videos SET
+        title = ?,
+        storage_uri = ?,
+        expires_at = ?,
+        download_limit = ?,
+        provider_downloads = ?,
+        drive_modified_at = datetime('now')
+       WHERE id = ?`
+    ).bind(title, drive.transfer_url, expiresAt, downloadLimit, downloads, existing.id).run();
+  }
+
+  await env.DB.prepare(
+    `UPDATE drives SET last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).bind(drive.id).run().catch(() => {});
+
+  return { synced: 1, removed: 0 };
+}
 
 async function performDriveSync(drive, env, forceFullScan = false) {
+  const pType = (drive.provider_type || 'gdrive').toLowerCase();
+  if (pType === 'huggingface') {
+    return await performHuggingFaceSync(drive, env, forceFullScan);
+  }
+  if (pType === 'transfer_it') {
+    return await performTransferItSync(drive, env, forceFullScan);
+  }
+
   let totalSynced  = 0;
   let totalRemoved = 0;
 
@@ -819,7 +1167,9 @@ async function handleListMedia(request, env, user) {
       `SELECT v.id, v.drive_id, v.drive_file_id, v.title, v.size, v.resolution, v.duration,
               v.views, v.downloads, v.mime_type, v.thumbnail_url, v.folder_id,
               v.is_public, v.tags, v.drive_modified_at, v.created_at, v.updated_at,
-              d.drive_name, f.name as folder_name
+              v.provider_type, v.storage_uri, v.expires_at, v.download_limit, v.provider_downloads,
+              d.drive_name, d.provider_type as drive_provider_type, d.transfer_expires_at, d.transfer_download_count,
+              f.name as folder_name
        FROM videos v
        LEFT JOIN drives  d ON d.id = v.drive_id
        LEFT JOIN folders f ON f.id = v.folder_id
@@ -1167,7 +1517,9 @@ async function handleEmbed(fileId, request, env) {
 
 async function handleStream(fileId, request, env, ctx) {
   const video = await env.DB.prepare(
-    `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at, d.id as drive_row_id
+    `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
+            d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch,
+            d.transfer_url, d.transfer_expires_at, d.transfer_download_count, d.id as drive_row_id
      FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ? OR v.id = ?`
   ).bind(fileId, parseInt(fileId) || 0).first();
 
@@ -1181,8 +1533,8 @@ async function handleStream(fileId, request, env, ctx) {
     try {
       if (isDownload) {
         const p = env.DB.prepare(
-          `UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-        ).bind(video.drive_file_id, video.id).run().catch(() => {});
+          `UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE id = ?`
+        ).bind(video.id).run().catch(() => {});
         if (ctx && ctx.waitUntil) ctx.waitUntil(p);
       } else {
         const range = request.headers.get('Range');
@@ -1190,8 +1542,8 @@ async function handleStream(fileId, request, env, ctx) {
           // Sample view updates (1 in 5, +5) to reduce D1 writes by 80% while retaining total accuracy
           if (Math.random() < 0.2) {
             const p = env.DB.prepare(
-              `UPDATE videos SET views = COALESCE(views, 0) + 5, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-            ).bind(video.drive_file_id, video.id).run().catch(() => {});
+              `UPDATE videos SET views = COALESCE(views, 0) + 5, updated_at = datetime('now') WHERE id = ?`
+            ).bind(video.id).run().catch(() => {});
             if (ctx && ctx.waitUntil) ctx.waitUntil(p);
           }
         }
@@ -1199,6 +1551,103 @@ async function handleStream(fileId, request, env, ctx) {
     } catch (_) {}
   }
 
+  const provider = (video.provider_type || video.drive_provider_type || 'gdrive').toLowerCase();
+
+  // ── 1. HUGGING FACE DATASETS STREAMING ─────────────────────
+  if (provider === 'huggingface') {
+    const storageUri = video.storage_uri || `https://huggingface.co/datasets/${video.hf_repo_id}/resolve/${video.hf_branch || 'main'}/${encodeURI(video.title)}`;
+    let rangeHeader = request.headers.get('Range');
+
+    const hfHeaders = {
+      'User-Agent': 'HaruStream/1.0',
+    };
+    if (video.hf_token) {
+      hfHeaders['Authorization'] = `Bearer ${video.hf_token}`;
+    }
+    if (rangeHeader) {
+      hfHeaders['Range'] = rangeHeader;
+    }
+
+    let hfResp = await fetch(storageUri, {
+      method: request.method,
+      headers: hfHeaders,
+      redirect: 'manual',
+    });
+
+    if ([301, 302, 303, 307, 308].includes(hfResp.status)) {
+      const redirectLocation = hfResp.headers.get('Location');
+      if (redirectLocation) {
+        const cdnHeaders = { 'User-Agent': 'HaruStream/1.0' };
+        if (rangeHeader) cdnHeaders['Range'] = rangeHeader;
+        // Do not forward Authorization header to CDN signed URL
+        hfResp = await fetch(redirectLocation, {
+          method: request.method,
+          headers: cdnHeaders,
+        });
+      }
+    }
+
+    const responseHeaders = new Headers();
+    responseHeaders.set('Access-Control-Allow-Origin', '*');
+    responseHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    responseHeaders.set('Access-Control-Allow-Headers', 'Range, Authorization, Content-Type');
+    responseHeaders.set('Access-Control-Expose-Headers', 'Content-Range, Content-Length, Accept-Ranges, Content-Type, Content-Disposition');
+    responseHeaders.set('Accept-Ranges', 'bytes');
+    responseHeaders.set('Cache-Control', 'public, max-age=3600');
+
+    const contentType = hfResp.headers.get('Content-Type') || video.mime_type || 'video/mp4';
+    responseHeaders.set('Content-Type', contentType);
+
+    if (hfResp.headers.get('Content-Length')) {
+      responseHeaders.set('Content-Length', hfResp.headers.get('Content-Length'));
+    }
+    if (hfResp.headers.get('Content-Range')) {
+      responseHeaders.set('Content-Range', hfResp.headers.get('Content-Range'));
+    }
+
+    if (isDownload) {
+      const filename = video.title.replace(/["\r\n]/g, '_');
+      responseHeaders.set('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(video.title)}`);
+    } else {
+      responseHeaders.set('Content-Disposition', 'inline');
+    }
+
+    return new Response(request.method === 'HEAD' ? null : hfResp.body, {
+      status: hfResp.status,
+      headers: responseHeaders,
+    });
+  }
+
+  // ── 2. TRANSFER.IT STREAMING / DOWNLOAD ────────────────────
+  if (provider === 'transfer_it') {
+    if (video.expires_at && new Date() > new Date(video.expires_at)) {
+      return new Response('Transfer.it link has expired. Please renew the transfer link in HaruStream.', { status: 410 });
+    }
+
+    const downloadLimit = video.download_limit || 100;
+    if (downloadLimit > 0 && (video.provider_downloads || 0) >= downloadLimit) {
+      return new Response(`Transfer.it download limit (${downloadLimit}) reached for this transfer.`, { status: 429 });
+    }
+
+    // Increment download counter
+    try {
+      const p1 = env.DB.prepare(
+        `UPDATE videos SET provider_downloads = COALESCE(provider_downloads, 0) + 1 WHERE id = ?`
+      ).bind(video.id).run().catch(() => {});
+      const p2 = env.DB.prepare(
+        `UPDATE drives SET transfer_download_count = COALESCE(transfer_download_count, 0) + 1 WHERE id = ?`
+      ).bind(video.drive_row_id).run().catch(() => {});
+      if (ctx && ctx.waitUntil) {
+        ctx.waitUntil(p1);
+        ctx.waitUntil(p2);
+      }
+    } catch (_) {}
+
+    const targetUrl = video.storage_uri || video.transfer_url;
+    return Response.redirect(targetUrl, 302);
+  }
+
+  // ── 3. GOOGLE DRIVE STREAMING ──────────────────────────────
   const fakeDrive = {
     id: video.drive_row_id,
     client_id:       video.client_id,
@@ -1409,8 +1858,12 @@ async function handleGetVideo(videoId, env, user) {
     `SELECT v.id, v.drive_file_id, v.title, v.size, v.resolution, v.duration,
             v.views, v.downloads, v.mime_type, v.thumbnail_url, v.folder_id,
             v.is_public, v.tags, v.drive_modified_at, v.created_at,
-            d.drive_name
-     FROM videos v LEFT JOIN drives d ON d.id = v.drive_id
+            v.provider_type, v.storage_uri, v.expires_at, v.download_limit, v.provider_downloads,
+            d.drive_name, d.provider_type as drive_provider_type, d.transfer_expires_at, d.transfer_download_count,
+            f.name as folder_name
+     FROM videos v
+     LEFT JOIN drives  d ON d.id = v.drive_id
+     LEFT JOIN folders f ON f.id = v.folder_id
      WHERE v.id = ? AND v.user_id = ?`
   ).bind(videoId, user.sub).first();
   if (!video) return errorResponse('Video not found.', 404);
