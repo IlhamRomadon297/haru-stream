@@ -524,7 +524,7 @@ async function handleListDrives(request, env, user) {
   return jsonResponse({ success: true, drives: drives.results || [] });
 }
 
-async function handleAddDrive(request, env, user) {
+async function handleAddDrive(request, env, user, ctx) {
   const body = await request.json().catch(() => ({}));
   const {
     drive_name,
@@ -560,25 +560,33 @@ async function handleAddDrive(request, env, user) {
       if (hf_token && hf_token.trim()) testHeaders['Authorization'] = `Bearer ${hf_token.trim()}`;
       const testResp = await fetch(`https://huggingface.co/api/datasets/${cleanRepo}`, { headers: testHeaders });
       if (!testResp.ok && testResp.status === 404) {
-        return errorResponse(`Hugging Face dataset '${cleanRepo}' not found or is private. If private, please provide a valid User Access Token.`, 422);
+        return errorResponse(`Hugging Face dataset '${cleanRepo}' tidak ditemukan atau bersifat privat. Jika privat, silakan masukkan User Access Token.`, 422);
       }
     } catch (err) {
-      return errorResponse(`Could not connect to Hugging Face: ${err.message}`, 502);
+      return errorResponse(`Gagal menghubungi Hugging Face: ${err.message}`, 502);
     }
 
-    const result = await env.DB.prepare(
-      `INSERT INTO drives
-        (user_id, drive_name, provider_type, hf_repo_id, hf_token, hf_branch, is_active, created_at, updated_at)
-       VALUES (?, ?, 'huggingface', ?, ?, ?, 1, datetime('now'), datetime('now'))`
-    ).bind(user.sub, drive_name.trim(), cleanRepo, (hf_token && hf_token.trim()) || null, branch).run();
+    try {
+      const result = await env.DB.prepare(
+        `INSERT INTO drives
+          (user_id, drive_name, provider_type, client_id, client_secret, refresh_token, hf_repo_id, hf_token, hf_branch, is_active, created_at, updated_at)
+         VALUES (?, ?, 'huggingface', '', '', '', ?, ?, ?, 1, datetime('now'), datetime('now'))`
+      ).bind(user.sub, drive_name.trim(), cleanRepo, (hf_token && hf_token.trim()) || null, branch).run();
 
-    const driveId = result.meta?.last_row_id;
-    const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
-    if (newDrive) {
-      try { await performHuggingFaceSync(newDrive, env, true); } catch (_) {}
+      const driveId = result.meta?.last_row_id;
+      const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
+      if (newDrive) {
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(performHuggingFaceSync(newDrive, env, true).catch(err => console.warn('[HaruStream] HF initial sync:', err.message)));
+        } else {
+          performHuggingFaceSync(newDrive, env, true).catch(err => console.warn('[HaruStream] HF initial sync:', err.message));
+        }
+      }
+
+      return jsonResponse({ success: true, drive_id: driveId }, 201);
+    } catch (dbErr) {
+      return errorResponse(`Gagal menyimpan storage Hugging Face: ${dbErr.message}`, 500);
     }
-
-    return jsonResponse({ success: true, drive_id: driveId }, 201);
   }
 
   // ── 2. Transfer.it Provider ─────────────────────────────────
@@ -609,19 +617,27 @@ async function handleAddDrive(request, env, user) {
       return errorResponse(`Gagal menghubungi server Transfer.it: ${err.message}`);
     }
 
-    const result = await env.DB.prepare(
-      `INSERT INTO drives
-        (user_id, drive_name, provider_type, transfer_sid, is_active, created_at, updated_at)
-       VALUES (?, ?, 'transfer_it', ?, 1, datetime('now'), datetime('now'))`
-    ).bind(user.sub, drive_name.trim(), sid).run();
+    try {
+      const result = await env.DB.prepare(
+        `INSERT INTO drives
+          (user_id, drive_name, provider_type, client_id, client_secret, refresh_token, transfer_sid, is_active, created_at, updated_at)
+         VALUES (?, ?, 'transfer_it', '', '', '', ?, 1, datetime('now'), datetime('now'))`
+      ).bind(user.sub, drive_name.trim(), sid).run();
 
-    const driveId = result.meta?.last_row_id;
-    const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
-    if (newDrive) {
-      try { await performTransferItSync(newDrive, env, true); } catch (_) {}
+      const driveId = result.meta?.last_row_id;
+      const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
+      if (newDrive) {
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(performTransferItSync(newDrive, env, true).catch(err => console.warn('[HaruStream] Transfer.it initial sync:', err.message)));
+        } else {
+          performTransferItSync(newDrive, env, true).catch(err => console.warn('[HaruStream] Transfer.it initial sync:', err.message));
+        }
+      }
+
+      return jsonResponse({ success: true, drive_id: driveId }, 201);
+    } catch (dbErr) {
+      return errorResponse(`Gagal menyimpan storage Transfer.it: ${dbErr.message}`, 500);
     }
-
-    return jsonResponse({ success: true, drive_id: driveId }, 201);
   }
 
   // ── 3. Google Drive Provider (Default) ──────────────────────
@@ -1126,8 +1142,8 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
       insertStmts.push(
         env.DB.prepare(
           `INSERT INTO videos
-            (user_id, drive_id, drive_file_id, title, description, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, is_accessible, status, drive_modified_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, 1, 'active', datetime('now'))`
+            (user_id, drive_id, drive_file_id, title, description, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, datetime('now'))`
         ).bind(drive.user_id, drive.id, driveFileId, title, description, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount)
       );
     } else {
@@ -2862,7 +2878,7 @@ export default {
     // Drives
     if (path === '/api/settings/drives') {
       if (method === 'GET')  res = await handleListDrives(request, env, user);
-      else if (method === 'POST') res = await handleAddDrive(request, env, user);
+      else if (method === 'POST') res = await handleAddDrive(request, env, user, ctx);
       else res = errorResponse('Method not allowed.', 405);
     }
     else if (path.startsWith('/api/settings/drives/') && method === 'DELETE') {
