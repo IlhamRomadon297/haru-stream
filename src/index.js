@@ -518,7 +518,7 @@ async function handleLogin(request, env) {
 async function handleListDrives(request, env, user) {
   const drives = await env.DB.prepare(
     `SELECT id, drive_name, provider_type, root_folder_id, quota_used, quota_total, last_synced_at, is_active,
-            hf_repo_id, hf_branch, transfer_url, transfer_expires_at, transfer_download_count, config_json, created_at
+            hf_repo_id, hf_branch, transfer_sid, transfer_url, transfer_expires_at, transfer_download_count, config_json, created_at
      FROM drives WHERE user_id = ? ORDER BY created_at DESC`
   ).bind(user.sub).all();
   return jsonResponse({ success: true, drives: drives.results || [] });
@@ -536,6 +536,7 @@ async function handleAddDrive(request, env, user) {
     hf_repo_id,
     hf_token,
     hf_branch = 'main',
+    transfer_sid,
     transfer_url,
     transfer_expires_at,
   } = body;
@@ -582,18 +583,37 @@ async function handleAddDrive(request, env, user) {
 
   // ── 2. Transfer.it Provider ─────────────────────────────────
   if (pType === 'transfer_it') {
-    if (!transfer_url || !transfer_url.trim()) {
-      return errorResponse('Transfer.it URL or download link is required.');
+    const sid = (transfer_sid || '').trim();
+    if (!sid) {
+      return errorResponse('Transfer.it Session ID (SID) is required.');
     }
-    const expiresAt = transfer_expires_at
-      ? new Date(transfer_expires_at).toISOString()
-      : new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+
+    // Validate SID via MEGA API
+    try {
+      const testResp = await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://transfer.it',
+          'Referer': 'https://transfer.it/',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+        },
+        body: JSON.stringify([{ a: 'xl' }])
+      });
+      const testData = await testResp.json();
+      const code = typeof testData === 'number' ? testData : (Array.isArray(testData) && typeof testData[0] === 'number' ? testData[0] : null);
+      if (code !== null && code < 0) {
+        return errorResponse(`Autentikasi Transfer.it gagal (kode error: ${code}). Pastikan Session ID (SID) masih aktif.`);
+      }
+    } catch (err) {
+      return errorResponse(`Gagal menghubungi server Transfer.it: ${err.message}`);
+    }
 
     const result = await env.DB.prepare(
       `INSERT INTO drives
-        (user_id, drive_name, provider_type, transfer_url, transfer_expires_at, transfer_download_count, is_active, created_at, updated_at)
-       VALUES (?, ?, 'transfer_it', ?, ?, 0, 1, datetime('now'), datetime('now'))`
-    ).bind(user.sub, drive_name.trim(), transfer_url.trim(), expiresAt).run();
+        (user_id, drive_name, provider_type, transfer_sid, is_active, created_at, updated_at)
+       VALUES (?, ?, 'transfer_it', ?, 1, datetime('now'), datetime('now'))`
+    ).bind(user.sub, drive_name.trim(), sid).run();
 
     const driveId = result.meta?.last_row_id;
     const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
@@ -660,6 +680,67 @@ async function handleDeleteDrive(driveId, env, user) {
   return jsonResponse({ success: true, message: 'Drive removed.' });
 }
 
+async function handleTransferRenew(driveId, env, user) {
+  const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?')
+    .bind(driveId, user.sub).first();
+  if (!drive) return errorResponse('Drive not found.', 404);
+  if (drive.provider_type !== 'transfer_it' || !drive.transfer_sid) {
+    return errorResponse('Drive ini bukan Transfer.it atau tidak memiliki Session ID (SID).', 400);
+  }
+
+  const sid = drive.transfer_sid.trim();
+
+  // 1. Fetch all transfers
+  const listResp = await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(sid)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Origin': 'https://transfer.it',
+      'Referer': 'https://transfer.it/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+    },
+    body: JSON.stringify([{ a: 'xl' }])
+  });
+
+  if (!listResp.ok) return errorResponse(`Transfer.it API HTTP error: ${listResp.status}`, 502);
+  const listData = await listResp.json();
+  const transfers = Array.isArray(listData) && Array.isArray(listData[0])
+    ? listData[0]
+    : (Array.isArray(listData) ? listData : []);
+
+  if (!transfers.length) {
+    return jsonResponse({ success: true, renewed: 0, message: 'Tidak ada transfer yang ditemukan.' });
+  }
+
+  // 2. Renew each transfer to 90 days (7,776,000s)
+  const renewPayload = transfers.filter(t => t && t.xh).map(t => ({ a: 'xm', xh: t.xh, e: 7776000 }));
+  let renewedCount = 0;
+  if (renewPayload.length > 0) {
+    for (let i = 0; i < renewPayload.length; i += 20) {
+      const batch = renewPayload.slice(i, i + 20);
+      await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(sid)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': 'https://transfer.it',
+          'Referer': 'https://transfer.it/',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+        },
+        body: JSON.stringify(batch)
+      }).catch(() => {});
+      renewedCount += batch.length;
+    }
+  }
+
+  // 3. Update database expiration timestamps
+  const newExpiry = new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+  await env.DB.prepare(
+    `UPDATE videos SET expires_at = ?, updated_at = datetime('now') WHERE drive_id = ?`
+  ).bind(newExpiry, drive.id).run().catch(() => {});
+
+  return jsonResponse({ success: true, renewed: renewedCount, message: `Berhasil renew ${renewedCount} transfer ke 90 hari!` });
+}
+
 // ── SYNC HELPERS & MULTI-CLOUD PROVIDERS ────────────────────
 
 function getMimeTypeFromFilename(filename) {
@@ -683,6 +764,24 @@ function getMimeTypeFromFilename(filename) {
   return mimeMap[ext] || 'video/mp4';
 }
 
+function b64urlDecode(str) {
+  if (!str) return '';
+  try {
+    let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) {
+      b64 += '=';
+    }
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(b64, 'base64').toString('utf8');
+    }
+    const binary = atob(b64);
+    const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch (_) {
+    return str;
+  }
+}
+
 async function performHuggingFaceSync(drive, env, forceFullScan = false) {
   let totalSynced = 0;
   let totalRemoved = 0;
@@ -692,17 +791,26 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
   const hfHeaders = { 'User-Agent': 'HaruStream/1.0' };
   if (drive.hf_token) hfHeaders['Authorization'] = `Bearer ${drive.hf_token}`;
 
-  // 1. Fetch entire recursive tree of the repository
-  const treeUrl = `https://huggingface.co/api/datasets/${repo}/tree/${branch}?recursive=true`;
-  const treeResp = await fetch(treeUrl, { headers: hfHeaders });
-  if (!treeResp.ok) {
-    const errText = await treeResp.text();
-    throw new Error(`Failed to fetch Hugging Face repo tree (${treeResp.status}): ${errText}`);
-  }
+  // 1. Fetch entire recursive tree of the repository (with pagination support)
+  let treeItems = [];
+  let nextUrl = `https://huggingface.co/api/datasets/${repo}/tree/${branch}?recursive=true`;
+  let pageCount = 0;
+  const MAX_PAGES = 30;
 
-  const treeItems = await treeResp.json();
-  if (!Array.isArray(treeItems)) {
-    throw new Error('Invalid response from Hugging Face tree API.');
+  while (nextUrl && pageCount < MAX_PAGES) {
+    pageCount++;
+    const treeResp = await fetch(nextUrl, { headers: hfHeaders });
+    if (!treeResp.ok) {
+      const errText = await treeResp.text();
+      throw new Error(`Failed to fetch Hugging Face repo tree (${treeResp.status}): ${errText}`);
+    }
+    const pageData = await treeResp.json();
+    if (!Array.isArray(pageData)) break;
+    treeItems = treeItems.concat(pageData);
+
+    const linkHeader = treeResp.headers.get('Link') || '';
+    const m = linkHeader.match(/<([^>]+)>\s*;\s*rel="next"/);
+    nextUrl = m ? (m[1].startsWith('http') ? m[1] : 'https://huggingface.co' + m[1]) : '';
   }
 
   // 2. Identify all video files
@@ -857,40 +965,157 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
 }
 
 async function performTransferItSync(drive, env, forceFullScan = false) {
-  if (!drive.transfer_url) return { synced: 0, removed: 0 };
+  const sid = (drive.transfer_sid || '').trim();
 
-  const fileId = `transferit:${drive.id}`;
-  const existing = await env.DB.prepare('SELECT id FROM videos WHERE drive_file_id = ?').bind(fileId).first();
+  // Fallback for single-link setup if no SID provided
+  if (!sid) {
+    if (!drive.transfer_url) return { synced: 0, removed: 0 };
+    const fileId = `transferit:${drive.id}`;
+    const existing = await env.DB.prepare('SELECT id FROM videos WHERE drive_file_id = ?').bind(fileId).first();
+    const title = drive.drive_name || 'Transfer.it Media';
+    const expiresAt = drive.transfer_expires_at || new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+    const downloadLimit = 100;
+    const downloads = drive.transfer_download_count || 0;
 
-  const title = drive.drive_name || 'Transfer.it Media';
-  const expiresAt = drive.transfer_expires_at || new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
-  const downloadLimit = 100;
-  const downloads = drive.transfer_download_count || 0;
-
-  if (!existing) {
+    if (!existing) {
+      await env.DB.prepare(
+        `INSERT INTO videos
+          (user_id, drive_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
+         VALUES (?, ?, ?, ?, 0, 'video/mp4', 'transfer_it', ?, ?, ?, ?, datetime('now'))`
+      ).bind(drive.user_id, drive.id, fileId, title, drive.transfer_url, expiresAt, downloadLimit, downloads).run();
+    } else {
+      await env.DB.prepare(
+        `UPDATE videos SET
+          title = ?,
+          storage_uri = ?,
+          expires_at = ?,
+          download_limit = ?,
+          provider_downloads = ?,
+          drive_modified_at = datetime('now')
+         WHERE id = ?`
+      ).bind(title, drive.transfer_url, expiresAt, downloadLimit, downloads, existing.id).run();
+    }
     await env.DB.prepare(
-      `INSERT INTO videos
-        (user_id, drive_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
-       VALUES (?, ?, ?, ?, 0, 'video/mp4', 'transfer_it', ?, ?, ?, ?, datetime('now'))`
-    ).bind(drive.user_id, drive.id, fileId, title, drive.transfer_url, expiresAt, downloadLimit, downloads).run();
-  } else {
-    await env.DB.prepare(
-      `UPDATE videos SET
-        title = ?,
-        storage_uri = ?,
-        expires_at = ?,
-        download_limit = ?,
-        provider_downloads = ?,
-        drive_modified_at = datetime('now')
-       WHERE id = ?`
-    ).bind(title, drive.transfer_url, expiresAt, downloadLimit, downloads, existing.id).run();
+      `UPDATE drives SET last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+    ).bind(drive.id).run().catch(() => {});
+    return { synced: 1, removed: 0 };
   }
 
-  await env.DB.prepare(
-    `UPDATE drives SET last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
-  ).bind(drive.id).run().catch(() => {});
+  // 1. Fetch entire transfer list from MEGA cluster bt7
+  const listResp = await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(sid)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Origin': 'https://transfer.it',
+      'Referer': 'https://transfer.it/',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+    },
+    body: JSON.stringify([{ a: 'xl' }])
+  });
 
-  return { synced: 1, removed: 0 };
+  if (!listResp.ok) {
+    throw new Error(`Transfer.it API HTTP error: ${listResp.status}`);
+  }
+
+  const listData = await listResp.json();
+  const code = typeof listData === 'number' ? listData : (Array.isArray(listData) && typeof listData[0] === 'number' ? listData[0] : null);
+  if (code !== null && code < 0) {
+    throw new Error(`Transfer.it MEGA error (${code}). Session ID (SID) mungkin kedaluwarsa.`);
+  }
+
+  const transfers = Array.isArray(listData) && Array.isArray(listData[0])
+    ? listData[0]
+    : (Array.isArray(listData) ? listData : []);
+
+  // 2. Fetch existing videos in D1 for this drive
+  const existingVideos = await env.DB.prepare(
+    `SELECT id, drive_file_id, title, size, expires_at, provider_downloads FROM videos WHERE drive_id = ?`
+  ).bind(drive.id).all();
+
+  const d1Map = new Map();
+  for (const v of (existingVideos.results || [])) {
+    d1Map.set(v.drive_file_id, v);
+  }
+
+  const validFileIds = new Set();
+  const insertStmts = [];
+  let totalBytes = 0;
+
+  // 3. Process each transfer
+  for (const t of transfers) {
+    if (!t || !t.xh) continue;
+    const xh = t.xh;
+    const driveFileId = `transfer_it_${xh}`;
+    validFileIds.add(driveFileId);
+
+    let title = xh;
+    if (t.t) {
+      title = b64urlDecode(t.t) || xh;
+    }
+    const fileSize = (Array.isArray(t.size) && t.size.length > 0)
+      ? t.size[0]
+      : (typeof t.size === 'number' ? t.size : 0);
+    totalBytes += fileSize;
+
+    const expiresAt = t.e ? new Date(t.e * 1000).toISOString() : new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+    const downloadCount = typeof t.ac === 'number' ? t.ac : 0;
+    const downloadLimit = typeof t.mc === 'number' ? t.mc : 100;
+    const storageUri = `https://transfer.it/t/${xh}`;
+    const mimeType = getMimeTypeFromFilename(title);
+
+    const existing = d1Map.get(driveFileId);
+    if (!existing) {
+      insertStmts.push(
+        env.DB.prepare(
+          `INSERT INTO videos
+            (user_id, drive_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, is_accessible, status, drive_modified_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, 1, 'active', datetime('now'))`
+        ).bind(drive.user_id, drive.id, driveFileId, title, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount)
+      );
+    } else {
+      insertStmts.push(
+        env.DB.prepare(
+          `UPDATE videos SET
+            title = ?,
+            size = ?,
+            mime_type = ?,
+            storage_uri = ?,
+            expires_at = ?,
+            download_limit = ?,
+            provider_downloads = ?,
+            updated_at = datetime('now')
+           WHERE id = ?`
+        ).bind(title, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount, existing.id)
+      );
+    }
+  }
+
+  // 4. Batch upsert
+  if (insertStmts.length > 0) {
+    for (let i = 0; i < insertStmts.length; i += 50) {
+      await env.DB.batch(insertStmts.slice(i, i + 50));
+    }
+  }
+
+  // 5. Clean up deleted transfers
+  const deleteStmts = [];
+  for (const [d1FileId] of d1Map.entries()) {
+    if (!validFileIds.has(d1FileId)) {
+      deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ? AND drive_id = ?`).bind(d1FileId, drive.id));
+    }
+  }
+  if (deleteStmts.length > 0) {
+    for (let i = 0; i < deleteStmts.length; i += 50) {
+      await env.DB.batch(deleteStmts.slice(i, i + 50));
+    }
+  }
+
+  // 6. Update drive stats
+  await env.DB.prepare(
+    `UPDATE drives SET quota_used = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+  ).bind(totalBytes, drive.id).run().catch(() => {});
+
+  return { synced: validFileIds.size, removed: deleteStmts.length };
 }
 
 async function performDriveSync(drive, env, forceFullScan = false) {
@@ -2584,6 +2809,11 @@ export default {
     else if (path.startsWith('/api/settings/drives/') && method === 'DELETE') {
       const driveId = parseInt(path.split('/').pop());
       res = await handleDeleteDrive(driveId, env, user);
+    }
+    else if (path.startsWith('/api/settings/drives/') && path.endsWith('/renew') && method === 'POST') {
+      const parts = path.split('/');
+      const driveId = parseInt(parts[4]);
+      res = await handleTransferRenew(driveId, env, user);
     }
 
     // Sync

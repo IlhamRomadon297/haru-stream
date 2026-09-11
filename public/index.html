@@ -1089,16 +1089,16 @@
         <div class="p-3 rounded-xl text-xs flex items-start gap-2.5" style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.25);color:#67e8f9">
           <i class="fas fa-bolt text-cyan-400 mt-0.5"></i>
           <div>
-            <strong>Transfer.it:</strong> Unlimited storage tanpa folder. Berlaku 90 hari (dapat diperpanjang/renewal) dengan batas 100x download per transfer.
+            <strong>Transfer.it Account Sync:</strong> Masukkan Session ID (SID) akun Transfer.it Anda. HaruStream akan otomatis mengambil dan mengimpor seluruh daftar transfer yang ada di akun tersebut.
           </div>
         </div>
         <div>
-          <label class="block text-xs font-semibold mb-2" style="color:#64748b">TRANSFER LINK / URL</label>
-          <input type="url" id="transfer-url" class="form-input font-mono text-xs" placeholder="https://transfer.it/t/xxxxxxxx" />
-        </div>
-        <div>
-          <label class="block text-xs font-semibold mb-2" style="color:#64748b">EXPIRY DATE (Default: 90 hari dari sekarang)</label>
-          <input type="date" id="transfer-expires" class="form-input text-xs" />
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">SESSION ID (SID)</label>
+          <input type="password" id="transfer-sid" class="form-input font-mono text-xs" placeholder="WWqzgm1Rsq0t0KDWZj..." />
+          <p class="text-[11px] text-slate-400 mt-1.5 leading-relaxed">
+            <i class="fas fa-info-circle text-indigo-400 mr-1"></i>
+            Cara ambil: Buka <b>transfer.it/dashboard</b> di browser &gt; tekan <b>F12</b> &gt; tab <b>Application</b> &gt; <b>Local storage</b> &gt; pilih <code>https://transfer.it</code> &gt; salin nilai key <b>sid</b>.
+          </p>
         </div>
       </div>
 
@@ -2044,7 +2044,7 @@ function switchAddDriveProvider(provider) {
     $('drive-client-secret').required = true;
     $('drive-refresh-token').required = true;
     if ($('hf-repo-id')) $('hf-repo-id').required = false;
-    if ($('transfer-url')) $('transfer-url').required = false;
+    if ($('transfer-sid')) $('transfer-sid').required = false;
   } else if (provider === 'huggingface') {
     $('tab-provider-hf')?.classList.add('active');
     $('fields-provider-hf')?.classList.remove('hidden');
@@ -2052,7 +2052,7 @@ function switchAddDriveProvider(provider) {
     $('drive-client-secret').required = false;
     $('drive-refresh-token').required = false;
     if ($('hf-repo-id')) $('hf-repo-id').required = true;
-    if ($('transfer-url')) $('transfer-url').required = false;
+    if ($('transfer-sid')) $('transfer-sid').required = false;
   } else if (provider === 'transfer_it') {
     $('tab-provider-transfer')?.classList.add('active');
     $('fields-provider-transfer')?.classList.remove('hidden');
@@ -2060,13 +2060,7 @@ function switchAddDriveProvider(provider) {
     $('drive-client-secret').required = false;
     $('drive-refresh-token').required = false;
     if ($('hf-repo-id')) $('hf-repo-id').required = false;
-    if ($('transfer-url')) $('transfer-url').required = true;
-
-    if (!$('transfer-expires').value) {
-      const d = new Date();
-      d.setDate(d.getDate() + 90);
-      $('transfer-expires').value = d.toISOString().split('T')[0];
-    }
+    if ($('transfer-sid')) $('transfer-sid').required = true;
   }
 }
 
@@ -2116,24 +2110,13 @@ function renderDrivesList() {
       `;
     } else if (pType === 'transfer_it') {
       iconHtml = `<i class="fas fa-bolt text-cyan-400" style="font-size:20px"></i>`;
-      let expiryStatus = '';
-      if (d.transfer_expires_at) {
-        const daysLeft = Math.ceil((new Date(d.transfer_expires_at).getTime() - Date.now()) / (1000 * 3600 * 24));
-        if (daysLeft <= 0) {
-          expiryStatus = `<span class="badge badge-red text-xs font-bold ml-2">EXPIRED (Perlu Renewal)</span>`;
-        } else if (daysLeft <= 15) {
-          expiryStatus = `<span class="badge badge-yellow text-xs font-bold ml-2">Sisa ${daysLeft} hari (Renewal segera)</span>`;
-        } else {
-          expiryStatus = `<span class="badge text-xs font-medium ml-2" style="background:rgba(6,182,212,0.15);color:#22d3ee;border:1px solid rgba(6,182,212,0.3)">Sisa ${daysLeft} hari</span>`;
-        }
-      }
-      subInfo = `Transfer.it Storage • Download limit: <strong class="text-white">${d.transfer_download_count || 0}/100</strong> downloads ${expiryStatus}`;
+      subInfo = `Transfer.it Account • Storage: <strong class="text-white">${formatBytes(d.quota_used)}</strong> (${synced !== 'Never' ? 'Synced ' + synced : 'Belum sync'})`;
       extraMeta = `
         <div class="mt-3 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-slate-400 flex-wrap gap-2">
-          <span class="truncate max-w-sm font-mono text-slate-400"><i class="fas fa-link mr-1.5 text-cyan-400"></i>${escHtml(d.transfer_url || '')}</span>
-          <a href="${escHtml(d.transfer_url || '#')}" target="_blank" class="text-cyan-400 hover:text-cyan-300 flex items-center gap-1">
-            <i class="fas fa-external-link-alt text-[10px]"></i>Open Transfer
-          </a>
+          <span class="text-xs text-slate-400"><i class="fas fa-key mr-1.5 text-cyan-400"></i>Session ID: <code class="font-mono text-cyan-300">${d.transfer_sid ? d.transfer_sid.slice(0, 12) + '...' : 'Tersimpan'}</code></span>
+          <button onclick="renewTransferIt(${d.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90" style="background:rgba(6,182,212,0.15);color:#22d3ee;border:1px solid rgba(6,182,212,0.3)" title="Renew & revive semua transfer ke 90 hari">
+            <i class="fas fa-history text-[10px]"></i>Renew All 90d
+          </button>
         </div>
       `;
     }
@@ -2203,8 +2186,7 @@ async function submitAddDrive(e) {
     payload.hf_token   = $('hf-token').value || undefined;
     payload.hf_branch  = $('hf-branch').value || 'main';
   } else if (providerType === 'transfer_it') {
-    payload.transfer_url         = $('transfer-url').value;
-    payload.transfer_expires_at  = $('transfer-expires').value || undefined;
+    payload.transfer_sid = $('transfer-sid').value.trim();
   }
 
   const { ok, data } = await apiFetch('/api/settings/drives', {
@@ -2228,6 +2210,19 @@ async function deleteDrive(id) {
   const { ok, data } = await apiFetch(`/api/settings/drives/${id}`, { method: 'DELETE' });
   if (ok) { showToast('Drive removed.', 'success'); loadDrives(); }
   else     showToast(data.error || 'Failed to remove.', 'error');
+}
+
+async function renewTransferIt(driveId) {
+  if (!confirm('Perpanjang (renew & revive) seluruh transfer di akun Transfer.it ini ke 90 hari?')) return;
+  showToast('Memperpanjang seluruh transfer di Transfer.it...', 'info', 3000);
+  const { ok, data } = await apiFetch(`/api/settings/drives/${driveId}/renew`, { method: 'POST' });
+  if (ok) {
+    showToast(data.message || `Berhasil renew ${data.renewed || 0} transfer ke 90 hari!`, 'success', 4000);
+    loadDrives();
+    if (APP.currentView === 'media') loadMedia();
+  } else {
+    showToast(data.error || 'Gagal renew transfer.', 'error');
+  }
 }
 
 // ── MEDIA ────────────────────────────────────────────────────

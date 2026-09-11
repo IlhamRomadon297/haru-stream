@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS drives (
     hf_repo_id              TEXT     NULL,
     hf_token                TEXT     NULL,
     hf_branch               TEXT     DEFAULT 'main',
+    transfer_sid            TEXT     NULL,
     transfer_url            TEXT     NULL,
     transfer_expires_at     DATETIME NULL,
     transfer_download_count INTEGER  DEFAULT 0,
