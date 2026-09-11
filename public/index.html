@@ -860,6 +860,15 @@
           <div class="flex-1 overflow-y-auto p-4">
             <!-- List View -->
             <div id="media-list-view">
+              <!-- Mobile Select All Bar (< md) -->
+              <div class="flex md:hidden items-center justify-between px-3 py-2 mb-3 rounded-xl bg-white/[0.04] border border-white/5 text-xs text-slate-300 shadow-sm">
+                <label class="flex items-center gap-2.5 cursor-pointer font-medium select-none">
+                  <input type="checkbox" id="check-all-mobile" class="accent-brand-500 cursor-pointer w-4 h-4 rounded" onchange="toggleAllCheckboxes(this)" />
+                  <span>Pilih Semua File</span>
+                </label>
+                <span id="mobile-selected-badge" class="text-[11px] font-mono text-indigo-300"></span>
+              </div>
+
               <!-- Mobile Cards View (< md) -->
               <div id="media-mobile-cards" class="block md:hidden space-y-3 mb-4">
                 <div class="glass-card rounded-2xl p-8 text-center text-slate-500 text-xs">
@@ -3886,11 +3895,14 @@ function toggleRowSelect(id, cb) {
   updateBulkBar();
 }
 
-function toggleAllCheckboxes() {
-  const master = $('check-all');
+function toggleAllCheckboxes(source) {
+  const isChecked = source ? source.checked : ($('check-all')?.checked || $('check-all-mobile')?.checked);
+  if ($('check-all')) $('check-all').checked = isChecked;
+  if ($('check-all-mobile')) $('check-all-mobile').checked = isChecked;
+
   APP.mediaData.forEach(v => {
-    if (master.checked) APP.selectedIds.add(v.id);
-    else                APP.selectedIds.delete(v.id);
+    if (isChecked) APP.selectedIds.add(v.id);
+    else           APP.selectedIds.delete(v.id);
   });
   renderMediaTable();
   updateBulkBar();
@@ -3898,16 +3910,27 @@ function toggleAllCheckboxes() {
 
 function clearSelection() {
   APP.selectedIds.clear();
-  $('check-all').checked = false;
+  if ($('check-all')) $('check-all').checked = false;
+  if ($('check-all-mobile')) $('check-all-mobile').checked = false;
   renderMediaTable();
   updateBulkBar();
 }
 
 function updateBulkBar() {
   const bar = $('bulk-bar');
-  if (APP.selectedIds.size > 0) {
+  const count = APP.selectedIds.size;
+  const total = (APP.mediaData || []).length;
+  const allSelected = count > 0 && count === total;
+
+  if ($('check-all')) $('check-all').checked = allSelected;
+  if ($('check-all-mobile')) $('check-all-mobile').checked = allSelected;
+  if ($('mobile-selected-badge')) {
+    $('mobile-selected-badge').textContent = count > 0 ? `${count}/${total} dipilih` : (total > 0 ? `${total} file` : '');
+  }
+
+  if (count > 0) {
     bar.style.display = 'flex';
-    $('bulk-count').textContent = APP.selectedIds.size;
+    $('bulk-count').textContent = count;
   } else {
     bar.style.display = 'none';
   }
