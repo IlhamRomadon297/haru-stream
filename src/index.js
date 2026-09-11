@@ -1,3 +1,5 @@
+import { createDecipheriv } from 'node:crypto';
+
 /**
  * HaruStream - Cloudflare Worker Core
  * =========================================
@@ -1036,12 +1038,179 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
   return { synced: totalSynced, removed: totalRemoved };
 }
 
+// ── MEGA Decryption Helpers for Transfer.it ──────────────────
+function base64urlToBuffer(str) {
+  let b64 = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4) b64 += '=';
+  return Buffer.from(b64, 'base64');
+}
+
+function base64ToA32(str) {
+  const buf = base64urlToBuffer(str);
+  const a32 = [];
+  for (let i = 0; i < buf.length; i += 4) {
+    a32.push(buf.readUInt32BE(i));
+  }
+  return a32;
+}
+
+function a32ToBuffer(a32) {
+  const buf = Buffer.alloc(a32.length * 4);
+  for (let i = 0; i < a32.length; i++) {
+    buf.writeUInt32BE(a32[i] >>> 0, i * 4);
+  }
+  return buf;
+}
+
+function decryptMegaAttributes(attrB64, keyB64) {
+  try {
+    const keyA32 = base64ToA32(keyB64);
+    const aesKeyA32 = [
+      keyA32[0] ^ keyA32[4],
+      keyA32[1] ^ keyA32[5],
+      keyA32[2] ^ keyA32[6],
+      keyA32[3] ^ keyA32[7]
+    ];
+    const aesKey = a32ToBuffer(aesKeyA32);
+    const encAttr = base64urlToBuffer(attrB64);
+    const iv = Buffer.alloc(16, 0);
+
+    const decipher = createDecipheriv('aes-128-cbc', aesKey, iv);
+    decipher.setAutoPadding(false);
+    const dec = Buffer.concat([decipher.update(encAttr), decipher.final()]);
+    
+    const str = dec.toString('utf8');
+    if (str.startsWith('MEGA{"')) {
+      const jsonStr = str.slice(4).replace(/\0+$/, '');
+      return JSON.parse(jsonStr);
+    }
+  } catch (_) {}
+  return null;
+}
+
+async function fetchTransferItNodes(xh, sid = '') {
+  try {
+    const url = `https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&x=${xh}${sid ? '&sid=' + encodeURIComponent(sid) : ''}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': 'https://transfer.it',
+        'Referer': 'https://transfer.it/',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36'
+      },
+      body: JSON.stringify([{ a: 'f', c: 1, r: 1 }])
+    });
+    if (!resp.ok) return [];
+    const data = await resp.json();
+    if (Array.isArray(data) && data[0] && Array.isArray(data[0].f)) {
+      return data[0].f;
+    }
+    return [];
+  } catch (e) {
+    console.warn(`Gagal fetch child nodes untuk transfer ${xh}:`, e.message);
+    return [];
+  }
+}
+
 async function performTransferItSync(drive, env, forceFullScan = false) {
   const sid = (drive.transfer_sid || '').trim();
 
-  // Fallback for single-link setup if no SID provided
+  // 1. Fallback for single-link setup if no SID provided
   if (!sid) {
     if (!drive.transfer_url) return { synced: 0, removed: 0 };
+    const xhMatch = (drive.transfer_url || '').match(/\/t\/([a-zA-Z0-9_-]+)/);
+    const xh = xhMatch ? xhMatch[1] : null;
+
+    if (xh) {
+      const childNodes = await fetchTransferItNodes(xh);
+      const fileNodes = childNodes.filter(n => n && n.t === 0 && n.h);
+      if (fileNodes.length > 1) {
+        // Multi-file public transfer: unpack into virtual folder
+        const bundleTitle = drive.drive_name || `Transfer ${xh}`;
+        const gdriveFolderId = `transfer_it_folder_${xh}`;
+        let folder = await env.DB.prepare(
+          `SELECT id FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
+        ).bind(drive.id, gdriveFolderId).first();
+
+        let folderId = folder ? folder.id : null;
+        if (!folderId) {
+          const ins = await env.DB.prepare(
+            `INSERT INTO folders (user_id, drive_id, gdrive_folder_id, name, provider_type, color, icon, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'transfer_it', '#8b5cf6', 'folder', datetime('now'), datetime('now'))`
+          ).bind(drive.user_id, drive.id, gdriveFolderId, bundleTitle).run();
+          folderId = ins.meta?.last_row_id;
+          if (!folderId) {
+            const fRow = await env.DB.prepare(
+              `SELECT id FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
+            ).bind(drive.id, gdriveFolderId).first();
+            folderId = fRow ? fRow.id : null;
+          }
+        }
+
+        const validIds = new Set();
+        const stmts = [];
+        let totalSize = 0;
+        const expiresAt = drive.transfer_expires_at || new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+
+        for (const n of fileNodes) {
+          const nodeId = n.h;
+          const childFileId = `transfer_it_${xh}_${nodeId}`;
+          validIds.add(childFileId);
+
+          let epTitle = nodeId;
+          if (n.a && n.k) {
+            const meta = decryptMegaAttributes(n.a, n.k);
+            if (meta && meta.n) epTitle = meta.n;
+          }
+          const epSize = typeof n.s === 'number' ? n.s : 0;
+          totalSize += epSize;
+          const mimeType = getMimeTypeFromFilename(epTitle);
+          const storageUri = `https://transfer.it/t/${xh}#${nodeId}`;
+
+          const existing = await env.DB.prepare(
+            `SELECT id FROM videos WHERE drive_file_id = ?`
+          ).bind(childFileId).first();
+
+          if (!existing) {
+            stmts.push(
+              env.DB.prepare(
+                `INSERT INTO videos
+                  (user_id, drive_id, folder_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, 100, 0, datetime('now'))`
+              ).bind(drive.user_id, drive.id, folderId, childFileId, epTitle, epSize, mimeType, storageUri, expiresAt)
+            );
+          } else {
+            stmts.push(
+              env.DB.prepare(
+                `UPDATE videos SET
+                  folder_id = ?, title = ?, size = ?, mime_type = ?, storage_uri = ?, expires_at = ?, drive_modified_at = datetime('now')
+                 WHERE id = ?`
+              ).bind(folderId, epTitle, epSize, mimeType, storageUri, expiresAt, existing.id)
+            );
+          }
+        }
+
+        if (stmts.length > 0) {
+          for (let i = 0; i < stmts.length; i += 50) {
+            await env.DB.batch(stmts.slice(i, i + 50));
+          }
+        }
+
+        // Clean up deleted subfiles
+        await env.DB.prepare(
+          `DELETE FROM videos WHERE drive_id = ? AND drive_file_id LIKE 'transfer_it_' || ? || '_%' AND drive_file_id NOT IN (${Array.from(validIds).map(() => '?').join(',')})`
+        ).bind(drive.id, xh, ...Array.from(validIds)).run().catch(() => {});
+
+        await env.DB.prepare(
+          `UPDATE drives SET quota_used = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+        ).bind(totalSize, drive.id).run().catch(() => {});
+
+        return { synced: validIds.size, removed: 0 };
+      }
+    }
+
+    // Default single-file fallback
     const fileId = `transferit:${drive.id}`;
     const existing = await env.DB.prepare('SELECT id FROM videos WHERE drive_file_id = ?').bind(fileId).first();
     const title = drive.drive_name || 'Transfer.it Media';
@@ -1073,7 +1242,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
     return { synced: 1, removed: 0 };
   }
 
-  // 1. Fetch entire transfer list from MEGA cluster bt7
+  // 2. Fetch entire transfer list from MEGA cluster bt7 with SID
   const listResp = await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(sid)}`, {
     method: 'POST',
     headers: {
@@ -1099,9 +1268,9 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
     ? listData[0]
     : (Array.isArray(listData) ? listData : []);
 
-  // 2. Fetch existing videos in D1 for this drive
+  // 3. Fetch existing videos in D1 for this drive
   const existingVideos = await env.DB.prepare(
-    `SELECT id, drive_file_id, title, size, expires_at, provider_downloads FROM videos WHERE drive_id = ?`
+    `SELECT id, drive_file_id, folder_id, title, size, expires_at, provider_downloads FROM videos WHERE drive_id = ?`
   ).bind(drive.id).all();
 
   const d1Map = new Map();
@@ -1113,45 +1282,131 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
   const insertStmts = [];
   let totalBytes = 0;
 
-  // 3. Process each transfer
+  // 4. Process each transfer (smart split multi-file series vs single file)
   for (const t of transfers) {
     if (!t || !t.xh) continue;
     const xh = t.xh;
+    const fileCount = (Array.isArray(t.size) && t.size.length > 1 && typeof t.size[1] === 'number' && t.size[1] > 1) ? t.size[1] : 1;
+    let bundleTitle = xh;
+    if (t.t) {
+      bundleTitle = b64urlDecode(t.t) || xh;
+    }
+
+    const expiresAt = t.e ? new Date(t.e * 1000).toISOString() : new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+    const downloadCount = typeof t.ac === 'number' ? t.ac : 0;
+    const downloadLimit = typeof t.mc === 'number' ? t.mc : 100;
+
+    // ── CASE A: MULTI-FILE SERIES / BUNDLE ────────────────────
+    if (fileCount > 1) {
+      // Fetch individual file nodes inside this transfer
+      const childNodes = await fetchTransferItNodes(xh, sid);
+      const fileNodes = childNodes.filter(n => n && n.t === 0 && n.h);
+
+      if (fileNodes.length > 0) {
+        // Create or get virtual folder for this series bundle
+        const gdriveFolderId = `transfer_it_folder_${xh}`;
+        let folder = await env.DB.prepare(
+          `SELECT id FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
+        ).bind(drive.id, gdriveFolderId).first();
+
+        let folderId = folder ? folder.id : null;
+        if (!folderId) {
+          const ins = await env.DB.prepare(
+            `INSERT INTO folders (user_id, drive_id, gdrive_folder_id, name, provider_type, color, icon, created_at, updated_at)
+             VALUES (?, ?, ?, ?, 'transfer_it', '#8b5cf6', 'folder', datetime('now'), datetime('now'))`
+          ).bind(drive.user_id, drive.id, gdriveFolderId, bundleTitle).run();
+          folderId = ins.meta?.last_row_id;
+          if (!folderId) {
+            const fRow = await env.DB.prepare(
+              `SELECT id FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
+            ).bind(drive.id, gdriveFolderId).first();
+            folderId = fRow ? fRow.id : null;
+          }
+        } else {
+          await env.DB.prepare(
+            `UPDATE folders SET name = ?, updated_at = datetime('now') WHERE id = ?`
+          ).bind(bundleTitle, folderId).run().catch(() => {});
+        }
+
+        // Loop each individual episode file in this bundle
+        for (const n of fileNodes) {
+          const nodeId = n.h;
+          const childDriveFileId = `transfer_it_${xh}_${nodeId}`;
+          validFileIds.add(childDriveFileId);
+
+          let epTitle = nodeId;
+          if (n.a && n.k) {
+            const meta = decryptMegaAttributes(n.a, n.k);
+            if (meta && meta.n) epTitle = meta.n;
+          }
+
+          const epSize = typeof n.s === 'number' ? n.s : 0;
+          totalBytes += epSize;
+          const epMime = getMimeTypeFromFilename(epTitle);
+          const epStorageUri = `https://transfer.it/t/${xh}#${nodeId}`;
+
+          const existing = d1Map.get(childDriveFileId);
+          if (!existing) {
+            insertStmts.push(
+              env.DB.prepare(
+                `INSERT INTO videos
+                  (user_id, drive_id, folder_id, drive_file_id, title, description, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, datetime('now'))`
+              ).bind(drive.user_id, drive.id, folderId, childDriveFileId, epTitle, bundleTitle, epSize, epMime, epStorageUri, expiresAt, downloadLimit, downloadCount)
+            );
+          } else {
+            insertStmts.push(
+              env.DB.prepare(
+                `UPDATE videos SET
+                  folder_id = ?,
+                  title = ?,
+                  description = ?,
+                  size = ?,
+                  mime_type = ?,
+                  storage_uri = ?,
+                  expires_at = ?,
+                  download_limit = ?,
+                  provider_downloads = ?,
+                  updated_at = datetime('now')
+                 WHERE id = ?`
+              ).bind(folderId, epTitle, bundleTitle, epSize, epMime, epStorageUri, expiresAt, downloadLimit, downloadCount, existing.id)
+            );
+          }
+        }
+
+        // Continue to next transfer
+        continue;
+      }
+    }
+
+    // ── CASE B: SINGLE FILE TRANSFER ──────────────────────────
     const driveFileId = `transfer_it_${xh}`;
     validFileIds.add(driveFileId);
 
-    let title = xh;
-    if (t.t) {
-      title = b64urlDecode(t.t) || xh;
-    }
     const fileSize = (Array.isArray(t.size) && t.size.length > 0)
       ? t.size[0]
       : (typeof t.size === 'number' ? t.size : 0);
     totalBytes += fileSize;
 
-    const expiresAt = t.e ? new Date(t.e * 1000).toISOString() : new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
-    const downloadCount = typeof t.ac === 'number' ? t.ac : 0;
-    const downloadLimit = typeof t.mc === 'number' ? t.mc : 100;
     const storageUri = `https://transfer.it/t/${xh}`;
-    const mimeType = getMimeTypeFromFilename(title);
-    const fileCount = (Array.isArray(t.size) && t.size.length > 1 && typeof t.size[1] === 'number' && t.size[1] > 1) ? t.size[1] : 1;
-    const description = fileCount > 1 ? `${fileCount} Files` : null;
+    const mimeType = getMimeTypeFromFilename(bundleTitle);
 
     const existing = d1Map.get(driveFileId);
     if (!existing) {
       insertStmts.push(
         env.DB.prepare(
           `INSERT INTO videos
-            (user_id, drive_id, drive_file_id, title, description, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, datetime('now'))`
-        ).bind(drive.user_id, drive.id, driveFileId, title, description, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount)
+            (user_id, drive_id, folder_id, drive_file_id, title, description, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
+           VALUES (?, ?, NULL, ?, ?, NULL, ?, ?, 'transfer_it', ?, ?, ?, ?, datetime('now'))`
+        ).bind(drive.user_id, drive.id, driveFileId, bundleTitle, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount)
       );
     } else {
       insertStmts.push(
         env.DB.prepare(
           `UPDATE videos SET
+            folder_id = NULL,
             title = ?,
-            description = ?,
+            description = NULL,
             size = ?,
             mime_type = ?,
             storage_uri = ?,
@@ -1160,19 +1415,19 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
             provider_downloads = ?,
             updated_at = datetime('now')
            WHERE id = ?`
-        ).bind(title, description, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount, existing.id)
+        ).bind(bundleTitle, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount, existing.id)
       );
     }
   }
 
-  // 4. Batch upsert
+  // 5. Batch upsert
   if (insertStmts.length > 0) {
     for (let i = 0; i < insertStmts.length; i += 50) {
       await env.DB.batch(insertStmts.slice(i, i + 50));
     }
   }
 
-  // 5. Clean up deleted transfers
+  // 6. Clean up deleted transfers & old unsplit bundle records
   const deleteStmts = [];
   for (const [d1FileId] of d1Map.entries()) {
     if (!validFileIds.has(d1FileId)) {
@@ -1185,7 +1440,16 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
     }
   }
 
-  // 6. Update drive stats
+  // 7. Clean up empty/orphaned Transfer.it virtual folders
+  try {
+    await env.DB.prepare(
+      `DELETE FROM folders 
+       WHERE drive_id = ? AND provider_type = 'transfer_it' 
+         AND id NOT IN (SELECT DISTINCT folder_id FROM videos WHERE drive_id = ? AND folder_id IS NOT NULL)`
+    ).bind(drive.id, drive.id).run();
+  } catch (_) {}
+
+  // 8. Update drive stats
   await env.DB.prepare(
     `UPDATE drives SET quota_used = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).bind(totalBytes, drive.id).run().catch(() => {});
