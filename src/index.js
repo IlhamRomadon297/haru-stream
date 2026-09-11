@@ -2547,6 +2547,58 @@ function buildNotFoundPage(fileId) {
 }
 
 function buildEmbedPage(video, streamUrl, driveFileId) {
+  if (video.provider_type === 'transfer_it') {
+    const directUrl = video.storage_uri || video.transfer_url || 'https://transfer.it';
+    return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(video.title)} — Transfer.it Archive</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      margin: 0; padding: 0; background: #06060c; color: #fff;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      display: flex; align-items: center; justify-content: center; min-height: 100vh;
+    }
+    .card {
+      background: rgba(15, 15, 26, 0.95);
+      border: 1px solid rgba(139, 92, 246, 0.3);
+      border-radius: 16px; padding: 32px 24px; max-width: 440px; width: 88%;
+      text-align: center; box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+    }
+    .icon-box {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: rgba(139, 92, 246, 0.15); border: 1px solid rgba(139, 92, 246, 0.3);
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 16px;
+      color: #a78bfa; font-size: 22px;
+    }
+    h2 { font-size: 15px; font-weight: 700; margin: 0 0 10px; color: #f1f5f9; line-height: 1.4; word-break: break-word; }
+    p { font-size: 12.5px; color: #94a3b8; line-height: 1.6; margin: 0 0 22px; }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      background: linear-gradient(135deg, #8b5cf6, #6366f1);
+      color: #fff; font-weight: 600; font-size: 13px; text-decoration: none;
+      padding: 11px 22px; border-radius: 10px; transition: transform 0.15s, opacity 0.15s;
+    }
+    .btn:hover { transform: translateY(-1px); opacity: 0.95; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon-box">⚡</div>
+    <h2>${escapeHtml(video.title)}</h2>
+    <p>File ini berada di penyimpanan terenkripsi Transfer.it (MEGA). Silakan buka langsung di Transfer.it untuk mengunduh dengan kecepatan penuh via mesin dekripsi resmi.</p>
+    <a href="${directUrl}" target="_blank" class="btn">
+      Buka & Unduh di Transfer.it ↗
+    </a>
+  </div>
+</body>
+</html>`;
+  }
+
   const mime     = (video.mime_type || '').toLowerCase();
   const titleLow = (video.title    || '').toLowerCase();
   const isMp4    = (mime === 'video/mp4' || mime === 'video/m4v') && !titleLow.includes('.mkv');

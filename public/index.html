@@ -3621,8 +3621,9 @@ function renderMediaTable() {
   if (mobileCards) {
     mobileCards.innerHTML = APP.mediaData.map(v => {
       const isSelected = APP.selectedIds.has(v.id);
+      const isTransfer = (v.provider_type || v.drive_provider_type) === 'transfer_it';
       const embedLink  = `${BASE_URL}/embed/${v.id}`;
-      const streamLink = `${BASE_URL}/stream/${v.id}?download=1`;
+      const streamLink = isTransfer && v.storage_uri ? v.storage_uri : `${BASE_URL}/stream/${v.id}?download=1`;
       const info = getMediaInfoDetails(v);
 
       let expiryBadge = '';
@@ -3676,7 +3677,7 @@ function renderMediaTable() {
             <button type="button" onclick="copyEmbedCode(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-medium transition-all" title="Embed Code">
               <i class="fas fa-code text-xs mb-0.5"></i>iFrame
             </button>
-            <a href="${streamLink}" target="_blank" download class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="Download">
+            <a href="${streamLink}" target="_blank" ${isTransfer ? '' : 'download'} class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="${isTransfer ? 'Buka di Transfer.it' : 'Download'}">
               <i class="fas fa-download text-xs mb-0.5"></i>DL
             </a>
             <button type="button" onclick="openMediaInfoModal(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-amber-300 text-[10px] font-medium transition-all" title="MediaInfo">
@@ -3698,12 +3699,13 @@ function renderMediaTable() {
   if (tbody) {
     tbody.innerHTML = APP.mediaData.map(v => {
       const isSelected = APP.selectedIds.has(v.id);
+      const isTransfer = (v.provider_type || v.drive_provider_type) === 'transfer_it';
       const embedLink  = `${BASE_URL}/embed/${v.id}`;
-      const streamLink = `${BASE_URL}/stream/${v.id}?download=1`;
+      const streamLink = isTransfer && v.storage_uri ? v.storage_uri : `${BASE_URL}/stream/${v.id}?download=1`;
       const info = getMediaInfoDetails(v);
 
       let expiryInfo = '';
-      if (v.provider_type === 'transfer_it' && v.expires_at) {
+      if (isTransfer && v.expires_at) {
         const daysLeft = Math.ceil((new Date(v.expires_at).getTime() - Date.now()) / (1000 * 3600 * 24));
         expiryInfo = `<span class="badge ${daysLeft <= 15 ? 'badge-yellow' : 'badge-green'} text-[9px] ml-1.5">${daysLeft}d</span>`;
       }
@@ -3755,7 +3757,7 @@ function renderMediaTable() {
                 <button type="button" onclick="copyEmbedCode(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy iFrame HTML Code">
                   <i class="fas fa-code text-[10px]"></i> Embed Code
                 </button>
-                <a href="${streamLink}" target="_blank" download class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="Direct Download / Stream Link">
+                <a href="${streamLink}" target="_blank" ${isTransfer ? '' : 'download'} class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="${isTransfer ? 'Buka di Transfer.it' : 'Direct Download / Stream Link'}">
                   <i class="fas fa-download text-[10px]"></i> Download
                 </a>
                 <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
@@ -4242,9 +4244,10 @@ function openVideoDetail(videoId) {
 
 function _populateVideoDetailModal(v) {
   const base        = BASE_URL;
+  const isTransfer  = (v.provider_type || v.drive_provider_type) === 'transfer_it';
   const embedLink   = `${base}/embed/${v.id}`;
   const streamLink  = `${base}/stream/${v.id}`;
-  const dlLink      = `${base}/stream/${v.id}?download=1`;
+  const dlLink      = isTransfer && v.storage_uri ? v.storage_uri : `${base}/stream/${v.id}?download=1`;
   const embedCode   = `<iframe src="${embedLink}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
 
   // Header
