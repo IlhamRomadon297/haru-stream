@@ -2089,7 +2089,9 @@ async function handleEmbed(fileId, request, env) {
   const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
   const expiresAt = Math.floor(Date.now() / 1000) + 14400;
   const token = await generateStreamToken(video.id, expiresAt, secret);
-  const streamUrl = `/stream/${video.id}?token=${token}&exp=${expiresAt}`;
+  const cleanTitle = (video.title || 'video.mkv').replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
+  const encodedTitle = encodeURIComponent(cleanTitle);
+  const streamUrl = `/stream/${video.id}/${token}/${expiresAt}/${encodedTitle}`;
 
   const html = buildEmbedPage(video, streamUrl, video.drive_file_id);
   return new Response(html, { 
@@ -2114,11 +2116,17 @@ async function handleStream(fileId, request, env, ctx) {
 
   // 0. Update Download or View Statistics
   const url = new URL(request.url);
+  const parts = url.pathname.split('/').filter(Boolean);
   const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('dl') === '1' || url.pathname.startsWith('/d/') || url.pathname.startsWith('/download/');
 
-  // 0.1 Validate expiring stream token if present
-  const streamToken = url.searchParams.get('token');
-  const streamExp   = url.searchParams.get('exp');
+  // 0.1 Validate expiring stream token if present (supports /stream/:id/:token/:exp/... and ?token=...&exp=...)
+  let streamToken = url.searchParams.get('token');
+  let streamExp   = url.searchParams.get('exp');
+  if (!streamToken && parts.length >= 4 && parts[0] === 'stream') {
+    streamToken = parts[2];
+    streamExp   = parts[3];
+  }
+
   if (streamToken && streamExp) {
     const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
     const isValid = await verifyStreamToken(video.id, streamToken, streamExp, secret);
@@ -2197,7 +2205,13 @@ async function handleStream(fileId, request, env, ctx) {
     responseHeaders.set('Accept-Ranges', 'bytes');
     responseHeaders.set('Cache-Control', 'public, max-age=3600');
 
-    const contentType = hfResp.headers.get('Content-Type') || video.mime_type || 'video/mp4';
+    let contentType = hfResp.headers.get('Content-Type') || video.mime_type;
+    const titleLower = (video.title || '').toLowerCase();
+    if ((!contentType || contentType === 'application/octet-stream') && titleLower.endsWith('.mkv')) {
+      contentType = 'video/x-matroska';
+    } else if (!contentType) {
+      contentType = 'video/mp4';
+    }
     responseHeaders.set('Content-Type', contentType);
 
     if (hfResp.headers.get('Content-Length')) {
@@ -2207,12 +2221,9 @@ async function handleStream(fileId, request, env, ctx) {
       responseHeaders.set('Content-Range', hfResp.headers.get('Content-Range'));
     }
 
-    if (isDownload) {
-      const filename = video.title.replace(/["\r\n]/g, '_');
-      responseHeaders.set('Content-Disposition', `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(video.title)}`);
-    } else {
-      responseHeaders.set('Content-Disposition', 'inline');
-    }
+    const filename = (video.title || 'video.mp4').replace(/["\r\n]/g, '_');
+    const dispositionType = isDownload ? 'attachment' : 'inline';
+    responseHeaders.set('Content-Disposition', `${dispositionType}; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(video.title || 'video.mp4')}`);
 
     return new Response(request.method === 'HEAD' ? null : hfResp.body, {
       status: hfResp.status,
@@ -2348,7 +2359,14 @@ async function handleStream(fileId, request, env, ctx) {
   }
   // Force Accept-Ranges so FFmpeg knows it can seek (Google Drive sometimes omits this header)
   responseHeaders.set('Accept-Ranges', 'bytes');
-  responseHeaders.set('Content-Type', video.mime_type || driveResp.headers.get('Content-Type') || 'application/octet-stream');
+  let detectedMime = video.mime_type || driveResp.headers.get('Content-Type');
+  const titleLower = (video.title || '').toLowerCase();
+  if ((!detectedMime || detectedMime === 'application/octet-stream') && titleLower.endsWith('.mkv')) {
+    detectedMime = 'video/x-matroska';
+  } else if (!detectedMime) {
+    detectedMime = 'video/mp4';
+  }
+  responseHeaders.set('Content-Type', detectedMime);
 
   // Must add CORP for WebAssembly / SharedArrayBuffer isolation
   responseHeaders.set('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -2856,12 +2874,17 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       }
       const absoluteUrl = u.href;
       const doSuccess = () => {
-        const txt = document.getElementById('copy-txt') || document.getElementById('sheet-copy-txt');
-        if (txt) {
-          const old = txt.innerText;
-          txt.innerText = '✔ Link Tersalin!';
-          setTimeout(() => txt.innerText = old, 2500);
-        }
+        ['copy-txt', 'sheet-copy-txt'].forEach(id => {
+          const el = document.getElementById(id);
+          if (el) {
+            const old = el.getAttribute('data-orig') || el.innerText;
+            el.setAttribute('data-orig', old);
+            el.innerText = '✔ Link Tersalin!';
+            setTimeout(() => {
+              el.innerText = el.getAttribute('data-orig') || old;
+            }, 2500);
+          }
+        });
       };
 
       if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -2871,18 +2894,65 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       }
 
       function fallbackCopy(text) {
+        let ok = false;
         try {
           const ta = document.createElement('textarea');
           ta.value = text;
-          ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none;z-index:-1;';
+          ta.setAttribute('readonly', '');
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          ta.style.top = '0';
+          ta.style.fontSize = '16px';
           document.body.appendChild(ta);
-          ta.focus({ preventScroll: true });
+          ta.focus();
           ta.select();
-          document.execCommand('copy');
+          ta.setSelectionRange(0, text.length);
+          ok = document.execCommand('copy');
           document.body.removeChild(ta);
+        } catch (_) {
+          ok = false;
+        }
+
+        if (ok) {
           doSuccess();
-        } catch (err) {
-          prompt('Salin link streaming di bawah ini (Ctrl+C):', text);
+        } else {
+          showManualCopyBox(text);
+        }
+      }
+
+      function showManualCopyBox(text) {
+        let box = document.getElementById('manual-copy-box');
+        if (!box) {
+          box = document.createElement('div');
+          box.id = 'manual-copy-box';
+          box.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;';
+          box.innerHTML =
+            '<div style="background:#16162a;border:1px solid #6366f1;border-radius:14px;padding:16px;max-width:380px;width:100%;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.8);">' +
+              '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:8px;font-family:Outfit,sans-serif;">Link Streaming (Cadangan)</div>' +
+              '<input id="manual-copy-inp" type="text" readonly value="' + text.replace(/"/g, '&quot;') + '" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:#a5b4fc;font-size:11px;font-family:monospace;box-sizing:border-box;margin-bottom:12px;" />' +
+              '<div style="display:flex;gap:8px;">' +
+                '<button id="manual-copy-action-btn" style="flex:1;padding:10px;border-radius:8px;border:none;background:#6366f1;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:Plus Jakarta Sans,sans-serif;">Salin Otomatis</button>' +
+                '<button onclick="document.getElementById(\\'manual-copy-box\\').remove()" style="padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#94a3b8;font-size:12px;cursor:pointer;font-family:Plus Jakarta Sans,sans-serif;">Tutup</button>' +
+              '</div>' +
+            '</div>';
+          document.body.appendChild(box);
+
+          const inp = document.getElementById('manual-copy-inp');
+          const btn = document.getElementById('manual-copy-action-btn');
+          inp.onclick = () => { inp.focus(); inp.select(); inp.setSelectionRange(0, text.length); };
+          btn.onclick = () => {
+            inp.focus(); inp.select(); inp.setSelectionRange(0, text.length);
+            try {
+              document.execCommand('copy');
+              btn.innerText = '✔ Berhasil Disalin!';
+              doSuccess();
+              setTimeout(() => { document.getElementById('manual-copy-box')?.remove(); }, 900);
+            } catch(_) {}
+          };
+        }
+        const inp = document.getElementById('manual-copy-inp');
+        if (inp) {
+          inp.focus(); inp.select(); inp.setSelectionRange(0, text.length);
         }
       }
     }
@@ -2896,14 +2966,12 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         u.pathname += '/' + encodedTitle;
       }
 
-      if (!u.searchParams.has('download')) {
-        u.searchParams.set('download', '1');
-      }
-
       const absoluteUrl = u.href;
       let urlWithoutProto = absoluteUrl.split('://')[1] || absoluteUrl;
       const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       const isAndroid = /android/i.test(navigator.userAgent);
+      const isMkv = cleanTitle.toLowerCase().endsWith('.mkv') || absoluteUrl.toLowerCase().includes('.mkv');
+      const mimeType = isMkv ? 'video/x-matroska' : 'video/*';
 
       if (player === 'potplayer') {
         window.location.href = 'potplayer://' + absoluteUrl;
@@ -2916,7 +2984,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           window.location.href = 'vlc://' + absoluteUrl;
         }
       } else if (player === 'mx') {
-        window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;S.title=' + encodedTitle + ';type=video/*;end';
+        window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mimeType + ';S.title=' + encodedTitle + ';i.decode_mode=2;b.decode_mode=2;end';
       } else if (player === 'outplayer') {
         window.location.href = 'outplayer://' + absoluteUrl;
       }
@@ -3100,7 +3168,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 
       if (mode === 'movi') {
         const container = document.getElementById('player-container');
-        container.innerHTML = '<movi-player src="' + streamUrl + '" style="width:100%;height:100%;display:block;font-family:Plus Jakarta Sans,sans-serif;" controls></movi-player>';
+        container.innerHTML = '<movi-player src="' + window.streamUrl + '" style="width:100%;height:100%;display:block;font-family:Plus Jakarta Sans,sans-serif;" controls></movi-player>';
         const playerEl = container.querySelector('movi-player');
         
         function showRetry(errMsg) {
