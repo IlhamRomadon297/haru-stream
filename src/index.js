@@ -1797,7 +1797,7 @@ async function handleEmbed(fileId, request, env) {
   ).bind(fileId, parseInt(fileId) || 0).first();
 
   if (!video) {
-    return new Response('Video not found.', { status: 404, headers: HTML_HEADERS });
+    return new Response(buildNotFoundPage(fileId), { status: 404, headers: HTML_HEADERS });
   }
 
   // Build clean relative stream URL using video ID
@@ -2209,7 +2209,97 @@ async function handleStats(env, user) {
   });
 }
 
-// ── EMBED HTML TEMPLATE ──────────────────────────────────────
+// ── EMBED HTML TEMPLATES ─────────────────────────────────────
+
+function buildNotFoundPage(fileId) {
+  return `<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Video Tidak Ditemukan — HaruStream</title>
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 100vw; height: 100vh; background: #06060c;
+      color: #f1f5f9; font-family: 'Plus Jakarta Sans', sans-serif;
+      display: flex; align-items: center; justify-content: center;
+      padding: 12px; overflow: hidden;
+    }
+    .error-card {
+      background: linear-gradient(135deg, rgba(24, 18, 32, 0.95), rgba(16, 16, 28, 0.95));
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      border-radius: 16px; padding: 18px 20px;
+      max-width: 420px; width: 100%; text-align: center;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.85), 0 0 30px rgba(239, 68, 68, 0.12);
+      animation: popIn .25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes popIn { from { opacity: 0; transform: scale(.93); } to { opacity: 1; transform: scale(1); } }
+    .error-icon {
+      width: 44px; height: 44px; margin: 0 auto 10px;
+      border-radius: 50%; background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      display: flex; align-items: center; justify-content: center;
+      color: #f87171;
+    }
+    h2 { font-family: 'Outfit', sans-serif; font-size: 15px; font-weight: 700; color: #fff; margin-bottom: 5px; }
+    p { font-size: 11.5px; line-height: 1.45; color: #94a3b8; margin-bottom: 14px; }
+    code { font-family: monospace; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; color: #cbd5e1; font-size: 11px; }
+    .btn-row { display: flex; gap: 8px; justify-content: center; }
+    .btn {
+      padding: 7px 14px; border-radius: 10px; font-size: 11.5px; font-weight: 600;
+      cursor: pointer; display: inline-flex; align-items: center; gap: 5px;
+      transition: all .15s; border: none; font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .btn-reload { background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; box-shadow: 0 3px 12px rgba(239,68,68,0.3); }
+    .btn-reload:hover { transform: translateY(-1px); }
+    .btn-report { background: rgba(255,255,255,0.07); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.12); }
+    .btn-report:hover { background: rgba(255,255,255,0.14); color: #fff; }
+    @media (max-height: 280px) {
+      .error-card { padding: 12px 16px; border-radius: 12px; }
+      .error-icon { width: 32px; height: 32px; margin-bottom: 6px; }
+      h2 { font-size: 13px; margin-bottom: 3px; }
+      p { font-size: 10.5px; margin-bottom: 8px; }
+      .btn { padding: 5px 10px; font-size: 10.5px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="error-card">
+    <div class="error-icon">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+    </div>
+    <h2>Video Tidak Ditemukan</h2>
+    <p>Video ID <code>#${escapeHtml(fileId)}</code> belum terindeks atau ID telah diperbarui di HaruStream.</p>
+    <div class="btn-row">
+      <button class="btn btn-reload" onclick="window.location.reload()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Muat Ulang
+      </button>
+      <button class="btn btn-report" onclick="reportIssue()">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span id="report-txt">Lapor Rusak</span>
+      </button>
+    </div>
+  </div>
+  <script>
+    function reportIssue() {
+      try {
+        window.parent.postMessage({ type: 'harustream_stream_error', videoId: ${JSON.stringify(fileId)} }, '*');
+      } catch(_) {}
+      const txt = document.getElementById('report-txt');
+      if (txt) txt.innerText = 'Terkirim ✔';
+    }
+  </script>
+</body>
+</html>`;
+}
 
 function buildEmbedPage(video, streamUrl, driveFileId) {
   const mime     = (video.mime_type || '').toLowerCase();
@@ -2257,7 +2347,56 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
     }
 
-    /* ── Modern Sleek Format Modal ────────────────────── */
+    /* ── Floating Mobile/Compact Player Options Pill ────── */
+    #mobile-opt-btn {
+      position: absolute; top: 10px; right: 10px; z-index: 999;
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 12px; border-radius: 20px;
+      background: rgba(15, 15, 30, 0.85);
+      border: 1px solid rgba(99, 102, 241, 0.45);
+      color: #e0e7ff; font-size: 11px; font-weight: 600;
+      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      cursor: pointer; transition: all .2s ease;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    #mobile-opt-btn:hover {
+      background: rgba(99, 102, 241, 0.3);
+      border-color: rgba(99, 102, 241, 0.7);
+      color: #fff;
+    }
+    #mobile-opt-btn svg { width: 13px; height: 13px; flex-shrink: 0; color: #a5b4fc; }
+
+    /* ── Compact Player Options Sheet ───────────────────── */
+    #opts-sheet {
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(4, 4, 10, 0.85);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      display: none; align-items: center; justify-content: center;
+      padding: 12px;
+    }
+    .sheet-card {
+      background: linear-gradient(135deg, rgba(22, 22, 44, 0.98), rgba(16, 16, 34, 0.98));
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      border-radius: 16px; padding: 14px 16px;
+      max-width: 360px; width: 100%; text-align: center;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.9);
+      animation: popIn .2s ease;
+    }
+    .sheet-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .sheet-header span {
+      font-family: 'Outfit', sans-serif; font-size: 13px; font-weight: 700; color: #c7d2fe;
+    }
+    .sheet-close {
+      background: transparent; border: none; color: #94a3b8; cursor: pointer;
+      font-size: 16px; line-height: 1; padding: 2px 6px;
+    }
+    .sheet-close:hover { color: #fff; }
+
+    /* ── Modern Sleek Format Modal (Desktop Spacious View) ─ */
     #warn-modal {
       position:fixed;inset:0;z-index:9999;
       background:rgba(4, 4, 10, 0.85);
@@ -2355,13 +2494,13 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.25);
     }
 
-    @media (max-height: 540px), (max-width: 520px) {
-      #warn-modal { padding: 6px; }
-      .warn-box { padding: 14px 16px; border-radius: 14px; max-height: 98vh; }
-      .warn-title { font-size: 13.5px; }
-      .warn-body { font-size: 10.5px; margin-bottom: 10px; }
-      .warn-ext-btn, .warn-primary-btn, .warn-secondary-btn { padding: 8px 10px; font-size: 11px; }
-      .warn-app-btn { padding: 8px 4px; font-size: 10.5px; }
+    @media (max-height: 480px), (max-width: 600px) {
+      #warn-modal { display: none !important; }
+      #player-container { display: flex !important; }
+      #mobile-opt-btn { display: inline-flex !important; }
+    }
+    @media (min-height: 481px) and (min-width: 601px) {
+      #mobile-opt-btn { display: inline-flex !important; }
     }
   </style>
   <script>
@@ -2383,10 +2522,10 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       }
       const absoluteUrl = baseUrl;
       const doSuccess = () => {
-        const txt = document.getElementById('copy-txt');
+        const txt = document.getElementById('copy-txt') || document.getElementById('sheet-copy-txt');
         if (txt) {
           const old = txt.innerText;
-          txt.innerText = '✔ Link Streaming Tersalin!';
+          txt.innerText = '✔ Link Tersalin!';
           setTimeout(() => txt.innerText = old, 2500);
         }
       };
@@ -2445,10 +2584,19 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     function dismissWarningAndPlay(mode) {
       const modal = document.getElementById('warn-modal');
       if (modal) modal.style.display = 'none';
+      const sheet = document.getElementById('opts-sheet');
+      if (sheet) sheet.style.display = 'none';
       const container = document.getElementById('player-container');
       if (container) container.style.display = 'flex';
       if (typeof window.initPlayer === 'function') {
         window.initPlayer(mode);
+      }
+    }
+
+    function toggleOptsSheet(show) {
+      const sheet = document.getElementById('opts-sheet');
+      if (sheet) {
+        sheet.style.display = (show !== undefined ? (show ? 'flex' : 'none') : (sheet.style.display === 'flex' ? 'none' : 'flex'));
       }
     }
 
@@ -2467,7 +2615,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 </head>
 <body>
 
-  <!-- ── Format Mode Selection Modal ──────────────── -->
+  <!-- ── Format Mode Selection Modal (Desktop Spacious) ─── -->
   ${isHeavy ? `
   <div id="warn-modal">
     <div class="warn-box">
@@ -2506,6 +2654,40 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         </div>
         <button class="warn-secondary-btn" onclick="dismissWarningAndPlay('movi')">
           <span>Putar via Movi-Player (WebAssembly)</span>
+        </button>
+      </div>
+    </div>
+  </div>` : ''}
+
+  <!-- ── Floating Compact Options Pill ─────────────────── -->
+  ${isHeavy ? `
+  <button id="mobile-opt-btn" onclick="toggleOptsSheet(true)" title="Opsi Pemutar / Eksternal">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2L1 21h22L12 2zm0 3.84L20.13 19H3.87L12 5.84zM11 10h2v4h-2zm0 6h2v2h-2z"/></svg>
+    <span>Eksternal / Audio</span>
+  </button>
+
+  <!-- ── Compact Options Sheet ────────────────────────── -->
+  <div id="opts-sheet" onclick="if(event.target===this)toggleOptsSheet(false)">
+    <div class="sheet-card">
+      <div class="sheet-header">
+        <span>🚀 Mode Pemutaran Alternatif</span>
+        <button class="sheet-close" onclick="toggleOptsSheet(false)">✕</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:7px;">
+        <div style="display:flex; gap:6px;">
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('potplayer')">PotPlayer</button>
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC Mobile</button>
+          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('mx')">MX Player</button>
+        </div>
+        <button type="button" class="warn-ext-btn" style="padding:8px 12px; font-size:11.5px;" onclick="copyStreamLink(event)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+          <span id="sheet-copy-txt">Salin Link Streaming</span>
+        </button>
+        <button class="warn-secondary-btn" style="padding:8px 12px; font-size:11px;" onclick="toggleOptsSheet(false);dismissWarningAndPlay('movi');">
+          <span>🎛️ Movi-Player (Multi-Audio WebAssembly)</span>
+        </button>
+        <button class="warn-primary-btn" style="padding:8px 12px; font-size:11.5px; background:rgba(255,255,255,0.08); box-shadow:none;" onclick="toggleOptsSheet(false)">
+          <span>Tutup</span>
         </button>
       </div>
     </div>
@@ -2619,11 +2801,14 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     };
 
     // ── Startup logic ─────────────────────────────────────
-    if (isHeavy) {
-      // Heavy format: show the modern selection modal
+    const isMobileOrShort = window.innerWidth <= 640 || window.innerHeight <= 480;
+    if (isHeavy && !isMobileOrShort) {
+      // Spacious desktop: show the modern selection modal
     } else {
-      // Lightweight MP4/AVC: initialize player immediately
-      initPlayer();
+      // Mobile or compact view or lightweight: show player immediately!
+      const container = document.getElementById('player-container');
+      if (container) container.style.display = 'flex';
+      initPlayer('plyr');
     }
   </script>
 </body>
