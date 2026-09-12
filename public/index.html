@@ -926,7 +926,7 @@
                   <table class="data-table" id="media-table">
                     <thead>
                       <tr>
-                        <th style="width:40px"><input type="checkbox" id="check-all" class="accent-brand-500 cursor-pointer" onchange="toggleAllCheckboxes()" /></th>
+                        <th style="width:40px"><input type="checkbox" id="check-all" class="accent-brand-500 cursor-pointer" onchange="toggleAllCheckboxes(this)" /></th>
                         <th onclick="sortByColumn('title')" id="th-title" style="width:auto">Title & Actions <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
                         <th id="th-mediainfo" style="width:130px" class="text-center">MediaInfo</th>
                         <th id="th-resolution" onclick="sortByColumn('resolution')" style="width:110px" class="text-center">Resolution <i class="fas fa-sort text-xs ml-1" style="color:#334155"></i></th>
@@ -1481,52 +1481,79 @@
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-title" checked class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-title" checked onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">Title</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-embed-link" checked class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-embed-link" checked onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">Embed Link</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-stream-link" class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-stream-link" onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">Stream Link</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-embed-code" class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-embed-code" onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">Embed Code (iFrame)</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-download-link" class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-download-link" onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">Download Link</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-resolution" class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-resolution" onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">Resolution</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-size" class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-size" onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">File Size</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-views" class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-views" onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">Views</span>
         </label>
         <label class="export-checkbox-card flex items-center gap-2.5 text-xs sm:text-sm cursor-pointer p-2.5 sm:p-3 rounded-xl transition-all select-none">
-          <input type="checkbox" id="exp-file-id" class="accent-brand-500 w-4 h-4 rounded">
+          <input type="checkbox" id="exp-file-id" onchange="updateExportPreview()" class="accent-brand-500 w-4 h-4 rounded">
           <span class="font-medium text-slate-200">File / Storage ID</span>
         </label>
       </div>
     </div>
 
     <!-- Separator -->
-    <div class="mb-5">
+    <div class="mb-4">
       <div class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Pemisah Kolom (Separator)</div>
       <div class="flex flex-wrap gap-2">
         <button class="tab-btn active text-xs py-2 px-3 flex-1 sm:flex-none text-center" id="sep-newline" onclick="setExportSeparator('newline')">Baris Baru (1 per baris)</button>
         <button class="tab-btn text-xs py-2 px-3 flex-1 sm:flex-none text-center"        id="sep-tab"     onclick="setExportSeparator('tab')">Tab (\t)</button>
         <button class="tab-btn text-xs py-2 px-3 flex-1 sm:flex-none text-center"        id="sep-csv"     onclick="setExportSeparator('csv')">Koma (CSV)</button>
         <button class="tab-btn text-xs py-2 px-3 flex-1 sm:flex-none text-center"        id="sep-pipe"    onclick="setExportSeparator('pipe')">Pipe ( | )</button>
+      </div>
+    </div>
+
+    <!-- Collapsible Direct Preview & Copy Section -->
+    <div class="mb-4">
+      <button type="button" onclick="toggleExportPreview()" id="btn-toggle-preview" class="w-full flex items-center justify-between p-2.5 sm:p-3 rounded-xl text-xs font-semibold text-slate-300 transition-all border border-white/10 hover:border-brand-500/50 hover:bg-white/5 cursor-pointer select-none">
+        <span class="flex items-center gap-2">
+          <i class="fas fa-terminal text-brand-400"></i>
+          <span>Kolom Preview & Salin Langsung</span>
+        </span>
+        <span class="flex items-center gap-2 text-[11px] text-slate-400">
+          <span id="export-preview-count" class="bg-white/5 px-2 py-0.5 rounded-md border border-white/5">0 baris</span>
+          <i id="preview-chevron" class="fas fa-chevron-down transition-transform duration-200"></i>
+        </span>
+      </button>
+      
+      <div id="export-preview-container" class="hidden mt-2.5 p-3 rounded-xl border border-white/10 bg-black/40 space-y-2 animate-fade-in">
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <i class="fas fa-info-circle text-brand-400"></i>
+            <span>Teks siap salin (klik kotak untuk select all):</span>
+          </span>
+          <button type="button" id="btn-copy-direct" onclick="copyExportTextDirect(this)" class="btn-gradient px-3 py-1.5 rounded-lg text-xs font-semibold text-white flex items-center gap-1.5 cursor-pointer shadow-sm">
+            <i class="fas fa-copy"></i><span>Salin Semua</span>
+          </button>
+        </div>
+        <textarea id="export-preview-textarea" readonly onclick="this.select()" class="w-full h-36 p-3 rounded-xl text-xs font-mono text-slate-200 bg-[#0c0c16] border border-white/10 focus:border-brand-500 focus:outline-none resize-y leading-relaxed select-all" placeholder="Pilih data di atas dan buka preview..."></textarea>
       </div>
     </div>
 
@@ -3945,11 +3972,18 @@ function toggleRowSelect(id, cb) {
 }
 
 function toggleAllCheckboxes(source) {
-  const isChecked = source ? source.checked : ($('check-all')?.checked || $('check-all-mobile')?.checked);
+  let isChecked;
+  if (source && typeof source.checked === 'boolean') {
+    isChecked = source.checked;
+  } else {
+    const total = (APP.mediaData || []).length;
+    isChecked = !(total > 0 && APP.selectedIds.size === total);
+  }
+
   if ($('check-all')) $('check-all').checked = isChecked;
   if ($('check-all-mobile')) $('check-all-mobile').checked = isChecked;
 
-  APP.mediaData.forEach(v => {
+  (APP.mediaData || []).forEach(v => {
     if (isChecked) APP.selectedIds.add(v.id);
     else           APP.selectedIds.delete(v.id);
   });
@@ -4432,9 +4466,17 @@ async function saveAutoSync() {
 
 // ── EXPORT MODAL ──────────────────────────────────────────────
 let exportBulkOnly = false;
+let exportPreviewOpen = false;
+
 function openExportModal(bulkOnly = false) {
   exportBulkOnly = bulkOnly;
+  exportPreviewOpen = false;
+  const container = $('export-preview-container');
+  const chevron = $('preview-chevron');
+  if (container) container.classList.add('hidden');
+  if (chevron) chevron.style.transform = 'rotate(0deg)';
   $('modal-export').classList.remove('hidden');
+  updateExportPreview();
 }
 
 function toggleAllExportFields(btn) {
@@ -4444,11 +4486,73 @@ function toggleAllExportFields(btn) {
     const el = $(id);
     if (el) el.checked = anyUnchecked;
   });
+  updateExportPreview();
 }
 
 function setExportSeparator(type) {
   APP.exportSeparator = type;
   ['newline','tab','csv','pipe'].forEach(t => $(`sep-${t}`)?.classList.toggle('active', t === type));
+  updateExportPreview();
+}
+
+function toggleExportPreview() {
+  exportPreviewOpen = !exportPreviewOpen;
+  const container = $('export-preview-container');
+  const chevron = $('preview-chevron');
+  if (container) {
+    container.classList.toggle('hidden', !exportPreviewOpen);
+  }
+  if (chevron) {
+    chevron.style.transform = exportPreviewOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+  }
+  if (exportPreviewOpen) {
+    updateExportPreview();
+    setTimeout(() => $('export-preview-textarea')?.focus(), 100);
+  }
+}
+
+function updateExportPreview() {
+  const text = generateExportText();
+  const countEl = $('export-preview-count');
+  const textarea = $('export-preview-textarea');
+  if (countEl) {
+    const lines = text.trim() ? text.trim().split('\n').filter(Boolean).length : 0;
+    countEl.textContent = `${lines} baris`;
+  }
+  if (textarea) {
+    textarea.value = text;
+  }
+}
+
+async function copyExportTextDirect(btn) {
+  const textarea = $('export-preview-textarea');
+  const text = textarea ? textarea.value : generateExportText();
+  if (!text || !text.trim()) {
+    showToast('Tidak ada data untuk disalin. Silakan centang data di atas.', 'error');
+    return;
+  }
+
+  const originalContent = btn.innerHTML;
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+    }
+    btn.innerHTML = '<i class="fas fa-check"></i><span>Tersalin!</span>';
+    btn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+    showToast('Berhasil disalin ke clipboard!', 'success', 2500);
+    setTimeout(() => {
+      btn.innerHTML = originalContent;
+      btn.style.background = '';
+    }, 2000);
+  } catch (err) {
+    textarea.focus();
+    textarea.select();
+    showToast('Silakan tekan Ctrl+C untuk menyalin teks.', 'info');
+  }
 }
 
 function getExportData() {
