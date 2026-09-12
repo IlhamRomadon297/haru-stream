@@ -302,6 +302,57 @@
       }
     }
 
+    /* MediaInfo Inspector Modal Mobile Optimization */
+    @media (max-width: 640px) {
+      #modal-mediainfo .modal-box,
+      #modal-mediainfo .modal-card {
+        width: 96% !important;
+        max-width: 96% !important;
+        max-height: 94vh !important;
+        margin: auto !important;
+        border-radius: 16px !important;
+      }
+      /* Header modal diubah jadi 2 baris (stacked) */
+      .mi-modal-header {
+        display: flex !important;
+        flex-direction: column !important;
+        padding: 12px 14px !important;
+        gap: 8px !important;
+      }
+      /* Baris 1: Judul + Icon + Tombol Tutup (X) */
+      .mi-header-top {
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+      }
+      /* Baris 2: Tombol Aksi (Scan Header & Paste Text) */
+      .mi-header-actions {
+        width: 100% !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        justify-content: flex-start !important;
+      }
+      /* Tab Bar bisa di-swipe horizontal halus tanpa scrollbar jelek */
+      .mi-tabs-bar {
+        padding: 8px 12px !important;
+        gap: 6px !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        scrollbar-width: none !important;
+      }
+      .mi-tabs-bar::-webkit-scrollbar { 
+        display: none !important; 
+      }
+      .mi-tabs-bar button {
+        flex-shrink: 0 !important;
+        white-space: nowrap !important;
+        padding: 6px 12px !important;
+        font-size: 0.75rem !important;
+      }
+    }
+
     /* Modern Export and Provider Tab Cards */
     .export-checkbox-card {
       background: rgba(255, 255, 255, 0.02);
@@ -1273,50 +1324,59 @@
 <!-- MediaInfo Inspector Modal (Full libmediainfo & Track Inspection) -->
 <div id="modal-mediainfo" class="modal-overlay hidden">
   <div class="modal-box" style="max-width:860px;width:96%;padding:0;overflow:hidden">
-    <!-- Header bar -->
-    <div class="flex items-center justify-between px-5 py-3.5" style="border-bottom:1px solid #2a2a4a;background:#141428">
-      <div class="flex items-center gap-3 min-w-0">
-        <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.3)">
-          <i class="fas fa-file-waveform text-sm" style="color:#a5b4fc"></i>
-        </div>
-        <div class="min-w-0">
-          <div class="text-sm font-bold text-white flex items-center gap-2">
-            <span>MediaInfo Inspector</span>
-            <span id="mi-badge-format" class="badge badge-purple text-[10px]"></span>
-            <span id="mi-scan-badge" class="badge badge-gray text-[10px]">Ready</span>
+    <!-- HEADER: Desktop flex-row, Mobile flex-col -->
+    <div class="mi-modal-header flex flex-col sm:flex-row sm:items-center justify-between px-4 sm:px-5 py-3 sm:py-3.5 gap-2" style="border-bottom:1px solid #2a2a4a;background:#141428">
+      
+      <!-- Baris Atas (Mobile) / Sisi Kiri (Desktop): Judul + Badges + Filename + Tombol Tutup X Mobile -->
+      <div class="mi-header-top flex items-center justify-between gap-3 min-w-0 w-full sm:w-auto">
+        <div class="flex items-center gap-2.5 sm:gap-3 min-w-0">
+          <div class="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.3)">
+            <i class="fas fa-file-waveform text-sm" style="color:#a5b4fc"></i>
           </div>
-          <div id="mi-filename" class="text-xs font-mono truncate mt-0.5" style="color:#94a3b8"></div>
+          <div class="min-w-0">
+            <div class="text-sm font-bold text-white flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <span>MediaInfo Inspector</span>
+              <span id="mi-badge-format" class="badge badge-purple text-[10px]"></span>
+              <span id="mi-scan-badge" class="badge badge-gray text-[10px]">Ready</span>
+            </div>
+            <div id="mi-filename" class="text-xs font-mono truncate mt-0.5" style="color:#94a3b8"></div>
+          </div>
         </div>
+        <!-- Tombol Tutup X Khusus Mobile (sm:hidden) -->
+        <button onclick="closeModal('modal-mediainfo')" class="mi-close-btn-mobile sm:hidden" style="color:#64748b;background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;border-radius:8px;cursor:pointer;width:30px;height:30px;display:flex;align-items:center;justify-content:center;flex-shrink:0">✕</button>
       </div>
-      <div class="flex items-center gap-2">
-        <button id="mi-btn-rescan" onclick="startBinaryMediaInfoScan(true)" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)" title="Rescan file header">
+
+      <!-- Baris Bawah (Mobile) / Sisi Kanan (Desktop): Tombol Aksi + Tutup Desktop -->
+      <div class="mi-header-actions flex items-center gap-2 mt-1 sm:mt-0 w-full sm:w-auto">
+        <button id="mi-btn-rescan" onclick="startBinaryMediaInfoScan(true)" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-1 sm:flex-initial justify-center" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)" title="Rescan file header">
           <i class="fas fa-rotate mr-1"></i>Scan Header
         </button>
-        <button onclick="switchMediaInfoTab('edit')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)" title="Paste or edit MediaInfo text">
+        <button onclick="switchMediaInfoTab('edit')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-1 sm:flex-initial justify-center" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3)" title="Paste or edit MediaInfo text">
           <i class="fas fa-paste mr-1"></i>Paste Text
         </button>
-        <button onclick="closeModal('modal-mediainfo')" style="color:#64748b;background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;border-radius:8px;cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center">✕</button>
+        <!-- Tombol Tutup X Khusus Desktop (hidden sm:flex) -->
+        <button onclick="closeModal('modal-mediainfo')" class="mi-close-btn-desktop hidden sm:flex" style="color:#64748b;background:rgba(255,255,255,0.05);border:1px solid #2a2a4a;border-radius:8px;cursor:pointer;width:32px;height:32px;align-items:center;justify-content:center;flex-shrink:0">✕</button>
       </div>
     </div>
 
-    <!-- Tabs Navigation -->
-    <div class="flex items-center gap-2 px-5 py-2.5" style="background:#0c0c1e;border-bottom:1px solid #1e1e38">
-      <button id="mi-tab-btn-tracks" onclick="switchMediaInfoTab('tracks')" class="tab-btn active text-xs">
+    <!-- TAB BAR: Mendukung Horizontal Scroll di Layar Sempit -->
+    <div class="mi-tabs-bar flex items-center gap-2 px-3 sm:px-5 py-2.5 overflow-x-auto" style="background:#0c0c1e;border-bottom:1px solid #1e1e38;scrollbar-width:none;-webkit-overflow-scrolling:touch">
+      <button id="mi-tab-btn-tracks" onclick="switchMediaInfoTab('tracks')" class="tab-btn active text-xs whitespace-nowrap flex-shrink-0">
         <i class="fas fa-layer-group mr-1.5"></i>Tracks &amp; Specs
       </button>
-      <button id="mi-tab-btn-text" onclick="switchMediaInfoTab('text')" class="tab-btn text-xs">
+      <button id="mi-tab-btn-text" onclick="switchMediaInfoTab('text')" class="tab-btn text-xs whitespace-nowrap flex-shrink-0">
         <i class="fas fa-file-lines mr-1.5"></i>Official MediaInfo Text
       </button>
-      <button id="mi-tab-btn-edit" onclick="switchMediaInfoTab('edit')" class="tab-btn text-xs">
+      <button id="mi-tab-btn-edit" onclick="switchMediaInfoTab('edit')" class="tab-btn text-xs whitespace-nowrap flex-shrink-0">
         <i class="fas fa-edit mr-1.5"></i>Paste / Edit Report
       </button>
-      <button id="mi-tab-btn-links" onclick="switchMediaInfoTab('links')" class="tab-btn text-xs">
+      <button id="mi-tab-btn-links" onclick="switchMediaInfoTab('links')" class="tab-btn text-xs whitespace-nowrap flex-shrink-0">
         <i class="fas fa-link mr-1.5"></i>Endpoints
       </button>
     </div>
 
     <!-- Body contents -->
-    <div class="p-5 space-y-4" style="background:#0f0f1a;max-height:75vh;overflow-y:auto">
+    <div class="p-3.5 sm:p-5 space-y-4" style="background:#0f0f1a;max-height:calc(94vh - 120px);overflow-y:auto">
       
       <!-- TAB 1: TRACKS & SPECS -->
       <div id="mi-tab-tracks" class="space-y-4">
@@ -1393,13 +1453,13 @@
 
       <!-- TAB 2: RAW MEDIAINFO TEXT -->
       <div id="mi-tab-text" class="hidden space-y-3">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div class="text-xs text-slate-400">Standard MediaInfo Plain Text Report (libmediainfo format)</div>
           <div class="flex items-center gap-2">
-            <button onclick="copyMediaInfoRawText()" class="btn-gradient px-3 py-1.5 rounded-lg text-xs font-semibold text-white">
+            <button onclick="copyMediaInfoRawText()" class="btn-gradient px-3 py-1.5 rounded-lg text-xs font-semibold text-white flex-1 sm:flex-initial text-center">
               <i class="fas fa-copy mr-1.5"></i>Copy MediaInfo Text
             </button>
-            <button onclick="downloadMediaInfoTxt()" class="tab-btn text-xs">
+            <button onclick="downloadMediaInfoTxt()" class="tab-btn text-xs flex-1 sm:flex-initial text-center">
               <i class="fas fa-download mr-1"></i>Download .txt
             </button>
           </div>
@@ -1411,9 +1471,9 @@
 
       <!-- TAB 3: PASTE / EDIT REPORT -->
       <div id="mi-tab-edit" class="hidden space-y-3">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div class="text-xs text-slate-400">Paste or edit raw MediaInfo text from your PC software to save it permanently:</div>
-          <button onclick="applyAndSavePastedMediaInfo()" class="btn-gradient px-4 py-1.5 rounded-lg text-xs font-semibold text-white">
+          <button onclick="applyAndSavePastedMediaInfo()" class="btn-gradient px-4 py-1.5 rounded-lg text-xs font-semibold text-white self-start sm:self-auto">
             <i class="fas fa-save mr-1.5"></i>Save to Database
           </button>
         </div>
