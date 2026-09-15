@@ -2392,6 +2392,7 @@ function renderDrivesList() {
             <div class="progress-bar-fill" style="width:${pct}%"></div>
           </div>
         </div>` : ''}
+        <div id="check-result-${d.id}" class="hidden mt-3 pt-3 border-t border-white/5 text-xs font-medium flex items-center gap-2"></div>
       </div>`;
   }).join('');
 }
@@ -2445,6 +2446,32 @@ async function deleteDrive(id) {
   const { ok, data } = await apiFetch(`/api/settings/drives/${id}`, { method: 'DELETE' });
   if (ok) { showToast('Drive removed.', 'success'); loadDrives(); }
   else     showToast(data.error || 'Failed to remove.', 'error');
+}
+
+async function checkDriveStatus(driveId) {
+  const btn = $(`check-btn-${driveId}`);
+  const resultEl = $(`check-result-${driveId}`);
+  if (!btn || !resultEl) return;
+
+  // Loading state
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Checking...';
+  resultEl.classList.add('hidden');
+  resultEl.innerHTML = '';
+
+  const { ok, data } = await apiFetch(`/api/settings/drives/${driveId}/check`, { method: 'GET' });
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fas fa-wifi mr-1"></i>Check';
+
+  if (!ok && !data) {
+    resultEl.innerHTML = `<i class="fas fa-times-circle" style="color:#f87171"></i><span style="color:#f87171">Gagal menghubungi server.</span>`;
+  } else if (data.ok) {
+    resultEl.innerHTML = `<i class="fas fa-check-circle" style="color:#34d399"></i><span style="color:#34d399">${escHtml(data.message || 'Koneksi OK')}</span>`;
+  } else {
+    resultEl.innerHTML = `<i class="fas fa-exclamation-triangle" style="color:#fbbf24"></i><span style="color:#fbbf24">${escHtml(data.error || 'Koneksi bermasalah.')}</span>`;
+  }
+  resultEl.classList.remove('hidden');
 }
 
 function openReauthorizeDrive(driveId, driveName) {
