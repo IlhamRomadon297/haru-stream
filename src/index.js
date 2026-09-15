@@ -785,7 +785,7 @@ async function handleUpdateDrive(driveId, request, env, user) {
   const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?').bind(driveId, user.sub).first();
   if (!drive) return errorResponse('Drive not found.', 404);
 
-  const { drive_name, transfer_sid } = body;
+  const { drive_name, transfer_sid, client_id, client_secret, refresh_token, hf_token } = body;
   const updates = [];
   const params = [];
 
@@ -794,6 +794,47 @@ async function handleUpdateDrive(driveId, request, env, user) {
     params.push(drive_name.trim());
   }
 
+  // ── GDrive Re-authorization ──────────────────────────────
+  if (drive.provider_type === 'gdrive' && refresh_token && refresh_token.trim()) {
+    const newClientId     = (client_id     && client_id.trim())     || drive.client_id;
+    const newClientSecret = (client_secret && client_secret.trim()) || drive.client_secret;
+    const newRefreshToken = refresh_token.trim();
+
+    // Validate token against Google before saving
+    try {
+      const testResp = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id:     newClientId,
+          client_secret: newClientSecret,
+          refresh_token: newRefreshToken,
+          grant_type:    'refresh_token',
+        }),
+      });
+      const testData = await testResp.json();
+      if (!testData.access_token) {
+        const errDesc = testData.error_description || testData.error || 'Token tidak valid.';
+        return errorResponse(`Validasi Google gagal: ${errDesc}`);
+      }
+      // Save the new credentials + fresh access token immediately
+      const expiresAt = new Date(Date.now() + testData.expires_in * 1000).toISOString();
+      if (client_id && client_id.trim()) {
+        updates.push('client_id = ?');
+        params.push(newClientId);
+      }
+      if (client_secret && client_secret.trim()) {
+        updates.push('client_secret = ?');
+        params.push(newClientSecret);
+      }
+      updates.push('refresh_token = ?', 'access_token = ?', 'token_expires_at = ?');
+      params.push(newRefreshToken, testData.access_token, expiresAt);
+    } catch (err) {
+      return errorResponse(`Gagal memvalidasi token ke Google: ${err.message}`);
+    }
+  }
+
+  // ── Transfer.it SID update ────────────────────────────────
   if (drive.provider_type === 'transfer_it' && transfer_sid) {
     const cleanSid = transfer_sid.trim();
     // Validate with MEGA cluster bt7
@@ -820,6 +861,12 @@ async function handleUpdateDrive(driveId, request, env, user) {
     params.push(cleanSid);
   }
 
+  // ── HF Token update ───────────────────────────────────────
+  if (drive.provider_type === 'huggingface' && typeof hf_token !== 'undefined') {
+    updates.push('hf_token = ?');
+    params.push(hf_token ? hf_token.trim() : null);
+  }
+
   if (!updates.length) return errorResponse('No fields to update.');
 
   updates.push("updated_at = datetime('now')");
@@ -834,6 +881,78 @@ async function handleUpdateDrive(driveId, request, env, user) {
   }
 
   return jsonResponse({ success: true, message: 'Drive berhasil diperbarui.' });
+}
+
+async function handleCheckDrive(driveId, env, user) {
+  const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?')
+    .bind(driveId, user.sub).first();
+  if (!drive) return errorResponse('Drive not found.', 404);
+
+  const pType = (drive.provider_type || 'gdrive').toLowerCase();
+
+  try {
+    if (pType === 'gdrive') {
+      // 1. Test token refresh
+      const accessToken = await getAccessToken(drive, env.DB);
+      // 2. Ping Drive API — minimal quota check
+      const pingResp = await fetch(
+        'https://www.googleapis.com/drive/v3/about?fields=storageQuota',
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      if (!pingResp.ok) {
+        const errText = await pingResp.text();
+        return jsonResponse({ ok: false, error: `Google Drive API error (${pingResp.status}): ${errText.slice(0, 120)}` });
+      }
+      const quota = await pingResp.json();
+      const used  = parseInt(quota.storageQuota?.usage || 0);
+      const total = parseInt(quota.storageQuota?.limit || 0);
+      const usedStr  = total > 0 ? `${(used / 1e9).toFixed(1)} GB / ${(total / 1e9).toFixed(0)} GB` : `${(used / 1e9).toFixed(1)} GB`;
+      return jsonResponse({ ok: true, message: `Token valid ✓  |  Storage: ${usedStr}` });
+    }
+
+    if (pType === 'huggingface') {
+      if (!drive.hf_repo_id) return jsonResponse({ ok: false, error: 'HF Repo ID tidak dikonfigurasi.' });
+      const headers = {};
+      if (drive.hf_token) headers['Authorization'] = `Bearer ${drive.hf_token}`;
+      const pingResp = await fetch(
+        `https://huggingface.co/api/datasets/${encodeURIComponent(drive.hf_repo_id)}`,
+        { headers }
+      );
+      if (pingResp.status === 401) return jsonResponse({ ok: false, error: 'Token HF tidak valid atau tidak punya akses ke repo ini.' });
+      if (pingResp.status === 404) return jsonResponse({ ok: false, error: `Dataset "${drive.hf_repo_id}" tidak ditemukan di Hugging Face.` });
+      if (!pingResp.ok) return jsonResponse({ ok: false, error: `HF API error (${pingResp.status})` });
+      const meta = await pingResp.json();
+      const isPrivate = meta.private ? '🔒 Private' : '🌐 Public';
+      return jsonResponse({ ok: true, message: `Koneksi HF OK ✓  |  ${isPrivate} — ${meta.id || drive.hf_repo_id}` });
+    }
+
+    if (pType === 'transfer_it') {
+      if (!drive.transfer_sid) return jsonResponse({ ok: false, error: 'Session ID (SID) Transfer.it belum dikonfigurasi.' });
+      const testResp = await fetch(
+        `https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(drive.transfer_sid)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Origin': 'https://transfer.it', 'Referer': 'https://transfer.it/' },
+          body: JSON.stringify([{ a: 'uq' }])
+        }
+      );
+      const testData = await testResp.json().catch(() => null);
+      const code = typeof testData === 'number' ? testData : (Array.isArray(testData) && typeof testData[0] === 'number' ? testData[0] : null);
+      if (code !== null && code < 0) return jsonResponse({ ok: false, error: `SID tidak valid atau sesi expired (kode: ${code}). Perlu login ulang ke Transfer.it.` });
+      const info = Array.isArray(testData) && typeof testData[0] === 'object' ? testData[0] : null;
+      const quotaStr = info ? ` | Storage: ${((info.mstrg || 0) / 1e9).toFixed(1)} GB` : '';
+      return jsonResponse({ ok: true, message: `Session Transfer.it valid ✓${quotaStr}` });
+    }
+
+    return jsonResponse({ ok: false, error: `Provider type "${pType}" tidak dikenali.` });
+  } catch (err) {
+    // Tangkap invalid_grant dan error token refresh lainnya
+    const msg = err.message || String(err);
+    if (msg.includes('invalid_grant')) {
+      return jsonResponse({ ok: false, error: 'Refresh Token tidak valid atau telah dicabut oleh Google (invalid_grant). Klik Re-auth untuk memperbarui.' });
+    }
+    return jsonResponse({ ok: false, error: msg.slice(0, 200) });
+  }
 }
 
 // ── SYNC HELPERS & MULTI-CLOUD PROVIDERS ────────────────────
@@ -3652,7 +3771,11 @@ export default {
       const driveId = parseInt(parts[4]);
       res = await handleTransferRenew(driveId, env, user);
     }
-
+    else if (path.startsWith('/api/settings/drives/') && path.endsWith('/check') && method === 'GET') {
+      const parts = path.split('/');
+      const driveId = parseInt(parts[4]);
+      res = await handleCheckDrive(driveId, env, user);
+    }
 
     // Sync
     else if (path === '/api/media/sync' && method === 'POST') {
