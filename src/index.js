@@ -2660,24 +2660,40 @@ async function handleSetAutoSync(request, env) {
 // ── AUTO-SYNC CRON EXECUTOR ─────────────────────────────────
 async function runAutoSync(env) {
   try {
-    // 1. Check auto-sync settings
-    const settings = await handleGetAutoSync(env);
-    const data = await settings.json();
-    if (!data.auto_sync_enabled) return;
-
-    const intervalMinutes = data.auto_sync_interval_minutes || 30;
-    const lastSyncStr = data.last_auto_sync_at;
-
-    if (lastSyncStr) {
-      const lastSyncTime = new Date(lastSyncStr).getTime();
-      const now = Date.now();
-      const diffMinutes = (now - lastSyncTime) / (1000 * 60);
-      if (diffMinutes < intervalMinutes) {
-        return; // Skip if interval has not elapsed yet
+    // 1. Check auto-sync settings — try KV first to avoid D1 read every minute
+    const KV_AUTO_SYNC_KEY = 'cfg:auto_sync';
+    let syncCfg = null;
+    try {
+      if (env.STREAM_CACHE) {
+        syncCfg = await env.STREAM_CACHE.get(KV_AUTO_SYNC_KEY, { type: 'json' });
       }
+    } catch (_) {}
+
+    if (!syncCfg) {
+      // KV miss → read from D1 and cache for 5 minutes
+      const settings = await handleGetAutoSync(env);
+      const data = await settings.json();
+      syncCfg = {
+        enabled:          data.auto_sync_enabled,
+        intervalMinutes:  data.auto_sync_interval_minutes || 30,
+        lastSyncAt:       data.last_auto_sync_at,
+      };
+      try {
+        if (env.STREAM_CACHE) {
+          await env.STREAM_CACHE.put(KV_AUTO_SYNC_KEY, JSON.stringify(syncCfg), { expirationTtl: 300 });
+        }
+      } catch (_) {}
     }
 
-    // 2. Fetch all active drives
+    if (!syncCfg.enabled) return;
+
+    const intervalMinutes = syncCfg.intervalMinutes;
+    if (syncCfg.lastSyncAt) {
+      const diffMinutes = (Date.now() - new Date(syncCfg.lastSyncAt).getTime()) / 60000;
+      if (diffMinutes < intervalMinutes) return; // Skip — interval not elapsed
+    }
+
+    // 2. Fetch all active drives (only when actually syncing)
     const drivesRes = await env.DB.prepare('SELECT * FROM drives WHERE is_active = 1').all();
     const drives = drivesRes.results || [];
     if (!drives.length) return;
@@ -2691,11 +2707,16 @@ async function runAutoSync(env) {
       }
     }
 
-    // 4. Update last_auto_sync_at
+    // 4. Update last_auto_sync_at in D1 + invalidate KV cache
     await env.DB.prepare(
       `INSERT INTO app_settings (key, value, updated_at) VALUES ('last_auto_sync_at', datetime('now'), datetime('now'))
        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
     ).run();
+    // Invalidate KV so next cron tick picks up the new lastSyncAt
+    try {
+      if (env.STREAM_CACHE) await env.STREAM_CACHE.delete(KV_AUTO_SYNC_KEY);
+    } catch (_) {}
+
   } catch (err) {
     console.error('[AutoSync] Cron error:', err.message);
   }
