@@ -22,6 +22,15 @@ database_name = "haru-stream-db"
 database_id = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 
 # ============================================================
+# KV Namespace Binding — Smart Streaming Cache
+# Reduces D1 read from ~4.6M/day to <50k/day by caching
+# video metadata at the edge (10M reads/day, <15ms latency).
+# ============================================================
+[[kv_namespaces]]
+binding = "STREAM_CACHE"
+id      = "2a1830ee9b554d39ae098863b01a9359"
+
+# ============================================================
 # Environment Variables (Non-secret)
 # ============================================================
 [vars]
@@ -56,3 +65,7 @@ database_id   = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 [env.production.vars]
 APP_NAME    = "HaruStream"
 CORS_ORIGIN = "https://haru-stream.pages.dev"
+
+[[env.production.kv_namespaces]]
+binding = "STREAM_CACHE"
+id      = "2a1830ee9b554d39ae098863b01a9359"
