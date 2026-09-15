@@ -1221,6 +1221,77 @@
   </div>
 </div>
 
+<!-- Modal Re-authorize GDrive -->
+<div id="modal-reauth-drive" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:500px;width:96%">
+    <div class="flex items-center justify-between mb-5">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background:rgba(251,191,36,0.15)">
+          <i class="fas fa-key" style="color:#fbbf24"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-white text-sm">Re-authorize Google Drive</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Drive: <strong id="reauth-drive-name" class="text-yellow-300"></strong></p>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-reauth-drive')" class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+        <i class="fas fa-times text-sm"></i>
+      </button>
+    </div>
+
+    <div class="rounded-xl p-3 mb-5 text-xs" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:#fbbf24">
+      <i class="fas fa-exclamation-triangle mr-1.5"></i>
+      <strong>Token expired/revoked.</strong> Masukkan credentials baru dari Google OAuth.
+      Semua video & ID drive tetap aman — hanya token yang diperbarui.
+    </div>
+
+    <form onsubmit="submitReauthorizeDrive(event)" class="space-y-4">
+      <input type="hidden" id="reauth-drive-id" value="">
+
+      <div>
+        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Client ID
+          <span class="text-slate-500 font-normal ml-1">(kosongkan jika tidak berubah)</span>
+        </label>
+        <input id="reauth-client-id" type="text" placeholder="xxx.apps.googleusercontent.com"
+          class="w-full px-3 py-2.5 rounded-xl text-sm" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Client Secret
+          <span class="text-slate-500 font-normal ml-1">(kosongkan jika tidak berubah)</span>
+        </label>
+        <input id="reauth-client-secret" type="password" placeholder="GOCSPX-..."
+          class="w-full px-3 py-2.5 rounded-xl text-sm" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">
+          Refresh Token <span class="text-red-400">*</span>
+        </label>
+        <textarea id="reauth-refresh-token" rows="3" placeholder="1//04... (dapatkan dari Google OAuth Playground)" required
+          class="w-full px-3 py-2.5 rounded-xl text-sm font-mono resize-none" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0"></textarea>
+        <p class="text-xs mt-1.5" style="color:#64748b">
+          <i class="fas fa-info-circle mr-1"></i>
+          Buka <a href="https://developers.google.com/oauthplayground" target="_blank" class="text-indigo-400 hover:underline">OAuth Playground</a>
+          → authorize ulang → copy refresh_token baru.
+        </p>
+      </div>
+
+      <div class="flex justify-end gap-3 pt-3 border-t border-white/5">
+        <button type="button" onclick="closeModal('modal-reauth-drive')"
+          class="px-5 py-2 rounded-xl text-sm font-semibold" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+          Batal
+        </button>
+        <button type="submit" id="reauth-drive-btn"
+          class="px-6 py-2 rounded-xl text-sm font-semibold text-white flex items-center gap-2"
+          style="background:linear-gradient(135deg,#d97706,#b45309)">
+          <i class="fas fa-key"></i>Perbarui Credentials
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Video Detail Modal (Player4Me style) -->
 <div id="modal-video-detail" class="modal-overlay hidden">
   <div class="modal-box" style="max-width:900px;width:96%;padding:0;overflow:hidden">
@@ -2288,6 +2359,13 @@ function renderDrivesList() {
           </div>
           <div class="flex items-center gap-2 flex-shrink-0">
             <span class="badge ${d.is_active ? 'badge-green' : 'badge-red'}">${d.is_active ? 'Active' : 'Disabled'}</span>
+            ${pType === 'gdrive' ? `
+            <button onclick="openReauthorizeDrive(${d.id}, '${escHtml(d.drive_name)}')"
+              class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80"
+              style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25)"
+              title="Perbarui credentials Google Drive (jika token expired)">
+              <i class="fas fa-key mr-1"></i>Re-auth
+            </button>` : ''}
             <button onclick="triggerSync(${d.id})" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)">
               <i class="fas fa-sync-alt mr-1"></i>Sync
             </button>
@@ -2360,6 +2438,46 @@ async function deleteDrive(id) {
   const { ok, data } = await apiFetch(`/api/settings/drives/${id}`, { method: 'DELETE' });
   if (ok) { showToast('Drive removed.', 'success'); loadDrives(); }
   else     showToast(data.error || 'Failed to remove.', 'error');
+}
+
+function openReauthorizeDrive(driveId, driveName) {
+  $('reauth-drive-id').value = driveId;
+  $('reauth-drive-name').textContent = driveName;
+  $('reauth-client-id').value = '';
+  $('reauth-client-secret').value = '';
+  $('reauth-refresh-token').value = '';
+  $('modal-reauth-drive').classList.remove('hidden');
+}
+
+async function submitReauthorizeDrive(e) {
+  e.preventDefault();
+  const driveId = $('reauth-drive-id').value;
+  const clientId = $('reauth-client-id').value.trim();
+  const clientSecret = $('reauth-client-secret').value.trim();
+  const refreshToken = $('reauth-refresh-token').value.trim();
+
+  if (!refreshToken) { showToast('Refresh Token wajib diisi.', 'error'); return; }
+
+  setButtonLoading('reauth-drive-btn', true);
+
+  // Validate token first
+  const payload = {};
+  if (clientId)     payload.client_id     = clientId;
+  if (clientSecret) payload.client_secret = clientSecret;
+  if (refreshToken) payload.refresh_token = refreshToken;
+
+  const { ok, data } = await apiFetch(`/api/settings/drives/${driveId}`, {
+    method: 'PUT',
+    body: payload,
+  });
+  setButtonLoading('reauth-drive-btn', false);
+  if (ok) {
+    showToast('✅ Drive credentials berhasil diperbarui! Semua video ID tetap aman.', 'success', 5000);
+    closeModal('modal-reauth-drive');
+    loadDrives();
+  } else {
+    showToast(data.error || 'Gagal memperbarui credentials.', 'error', 5000);
+  }
 }
 
 async function editTransferSid(driveId) {
