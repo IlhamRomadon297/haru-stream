@@ -208,10 +208,10 @@ const GOOGLE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
  * Fetch a fresh Google access token using the stored refresh token.
  * Updates the access_token and token_expires_at in D1.
  */
-async function getAccessToken(drive, db) {
+async function getAccessToken(drive, db, forceRefresh = false, env = null) {
   const now = Date.now();
-  // Return cached token if still valid (with 60s buffer)
-  if (drive.access_token && drive.token_expires_at) {
+  // Return cached token if still valid (with 60s buffer), unless force refresh requested
+  if (!forceRefresh && drive.access_token && drive.token_expires_at) {
     const expiresAt = new Date(drive.token_expires_at).getTime();
     if (now < expiresAt - 60000) {
       return drive.access_token;
@@ -242,6 +242,11 @@ async function getAccessToken(drive, db) {
     await db.prepare(
       `UPDATE drives SET access_token = ?, token_expires_at = ?, updated_at = datetime('now') WHERE id = ?`
     ).bind(data.access_token, expiresAt, drive.id).run();
+    if (env && env.STREAM_CACHE && drive.id) {
+      drive.access_token = data.access_token;
+      drive.token_expires_at = expiresAt;
+      env.STREAM_CACHE.put(`drv:${drive.id}`, JSON.stringify(drive), { expirationTtl: 3600 }).catch(() => {});
+    }
   } catch (e) {
     console.warn('[HaruStream] Token updated in-memory; D1 write skipped:', e.message);
   }
@@ -873,6 +878,11 @@ async function handleUpdateDrive(driveId, request, env, user) {
   params.push(driveId);
 
   await env.DB.prepare(`UPDATE drives SET ${updates.join(', ')} WHERE id = ?`).bind(...params).run();
+
+  // Invalidate cached drive credentials in KV so all videos immediately use new credentials
+  if (env.STREAM_CACHE) {
+    await env.STREAM_CACHE.delete(`drv:${driveId}`).catch(() => {});
+  }
 
   // If SID was updated, trigger sync to update files without modifying existing video IDs
   if (transfer_sid) {
@@ -2238,6 +2248,26 @@ async function handleUploadComplete(request, env, user, driveId) {
 const VIDEO_CACHE_TTL = 604800; // 7 hari dalam detik
 
 /**
+ * Mengambil data kredensial drive dari KV Cache (TTL 1 jam).
+ * Berbagi 1 cache untuk ribuan video dari drive yang sama.
+ */
+async function getCachedDrive(driveId, env) {
+  if (!driveId) return null;
+  const key = `drv:${driveId}`;
+  if (env.STREAM_CACHE) {
+    try {
+      const cached = await env.STREAM_CACHE.get(key, 'json');
+      if (cached) return cached;
+    } catch (_) {}
+  }
+  const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
+  if (drive && env.STREAM_CACHE) {
+    env.STREAM_CACHE.put(key, JSON.stringify(drive), { expirationTtl: 3600 }).catch(() => {});
+  }
+  return drive;
+}
+
+/**
  * Mengambil metadata video lengkap dari KV Cache.
  * Jika cache miss atau KV error, fallback ke D1 query dan
  * otomatis simpan ke KV untuk penonton berikutnya.
@@ -2330,6 +2360,22 @@ async function handleEmbed(fileId, request, env, ctx) {
     return new Response(buildNotFoundPage(fileId), { status: 404, headers: HTML_HEADERS });
   }
 
+  // Always merge fresh/cached drive credentials so re-auth immediately applies
+  const drive = await getCachedDrive(video.drive_id, env);
+  if (drive) {
+    video.drive_row_id = drive.id;
+    video.provider_type = drive.provider_type || 'gdrive';
+    video.client_id = drive.client_id;
+    video.client_secret = drive.client_secret;
+    video.refresh_token = drive.refresh_token;
+    video.access_token = drive.access_token;
+    video.token_expires_at = drive.token_expires_at;
+    video.hf_repo_id = drive.hf_repo_id;
+    video.hf_token = drive.hf_token;
+    video.hf_branch = drive.hf_branch;
+    video.transfer_url = drive.transfer_url;
+  }
+
   // Build clean relative stream URL with signed expiring token (valid 4 hours)
   const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
   const expiresAt = Math.floor(Date.now() / 1000) + 14400;
@@ -2355,6 +2401,22 @@ async function handleStream(fileId, request, env, ctx) {
   const { video } = await getCachedVideoMetadata(fileId, env, ctx);
 
   if (!video) return new Response('Video not found.', { status: 404 });
+
+  // Always merge fresh/cached drive credentials so re-auth immediately applies
+  const drive = await getCachedDrive(video.drive_id, env);
+  if (drive) {
+    video.drive_row_id = drive.id;
+    video.provider_type = drive.provider_type || 'gdrive';
+    video.client_id = drive.client_id;
+    video.client_secret = drive.client_secret;
+    video.refresh_token = drive.refresh_token;
+    video.access_token = drive.access_token;
+    video.token_expires_at = drive.token_expires_at;
+    video.hf_repo_id = drive.hf_repo_id;
+    video.hf_token = drive.hf_token;
+    video.hf_branch = drive.hf_branch;
+    video.transfer_url = drive.transfer_url;
+  }
 
   // 0. Update Download or View Statistics
   const url = new URL(request.url);
@@ -2504,7 +2566,7 @@ async function handleStream(fileId, request, env, ctx) {
 
   // ── 3. GOOGLE DRIVE STREAMING ──────────────────────────────
   const fakeDrive = {
-    id: video.drive_row_id,
+    id: video.drive_row_id || video.drive_id,
     client_id:       video.client_id,
     client_secret:   video.client_secret,
     refresh_token:   video.refresh_token,
@@ -2515,9 +2577,22 @@ async function handleStream(fileId, request, env, ctx) {
 
   let accessToken;
   try {
-    accessToken = await getAccessToken(fakeDrive, env.DB);
+    accessToken = await getAccessToken(fakeDrive, env.DB, false, env);
   } catch (e) {
-    return new Response(`Auth error: ${e.message}`, { status: 502 });
+    // If auth failed (e.g. invalid_grant), check D1 directly for newer credentials and retry
+    const freshDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(video.drive_id || video.drive_row_id).first();
+    if (freshDrive && freshDrive.refresh_token && freshDrive.refresh_token !== fakeDrive.refresh_token) {
+      try {
+        accessToken = await getAccessToken(freshDrive, env.DB, true, env);
+        if (env.STREAM_CACHE) {
+          env.STREAM_CACHE.put(`drv:${freshDrive.id}`, JSON.stringify(freshDrive), { expirationTtl: 3600 }).catch(() => {});
+        }
+      } catch (e2) {
+        return new Response(`Auth error: ${e2.message}`, { status: 502 });
+      }
+    } else {
+      return new Response(`Auth error: ${e.message}`, { status: 502 });
+    }
   }
 
   const driveStreamUrl = `${GOOGLE_DRIVE_API}/files/${video.drive_file_id}?alt=media&confirm=t&acknowledgeAbuse=true&supportsAllDrives=true`;
