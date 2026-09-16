@@ -912,18 +912,30 @@ async function handleCheckDrive(driveId, env, user) {
 
     if (pType === 'huggingface') {
       if (!drive.hf_repo_id) return jsonResponse({ ok: false, error: 'HF Repo ID tidak dikonfigurasi.' });
-      const headers = {};
-      if (drive.hf_token) headers['Authorization'] = `Bearer ${drive.hf_token}`;
+      const cleanRepoId = drive.hf_repo_id.trim().replace(/^\/+|\/+$/g, '');
+      const headers = {
+        'User-Agent': 'HaruStream-Worker/1.0'
+      };
+      if (drive.hf_token && drive.hf_token.trim()) headers['Authorization'] = `Bearer ${drive.hf_token.trim()}`;
       const pingResp = await fetch(
-        `https://huggingface.co/api/datasets/${encodeURIComponent(drive.hf_repo_id)}`,
+        `https://huggingface.co/api/datasets/${cleanRepoId}`,
         { headers }
       );
       if (pingResp.status === 401) return jsonResponse({ ok: false, error: 'Token HF tidak valid atau tidak punya akses ke repo ini.' });
-      if (pingResp.status === 404) return jsonResponse({ ok: false, error: `Dataset "${drive.hf_repo_id}" tidak ditemukan di Hugging Face.` });
-      if (!pingResp.ok) return jsonResponse({ ok: false, error: `HF API error (${pingResp.status})` });
+      if (pingResp.status === 404) return jsonResponse({ ok: false, error: `Dataset "${cleanRepoId}" tidak ditemukan di Hugging Face.` });
+      if (!pingResp.ok) {
+        const errText = await pingResp.text().catch(() => '');
+        return jsonResponse({ ok: false, error: `HF API error (${pingResp.status})${errText ? ': ' + errText.slice(0, 80) : ''}` });
+      }
       const meta = await pingResp.json();
       const isPrivate = meta.private ? '🔒 Private' : '🌐 Public';
-      return jsonResponse({ ok: true, message: `Koneksi HF OK ✓  |  ${isPrivate} — ${meta.id || drive.hf_repo_id}` });
+      let storageStr = '';
+      if (typeof meta.usedStorage === 'number' && meta.usedStorage > 0) {
+        storageStr = meta.usedStorage >= 1e12
+          ? `  |  Storage: ${(meta.usedStorage / 1e12).toFixed(1)} TB`
+          : `  |  Storage: ${(meta.usedStorage / 1e9).toFixed(1)} GB`;
+      }
+      return jsonResponse({ ok: true, message: `Koneksi HF OK ✓  |  ${isPrivate}${storageStr} — ${meta.id || cleanRepoId}` });
     }
 
     if (pType === 'transfer_it') {
@@ -940,7 +952,7 @@ async function handleCheckDrive(driveId, env, user) {
       const code = typeof testData === 'number' ? testData : (Array.isArray(testData) && typeof testData[0] === 'number' ? testData[0] : null);
       if (code !== null && code < 0) return jsonResponse({ ok: false, error: `SID tidak valid atau sesi expired (kode: ${code}). Perlu login ulang ke Transfer.it.` });
       const info = Array.isArray(testData) && typeof testData[0] === 'object' ? testData[0] : null;
-      const quotaStr = info ? ` | Storage: ${((info.mstrg || 0) / 1e9).toFixed(1)} GB` : '';
+      const quotaStr = (info && info.mstrg > 0) ? ` | Storage: ${((info.mstrg) / 1e9).toFixed(1)} GB` : '';
       return jsonResponse({ ok: true, message: `Session Transfer.it valid ✓${quotaStr}` });
     }
 
