@@ -265,6 +265,7 @@ async function getDescendantFolders(drive, db) {
   const accessToken = await getAccessToken(drive, db);
   
   const validSet = new Set([rootId]);
+  const folderList = [];
   const queue = [rootId];
   const CHUNK_SIZE = 25; // max ~1800 chars for query to stay under 2048 URL limit
 
@@ -275,7 +276,7 @@ async function getDescendantFolders(drive, db) {
     
     let pageToken = null;
     do {
-      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=nextPageToken,files(id)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=nextPageToken,files(id,name,parents,trashed)&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
       if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
       
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -287,12 +288,14 @@ async function getDescendantFolders(drive, db) {
           if (!validSet.has(f.id)) {
             validSet.add(f.id);
             queue.push(f.id);
+            folderList.push(f);
           }
         }
       }
       pageToken = data.nextPageToken;
     } while (pageToken);
   }
+  validSet.folderList = folderList;
   return validSet;
 }
 
@@ -300,46 +303,29 @@ async function getDescendantFolders(drive, db) {
  * Fetch all folders in the drive (or within descendant folders if root_folder_id is set).
  */
 async function fetchAllDriveFolders(drive, db, validFolderIds) {
+  // If root_folder_id is set, descendant folders were already collected during tree traversal!
+  if (validFolderIds) {
+    return validFolderIds.folderList || [];
+  }
+
+  // If no root_folder_id (sync entire drive), fetch all owned folders
   const accessToken = await getAccessToken(drive, db);
   const fields = 'nextPageToken,files(id,name,parents,trashed)';
   let results = [];
 
-  if (!validFolderIds) {
-    const query = encodeURIComponent("mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'me' in owners");
-    let pageToken = null;
-    do {
-      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
-      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
-      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!resp.ok) break;
-      const data = await resp.json();
-      if (data.files) {
-        results.push(...data.files.filter(f => !f.trashed && f.name));
-      }
-      pageToken = data.nextPageToken;
-    } while (pageToken);
-    return results;
-  }
-
-  const folderArray = Array.from(validFolderIds);
-  const CHUNK_SIZE = 25;
-  for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
-    const chunk = folderArray.slice(i, i + CHUNK_SIZE);
-    const idQuery = chunk.map(id => `id = '${id}'`).join(' or ');
-    const query = encodeURIComponent(`mimeType = 'application/vnd.google-apps.folder' and trashed = false and (${idQuery})`);
-    let pageToken = null;
-    do {
-      let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
-      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
-      const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!resp.ok) break;
-      const data = await resp.json();
-      if (data.files) {
-        results.push(...data.files.filter(f => !f.trashed && f.name));
-      }
-      pageToken = data.nextPageToken;
-    } while (pageToken);
-  }
+  const query = encodeURIComponent("mimeType = 'application/vnd.google-apps.folder' and trashed = false and 'me' in owners");
+  let pageToken = null;
+  do {
+    let url = `${GOOGLE_DRIVE_API}/files?q=${query}&fields=${encodeURIComponent(fields)}&pageSize=1000&corpora=user`;
+    if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!resp.ok) break;
+    const data = await resp.json();
+    if (data.files) {
+      results.push(...data.files.filter(f => !f.trashed && f.name));
+    }
+    pageToken = data.nextPageToken;
+  } while (pageToken);
   return results;
 }
 
