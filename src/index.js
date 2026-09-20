@@ -504,8 +504,10 @@ async function handleLogin(request, env) {
   if (!username || !password) return errorResponse('Username and password are required.');
 
   try {
-    const user = await env.DB.prepare('SELECT * FROM users WHERE username = ?')
-      .bind(username.toLowerCase()).first();
+    const cleanUser = String(username).trim();
+    const user = await env.DB.prepare(
+      'SELECT * FROM users WHERE username = ? OR LOWER(username) = LOWER(?) OR email = ? OR LOWER(email) = LOWER(?)'
+    ).bind(cleanUser, cleanUser.toLowerCase(), cleanUser, cleanUser.toLowerCase()).first();
     if (!user) return errorResponse('Invalid credentials.', 401);
 
     const valid = await verifyPassword(password, user.password_hash);
@@ -1169,6 +1171,25 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
       await env.DB.batch(deleteStmts.slice(i, i + 50));
     }
     totalRemoved = deleteStmts.length;
+  }
+
+  // 5b. Diff: remove folders that no longer exist in HF
+  const activeFolderKeys = new Set(sortedDirPaths.map(dp => `hf_dir:${drive.id}:${dp}`));
+  const folderDeleteStmts = [];
+  for (const [key, folderObj] of d1FolderMap.entries()) {
+    if (!activeFolderKeys.has(key)) {
+      folderDeleteStmts.push(
+        env.DB.prepare(`UPDATE videos SET folder_id = NULL WHERE folder_id = ? AND drive_id = ?`).bind(folderObj.id, drive.id)
+      );
+      folderDeleteStmts.push(
+        env.DB.prepare(`DELETE FROM folders WHERE id = ? AND drive_id = ?`).bind(folderObj.id, drive.id)
+      );
+    }
+  }
+  if (folderDeleteStmts.length > 0) {
+    for (let i = 0; i < folderDeleteStmts.length; i += 50) {
+      await env.DB.batch(folderDeleteStmts.slice(i, i + 50));
+    }
   }
 
   if (insertStmts.length > 0) {
