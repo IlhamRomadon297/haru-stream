@@ -397,6 +397,8 @@
     }
     .folder-tree-item:hover { background: rgba(99,102,241,0.1); color: #c7d2fe; }
     .folder-tree-item.active { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+    .folder-tree-item .folder-del-btn { opacity: 0; transition: all 0.15s ease; }
+    .folder-tree-item:hover .folder-del-btn { opacity: 1 !important; }
 
     /* Progress bar */
     .progress-bar {
@@ -2664,7 +2666,7 @@ function renderMediaTree() {
             <i class="${isCurrent ? 'fas fa-folder-open' : 'fas fa-folder'} text-xs flex-shrink-0" style="color:${isCurrent ? '#818cf8' : '#6366f1'}"></i>
             <span class="flex-1 truncate min-w-0 font-normal ml-1" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
             ${countBadge}
-            <button type="button" onclick="promptDeleteFolder(${f.id}, event)" class="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-all flex-shrink-0 ml-1" title="Hapus Folder &amp; Isinya">
+            <button type="button" onclick="promptDeleteFolder(${f.id}, event)" class="folder-del-btn p-1 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-all flex-shrink-0 ml-1" title="Hapus Folder &amp; Isinya">
               <i class="fas fa-trash-alt text-[9.5px]"></i>
             </button>
           </div>
@@ -2753,10 +2755,7 @@ function selectLibraryNode(driveId, folderId, event) {
   const driveSelect = $('media-drive-filter');
   if (driveSelect) driveSelect.value = (driveId !== null && driveId !== undefined && driveId !== 'null') ? driveId : '';
 
-  const delBtn = $('btn-delete-active-folder');
-  if (delBtn) {
-    delBtn.classList.toggle('hidden', !(APP.currentFolder && APP.currentFolder !== 'null'));
-  }
+  updateActiveFolderDeleteButton();
 
   if (window.innerWidth <= 768) toggleFolderSidebar(false);
   loadMedia();
@@ -2810,9 +2809,18 @@ async function loadMedia() {
   renderMediaTable();
   updatePagination();
 
+  updateActiveFolderDeleteButton();
+}
+
+function updateActiveFolderDeleteButton() {
   const delBtn = $('btn-delete-active-folder');
-  if (delBtn) {
-    delBtn.classList.toggle('hidden', !(APP.currentFolder && APP.currentFolder !== 'null'));
+  if (!delBtn) return;
+  const isFolderActive = (APP.currentFolder && APP.currentFolder !== 'null');
+  delBtn.classList.toggle('hidden', !isFolderActive);
+  if (isFolderActive) {
+    const f = (APP.folders || []).find(x => x.id === APP.currentFolder);
+    const fname = f ? (f.name.length > 20 ? f.name.slice(0, 18) + '…' : f.name) : 'Folder';
+    delBtn.innerHTML = `<i class="fas fa-trash-alt text-[10px]"></i> <span class="hidden sm:inline">Hapus: ${escHtml(fname)}</span>`;
   }
 }
 
