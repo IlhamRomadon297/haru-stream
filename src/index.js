@@ -1962,24 +1962,141 @@ async function handleUpdateFolder(folderId, request, env, user) {
   return jsonResponse({ success: true });
 }
 
-async function handleDeleteFolder(folderId, env, user) {
-  const folder = await env.DB.prepare('SELECT id FROM folders WHERE id = ? AND user_id = ?')
-    .bind(folderId, user.sub).first();
-  if (!folder) return errorResponse('Folder not found.', 404);
+async function handleDeleteFolder(folderId, request, env, user, ctx) {
+  const body = (request && typeof request.json === 'function')
+    ? await request.json().catch(() => ({}))
+    : {};
+  const deleteCloud = body.delete_cloud === true;
 
-  // Unlink videos in this folder
-  await env.DB.prepare('UPDATE videos SET folder_id = NULL WHERE folder_id = ? AND user_id = ?')
-    .bind(folderId, user.sub).run();
+  // 1. Fetch folder with drive details
+  const folder = await env.DB.prepare(
+    `SELECT f.*, d.provider_type, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
+            d.hf_repo_id, d.hf_token, d.hf_branch
+     FROM folders f
+     JOIN drives d ON d.id = f.drive_id
+     WHERE f.id = ? AND f.user_id = ?`
+  ).bind(folderId, user.sub).first();
 
-  // Reset parent_id for any subfolders of this folder to NULL
-  await env.DB.prepare('UPDATE folders SET parent_id = NULL WHERE parent_id = ? AND user_id = ?')
-    .bind(folderId, user.sub).run();
+  if (!folder) return errorResponse('Folder tidak ditemukan.', 404);
 
-  // Delete folder
-  await env.DB.prepare('DELETE FROM folders WHERE id = ? AND user_id = ?')
-    .bind(folderId, user.sub).run();
+  // 2. Find all descendant subfolders recursively
+  const allFolderIds = [folder.id];
+  let currentParents = [folder.id];
+  while (currentParents.length > 0) {
+    const ph = currentParents.map(() => '?').join(',');
+    const subRows = await env.DB.prepare(
+      `SELECT id FROM folders WHERE parent_id IN (${ph}) AND user_id = ?`
+    ).bind(...currentParents, user.sub).all();
+    const subIds = (subRows.results || []).map(r => r.id);
+    if (subIds.length === 0) break;
+    allFolderIds.push(...subIds);
+    currentParents = subIds;
+  }
 
-  return jsonResponse({ success: true });
+  // 3. Find all videos in these folders
+  const folderPh = allFolderIds.map(() => '?').join(',');
+  const vRows = await env.DB.prepare(
+    `SELECT id, drive_file_id, title, storage_uri FROM videos WHERE folder_id IN (${folderPh}) AND user_id = ?`
+  ).bind(...allFolderIds, user.sub).all();
+  const videosToDelete = vRows.results || [];
+
+  let cloudError = null;
+
+  // 4. Cloud deletion (if requested)
+  if (deleteCloud) {
+    const pType = (folder.provider_type || 'gdrive').toLowerCase();
+
+    // ── Google Drive: Move folder to Trash (Recycle Bin) ──
+    if (pType === 'gdrive' && folder.gdrive_folder_id) {
+      try {
+        const accessToken = await getAccessToken(folder, env.DB, false, env);
+        const trashResp = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(folder.gdrive_folder_id)}?supportsAllDrives=true`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ trashed: true })
+          }
+        );
+        if (!trashResp.ok) {
+          const errText = await trashResp.text().catch(() => '');
+          cloudError = `Gagal memindahkan ke Sampah Google Drive (${trashResp.status}): ${errText.slice(0, 100)}`;
+          console.warn('[HaruStream] GDrive trash folder error:', cloudError);
+        }
+      } catch (err) {
+        cloudError = `Error Google Drive: ${err.message}`;
+        console.warn('[HaruStream] GDrive trash exception:', err.message);
+      }
+    }
+
+    // ── Hugging Face: Git Commit delete files ──
+    if (pType === 'huggingface' && folder.hf_repo_id && folder.hf_token) {
+      try {
+        const prefix = `https://huggingface.co/datasets/${folder.hf_repo_id}/resolve/${folder.hf_branch || 'main'}/`;
+        const filePaths = videosToDelete
+          .map(v => v.storage_uri ? decodeURI(v.storage_uri.replace(prefix, '')) : null)
+          .filter(Boolean);
+
+        if (filePaths.length > 0) {
+          const ndjson = [
+            JSON.stringify({ key: 'header', value: { summary: `Delete folder "${folder.name}" (${filePaths.length} files) via HaruStream` } }),
+            ...filePaths.map(p => JSON.stringify({ key: 'deletedFile', value: { path: p } }))
+          ].join('\n');
+
+          const commitResp = await fetch(
+            `https://huggingface.co/api/datasets/${folder.hf_repo_id}/commit/${folder.hf_branch || 'main'}`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${folder.hf_token}`,
+                'Content-Type': 'application/x-ndjson'
+              },
+              body: ndjson
+            }
+          );
+          if (!commitResp.ok) {
+            const errText = await commitResp.text().catch(() => '');
+            cloudError = `Gagal delete di Hugging Face (${commitResp.status}): ${errText.slice(0, 100)}`;
+            console.warn('[HaruStream] HF delete commit failed:', errText);
+          }
+        }
+      } catch (err) {
+        cloudError = `Error Hugging Face: ${err.message}`;
+        console.warn('[HaruStream] HF delete exception:', err.message);
+      }
+    }
+  }
+
+  // 5. Delete videos from D1 and invalidate KV cache
+  if (videosToDelete.length > 0) {
+    const videoPh = videosToDelete.map(() => '?').join(',');
+    const videoIds = videosToDelete.map(v => v.id);
+    await env.DB.prepare(
+      `DELETE FROM videos WHERE id IN (${videoPh}) AND user_id = ?`
+    ).bind(...videoIds, user.sub).run();
+
+    // Invalidate KV streaming cache
+    for (const v of videosToDelete) {
+      invalidateVideoCache(v.id, v.drive_file_id, env, ctx);
+    }
+  }
+
+  // 6. Delete folders from D1
+  await env.DB.prepare(
+    `DELETE FROM folders WHERE id IN (${folderPh}) AND user_id = ?`
+  ).bind(...allFolderIds, user.sub).run();
+
+  return jsonResponse({
+    success: true,
+    deleted_folders: allFolderIds.length,
+    deleted_videos: videosToDelete.length,
+    cloud_deleted: deleteCloud && !cloudError,
+    cloud_error: cloudError,
+    message: `Folder "${folder.name}" dan ${videosToDelete.length} video berhasil dihapus.`
+  });
 }
 
 async function handleMoveVideo(request, env, user, ctx) {
@@ -3896,7 +4013,7 @@ export default {
     }
     else if (path.startsWith('/api/folders/') && method === 'DELETE') {
       const folderId = parseInt(path.split('/').pop());
-      res = await handleDeleteFolder(folderId, env, user);
+      res = await handleDeleteFolder(folderId, request, env, user, ctx);
     }
 
     // Remote upload

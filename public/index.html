@@ -901,6 +901,11 @@
               <i class="fas fa-folder-tree text-xs" style="color:#6366f1"></i>
               <span>Folders</span>
             </button>
+            <!-- Delete Active Folder Button -->
+            <button id="btn-delete-active-folder" onclick="if(APP.currentFolder&&APP.currentFolder!=='null')promptDeleteFolder(APP.currentFolder)" class="hidden flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-red-400 hover:bg-red-500/20 transition-all flex-shrink-0" style="background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.3)" title="Hapus folder aktif ini beserta isinya">
+              <i class="fas fa-trash-alt text-[10px]"></i>
+              <span class="hidden sm:inline">Hapus Folder</span>
+            </button>
             <!-- Search -->
             <div class="relative w-36 sm:w-44 md:w-52 flex-shrink-0">
               <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-xs" style="color:#475569"></i>
@@ -1805,6 +1810,70 @@
   </div>
 </div>
 
+<!-- DELETE FOLDER CONFIRMATION MODAL -->
+<div id="modal-delete-folder" class="modal-overlay hidden">
+  <div class="modal-box w-full max-w-md" style="border: 1px solid rgba(239,68,68,0.3); box-shadow: 0 20px 60px rgba(0,0,0,0.8), 0 0 30px rgba(239,68,68,0.15);">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3);">
+          <i class="fas fa-trash-alt text-red-400 text-lg"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-white text-base">Hapus Folder &amp; Isi</h3>
+          <p class="text-xs text-slate-400">Konfirmasi penghapusan folder</p>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-delete-folder')" class="text-slate-400 hover:text-white transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <input type="hidden" id="delete-folder-id" />
+
+    <!-- Info Box -->
+    <div class="p-3.5 rounded-xl mb-4" style="background:rgba(15,15,26,0.85); border:1px solid rgba(255,255,255,0.08);">
+      <div class="flex items-start gap-2.5">
+        <i class="fas fa-folder text-brand-400 text-sm mt-0.5"></i>
+        <div class="flex-1 min-w-0">
+          <div id="delete-folder-name" class="text-sm font-semibold text-white truncate">—</div>
+          <div class="flex items-center gap-2 mt-1 text-xs text-slate-400">
+            <span id="delete-folder-drive-badge" class="px-1.5 py-0.5 rounded text-[10.5px] font-medium bg-white/5 border border-white/10 text-slate-300">Drive</span>
+            <span id="delete-folder-video-count" class="text-amber-400 font-medium">0 video</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cloud Delete Toggle Section -->
+    <div class="p-3.5 rounded-xl mb-5 space-y-2.5" style="background:rgba(239,68,68,0.06); border:1px solid rgba(239,68,68,0.2);">
+      <label class="flex items-start gap-3 cursor-pointer select-none">
+        <input type="checkbox" id="delete-folder-cloud-cb" checked class="mt-1 w-4 h-4 rounded text-red-500 bg-slate-900 border-slate-700 focus:ring-red-500/50 cursor-pointer" onchange="updateDeleteFolderNotice()" />
+        <div class="flex-1">
+          <span class="text-xs font-semibold text-white block">Hapus juga dari Cloud Storage asli</span>
+          <span class="text-[11px] text-slate-400 leading-relaxed block mt-0.5">
+            Jika dicentang, file di cloud storage Anda akan ikut dihapus / dipindah ke sampah.
+          </span>
+        </div>
+      </label>
+
+      <!-- Dynamic Notice -->
+      <div id="delete-folder-cloud-notice" class="text-[11.5px] p-2.5 rounded-lg font-medium leading-relaxed">
+        <!-- Injected dynamically based on provider -->
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-white/5">
+      <button type="button" onclick="closeModal('modal-delete-folder')" class="px-4 py-2.5 rounded-xl text-xs font-semibold transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+        Batal
+      </button>
+      <button id="btn-confirm-delete-folder" type="button" onclick="executeDeleteFolder()" class="px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all cursor-pointer" style="background:linear-gradient(135deg, #ef4444, #dc2626); box-shadow:0 4px 14px rgba(239,68,68,0.35);">
+        <i class="fas fa-trash-alt mr-1.5"></i>Hapus Sekarang
+      </button>
+    </div>
+  </div>
+</div>
+
 <!-- MOVE FOLDER MODAL -->
 <div id="modal-move-folder" class="modal-overlay hidden">
   <div class="modal-box w-full max-w-md">
@@ -2595,6 +2664,9 @@ function renderMediaTree() {
             <i class="${isCurrent ? 'fas fa-folder-open' : 'fas fa-folder'} text-xs flex-shrink-0" style="color:${isCurrent ? '#818cf8' : '#6366f1'}"></i>
             <span class="flex-1 truncate min-w-0 font-normal ml-1" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
             ${countBadge}
+            <button type="button" onclick="promptDeleteFolder(${f.id}, event)" class="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-all flex-shrink-0 ml-1" title="Hapus Folder &amp; Isinya">
+              <i class="fas fa-trash-alt text-[9.5px]"></i>
+            </button>
           </div>
           ${hasChildren ? `
             <div id="folder-children-${f.id}" class="${isExpanded ? '' : 'hidden'} space-y-0.5">
@@ -2681,6 +2753,11 @@ function selectLibraryNode(driveId, folderId, event) {
   const driveSelect = $('media-drive-filter');
   if (driveSelect) driveSelect.value = (driveId !== null && driveId !== undefined && driveId !== 'null') ? driveId : '';
 
+  const delBtn = $('btn-delete-active-folder');
+  if (delBtn) {
+    delBtn.classList.toggle('hidden', !(APP.currentFolder && APP.currentFolder !== 'null'));
+  }
+
   if (window.innerWidth <= 768) toggleFolderSidebar(false);
   loadMedia();
 }
@@ -2732,6 +2809,11 @@ async function loadMedia() {
   renderMediaTree();
   renderMediaTable();
   updatePagination();
+
+  const delBtn = $('btn-delete-active-folder');
+  if (delBtn) {
+    delBtn.classList.toggle('hidden', !(APP.currentFolder && APP.currentFolder !== 'null'));
+  }
 }
 
 // ── SEARCH HELPERS ──────────────────────────────────────────
@@ -4959,23 +5041,129 @@ async function submitEditFolder(e) {
   }
 }
 
-async function confirmDeleteFolder() {
+function confirmDeleteFolder() {
   const fid = parseInt($('edit-folder-id').value);
-  const f = APP.folders.find(x => x.id === fid);
+  if (!fid) return;
+  promptDeleteFolder(fid);
+}
+
+function promptDeleteFolder(folderId, event) {
+  if (event && event.stopPropagation) event.stopPropagation();
+  const f = (APP.folders || []).find(x => x.id === folderId);
   if (!f) return;
 
-  if (!confirm(`Delete folder "${f.name}"? Videos inside will be moved to Unsorted.`)) return;
+  const d = (APP.drives || []).find(x => x.id === f.drive_id);
+  const pType = (d?.provider_type || 'gdrive').toLowerCase();
 
-  const { ok, data } = await apiFetch(`/api/folders/${fid}`, { method: 'DELETE' });
+  // Find all descendant subfolders recursively to calculate total videos
+  const descendantIds = new Set([f.id]);
+  let currentParents = [f.id];
+  while (currentParents.length > 0) {
+    const nextParents = [];
+    for (const item of (APP.folders || [])) {
+      if (currentParents.includes(item.parent_id) && !descendantIds.has(item.id)) {
+        descendantIds.add(item.id);
+        nextParents.push(item.id);
+      }
+    }
+    currentParents = nextParents;
+  }
 
-  if (ok) {
-    showToast('Folder deleted!', 'success');
-    closeModal('modal-edit-folder');
-    if (APP.currentFolder === fid) APP.currentFolder = null;
-    loadFolders();
-    loadMedia();
+  // Calculate total videos across this folder and all its subfolders
+  let totalVideos = 0;
+  for (const item of (APP.folders || [])) {
+    if (descendantIds.has(item.id)) {
+      totalVideos += (item.video_count || 0);
+    }
+  }
+
+  $('delete-folder-id').value = f.id;
+  $('delete-folder-name').textContent = f.name;
+  
+  const driveName = d ? d.drive_name : 'Storage';
+  $('delete-folder-drive-badge').innerHTML = `${getProviderIcon(pType, 'text-[10px] mr-1')} ${escHtml(driveName)}`;
+  
+  const subfolderCount = descendantIds.size - 1;
+  let countText = `${totalVideos} video`;
+  if (subfolderCount > 0) {
+    countText += ` &amp; ${subfolderCount} subfolder`;
+  }
+  $('delete-folder-video-count').innerHTML = countText;
+
+  // Set default checkbox state and provider-specific notice
+  $('delete-folder-cloud-cb').checked = true;
+  updateDeleteFolderNotice(pType);
+
+  openModal('modal-delete-folder');
+}
+
+function updateDeleteFolderNotice(providerType) {
+  const cb = $('delete-folder-cloud-cb');
+  const notice = $('delete-folder-cloud-notice');
+  if (!notice) return;
+
+  const fid = parseInt($('delete-folder-id')?.value);
+  const f = (APP.folders || []).find(x => x.id === fid);
+  const d = f ? (APP.drives || []).find(x => x.id === f.drive_id) : null;
+  const pType = providerType || (d?.provider_type || 'gdrive').toLowerCase();
+
+  if (!cb.checked) {
+    notice.style.background = 'rgba(100, 116, 139, 0.12)';
+    notice.style.border = '1px solid rgba(100, 116, 139, 0.25)';
+    notice.style.color = '#94a3b8';
+    notice.innerHTML = `<i class="fas fa-info-circle mr-1 text-slate-400"></i> Hanya menghapus folder &amp; rekaman video dari database HaruStream. File asli di cloud Anda <strong>tetap aman</strong>.`;
+    return;
+  }
+
+  if (pType === 'gdrive') {
+    notice.style.background = 'rgba(16, 185, 129, 0.1)';
+    notice.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+    notice.style.color = '#6ee7b7';
+    notice.innerHTML = `<i class="fas fa-check-circle mr-1 text-emerald-400"></i> <strong>Recycle Bin Google Drive:</strong> Folder &amp; seluruh file di dalamnya akan dipindahkan ke <strong>Sampah Google Drive</strong> (dapat dipulihkan dari web Google Drive dalam 30 hari).`;
+  } else if (pType === 'huggingface') {
+    notice.style.background = 'rgba(239, 68, 68, 0.12)';
+    notice.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+    notice.style.color = '#fca5a5';
+    notice.innerHTML = `<i class="fas fa-exclamation-triangle mr-1 text-red-400"></i> <strong>PERHATIAN Hugging Face:</strong> File akan dihapus permanen via Git Commit dari dataset repo. Hugging Face <strong>tidak memiliki recycle bin</strong>!`;
   } else {
-    showToast(data.error || 'Failed to delete folder.', 'error');
+    notice.style.background = 'rgba(148, 163, 184, 0.1)';
+    notice.style.border = '1px solid rgba(148, 163, 184, 0.2)';
+    notice.style.color = '#cbd5e1';
+    notice.innerHTML = `<i class="fas fa-trash mr-1 text-slate-400"></i> File &amp; folder akan dihapus dari sistem.`;
+  }
+}
+
+async function executeDeleteFolder() {
+  const fid = parseInt($('delete-folder-id').value);
+  const deleteCloud = $('delete-folder-cloud-cb').checked;
+  const btn = $('btn-confirm-delete-folder');
+  if (!btn || !fid) return;
+
+  btn.disabled = true;
+  const origHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1.5"></i>Menghapus...';
+
+  try {
+    const { ok, data } = await apiFetch(`/api/folders/${fid}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete_cloud: deleteCloud })
+    });
+
+    if (ok) {
+      showToast(data.message || 'Folder berhasil dihapus!', 'success');
+      closeModal('modal-delete-folder');
+      closeModal('modal-edit-folder');
+      if (APP.currentFolder === fid) APP.currentFolder = null;
+      loadMedia();
+    } else {
+      showToast(data.error || 'Gagal menghapus folder.', 'error');
+    }
+  } catch (err) {
+    showToast('Terjadi kesalahan: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
   }
 }
 
