@@ -534,25 +534,126 @@
       <p class="text-sm mt-1" style="color:#64748b">Video Streaming Aggregator & Management</p>
     </div>
 
-    <!-- Login Form (only form — registration disabled) -->
-    <form id="login-form" onsubmit="handleLoginSubmit(event)">
-      <div class="mb-4">
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">USERNAME</label>
-        <input id="login-username" type="text" class="form-input" placeholder="Enter username" autocomplete="username" required />
-      </div>
-      <div class="mb-6">
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">PASSWORD</label>
-        <div class="relative">
-          <input id="login-password" type="password" class="form-input" placeholder="Enter password" autocomplete="current-password" required />
-          <button type="button" onclick="togglePasswordVisibility('login-password')" class="absolute right-3 top-1/2 -translate-y-1/2" style="color:#475569;background:none;border:none;cursor:pointer">
-            <i class="fas fa-eye text-sm"></i>
+    <!-- VIEW 1: LOGIN FORM -->
+    <div id="auth-view-login">
+      <form id="login-form" onsubmit="handleLoginSubmit(event)">
+        <div class="mb-4">
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">USERNAME ATAU EMAIL</label>
+          <input id="login-username" type="text" class="form-input" placeholder="Masukkan username atau email" autocomplete="username" required />
+        </div>
+        <div class="mb-3">
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">PASSWORD</label>
+          <div class="relative">
+            <input id="login-password" type="password" class="form-input" placeholder="Masukkan password" autocomplete="current-password" required />
+            <button type="button" onclick="togglePasswordVisibility('login-password')" class="absolute right-3 top-1/2 -translate-y-1/2" style="color:#475569;background:none;border:none;cursor:pointer">
+              <i class="fas fa-eye text-sm"></i>
+            </button>
+          </div>
+        </div>
+        <div class="flex justify-end mb-6">
+          <button type="button" onclick="showAuthView('forgot')" class="text-xs transition-colors hover:underline" style="color:#818cf8;background:none;border:none;cursor:pointer">
+            Lupa password?
           </button>
         </div>
+        <button type="submit" id="login-btn" class="btn-gradient w-full py-3 rounded-xl text-white font-semibold text-sm">
+          <i class="fas fa-sign-in-alt mr-2"></i>Sign In
+        </button>
+      </form>
+    </div>
+
+    <!-- VIEW 2: 2FA OTP VERIFICATION -->
+    <div id="auth-view-otp" class="hidden text-center">
+      <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3 bg-indigo-500/10 text-indigo-400">
+        <i class="fas fa-shield-alt text-xl"></i>
       </div>
-      <button type="submit" id="login-btn" class="btn-gradient w-full py-3 rounded-xl text-white font-semibold text-sm">
-        <i class="fas fa-sign-in-alt mr-2"></i>Sign In
-      </button>
-    </form>
+      <h3 class="text-lg font-bold text-white mb-1">Verifikasi Dua Langkah</h3>
+      <p class="text-xs text-slate-400 mb-5 leading-relaxed">
+        Kode 6-digit OTP telah dikirim ke<br/>
+        <span id="otp-masked-email" class="font-mono font-semibold text-indigo-400"></span>
+      </p>
+
+      <form onsubmit="handleVerifyOtpSubmit(event)">
+        <div class="mb-4">
+          <input id="otp-input" type="text" maxlength="6" inputmode="numeric" autocomplete="one-time-code"
+            class="form-input text-center text-2xl font-mono tracking-widest py-3 font-bold text-white focus:border-indigo-500"
+            placeholder="••••••" required />
+        </div>
+        <div class="flex items-center justify-between text-xs text-slate-500 mb-5 px-1">
+          <span>Sisa waktu: <span id="otp-timer" class="font-mono text-slate-400">10:00</span></span>
+          <button type="button" id="btn-resend-otp" onclick="handleResendOtpSubmit()" class="text-indigo-400 hover:text-indigo-300 font-semibold" style="background:none;border:none;cursor:pointer">
+            Kirim Ulang OTP
+          </button>
+        </div>
+        <button type="submit" id="btn-verify-otp" class="btn-gradient w-full py-3 rounded-xl text-white font-semibold text-sm mb-4">
+          <i class="fas fa-shield-alt mr-2"></i>Verifikasi Masuk
+        </button>
+        <button type="button" onclick="showAuthView('login')" class="text-xs text-slate-500 hover:text-slate-400 transition-colors" style="background:none;border:none;cursor:pointer">
+          ← Kembali ke Login
+        </button>
+      </form>
+    </div>
+
+    <!-- VIEW 3: FORGOT PASSWORD REQUEST -->
+    <div id="auth-view-forgot" class="hidden text-center">
+      <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3 bg-purple-500/10 text-purple-400">
+        <i class="fas fa-key text-xl"></i>
+      </div>
+      <h3 class="text-lg font-bold text-white mb-1">Pemulihan Akun</h3>
+      <p class="text-xs text-slate-400 mb-5 leading-relaxed">
+        Masukkan username atau email akun Anda. Kami akan mengirimkan kode OTP untuk mengatur ulang password.
+      </p>
+
+      <form onsubmit="handleForgotPasswordSubmit(event)" class="text-left">
+        <div class="mb-5">
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">USERNAME ATAU EMAIL</label>
+          <input id="forgot-identifier" type="text" class="form-input" placeholder="Masukkan username atau email" required />
+        </div>
+        <button type="submit" id="forgot-btn" class="btn-gradient w-full py-3 rounded-xl text-white font-semibold text-sm mb-4">
+          <i class="fas fa-paper-plane mr-2"></i>Kirim Kode Pemulihan
+        </button>
+        <div class="text-center">
+          <button type="button" onclick="showAuthView('login')" class="text-xs text-slate-500 hover:text-slate-400 transition-colors" style="background:none;border:none;cursor:pointer">
+            ← Batal & Kembali ke Login
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- VIEW 4: RESET PASSWORD FORM -->
+    <div id="auth-view-reset" class="hidden text-center">
+      <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl mb-3 bg-emerald-500/10 text-emerald-400">
+        <i class="fas fa-lock-open text-xl"></i>
+      </div>
+      <h3 class="text-lg font-bold text-white mb-1">Atur Ulang Password</h3>
+      <p class="text-xs text-slate-400 mb-5 leading-relaxed">
+        Masukkan kode OTP dari email <span id="reset-masked-email" class="font-mono text-emerald-400"></span> dan buat password baru.
+      </p>
+
+      <form onsubmit="handleResetPasswordSubmit(event)" class="text-left">
+        <div class="mb-4">
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">KODE VERIFIKASI (OTP)</label>
+          <input id="reset-otp-input" type="text" maxlength="6" inputmode="numeric"
+            class="form-input text-center text-xl font-mono tracking-widest py-2 font-bold text-emerald-400"
+            placeholder="6-digit OTP" required />
+        </div>
+        <div class="mb-4">
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">PASSWORD BARU</label>
+          <input id="reset-new-password" type="password" class="form-input" placeholder="Minimal 6 karakter" autocomplete="new-password" required />
+        </div>
+        <div class="mb-5">
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">KONFIRMASI PASSWORD BARU</label>
+          <input id="reset-confirm-password" type="password" class="form-input" placeholder="Ulangi password baru" autocomplete="new-password" required />
+        </div>
+        <button type="submit" id="reset-btn" class="btn-gradient w-full py-3 rounded-xl text-white font-semibold text-sm mb-4">
+          <i class="fas fa-check-circle mr-2"></i>Simpan Password Baru
+        </button>
+        <div class="text-center">
+          <button type="button" onclick="showAuthView('login')" class="text-xs text-slate-500 hover:text-slate-400 transition-colors" style="background:none;border:none;cursor:pointer">
+            ← Batal
+          </button>
+        </div>
+      </form>
+    </div>
     <!-- Note: Public registration is disabled on this system -->
   </div>
 </div>
@@ -1998,12 +2099,59 @@ function setButtonLoading(id, loading, label = '') {
   else { btn.innerHTML = btn.dataset.orig || label; }
 }
 
-// ── AUTH ─────────────────────────────────────────────────────
-function switchAuthTab(tab) {
-  $('login-form').classList.toggle('hidden', tab !== 'login');
-  $('register-form').classList.toggle('hidden', tab !== 'register');
-  $('tab-login').classList.toggle('active', tab === 'login');
-  $('tab-register').classList.toggle('active', tab === 'register');
+// ── AUTH & STATE MANAGEMENT ───────────────────────────────────────────────
+let currentOtpChallenge = null;
+let currentResetChallenge = null;
+let otpTimerInterval = null;
+let resendCooldownInterval = null;
+
+function showAuthView(viewName) {
+  const views = ['login', 'otp', 'forgot', 'reset'];
+  views.forEach(v => {
+    const el = $(`auth-view-${v}`);
+    if (el) el.classList.toggle('hidden', v !== viewName);
+  });
+  if (viewName === 'login') {
+    clearInterval(otpTimerInterval);
+    clearInterval(resendCooldownInterval);
+  }
+}
+
+function startOtpCountdown(seconds = 600) {
+  clearInterval(otpTimerInterval);
+  const timerEl = $('otp-timer');
+  let remaining = seconds;
+  function update() {
+    const m = Math.floor(remaining / 60);
+    const s = remaining % 60;
+    if (timerEl) timerEl.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
+    if (remaining <= 0) {
+      clearInterval(otpTimerInterval);
+      if (timerEl) timerEl.textContent = 'Kedaluwarsa';
+    }
+    remaining--;
+  }
+  update();
+  otpTimerInterval = setInterval(update, 1000);
+}
+
+function startResendCooldown(seconds = 60) {
+  clearInterval(resendCooldownInterval);
+  const btn = $('btn-resend-otp');
+  if (!btn) return;
+  let remaining = seconds;
+  btn.disabled = true;
+  function update() {
+    btn.textContent = `Kirim Ulang OTP (${remaining}s)`;
+    if (remaining <= 0) {
+      clearInterval(resendCooldownInterval);
+      btn.disabled = false;
+      btn.textContent = 'Kirim Ulang OTP';
+    }
+    remaining--;
+  }
+  update();
+  resendCooldownInterval = setInterval(update, 1000);
 }
 
 async function handleLoginSubmit(e) {
@@ -2011,44 +2159,175 @@ async function handleLoginSubmit(e) {
   const btn = $('login-btn');
   btn.disabled = true;
   btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i>Signing in...';
+  
+  const identifier = $('login-username').value.trim();
+  const password = $('login-password').value;
+
   const { ok, data } = await apiFetch('/api/auth/login', {
     method: 'POST',
-    body: { username: $('login-username').value, password: $('login-password').value },
+    body: { username: identifier, password },
   });
-  if (ok && data.token) {
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>Sign In';
+
+  if (!ok) {
+    showToast(data?.error || 'Login gagal. Periksa kredensial Anda.', 'error');
+    return;
+  }
+
+  // Check if 2FA OTP is required
+  if (data.requires_otp && data.otp_challenge) {
+    currentOtpChallenge = data.otp_challenge;
+    $('otp-masked-email').textContent = data.email || 'email Anda';
+    $('otp-input').value = '';
+    showAuthView('otp');
+    startOtpCountdown(600);
+    startResendCooldown(60);
+    setTimeout(() => $('otp-input')?.focus(), 200);
+    showToast('Kode OTP telah dikirim ke email Anda.', 'info');
+    return;
+  }
+
+  if (data.token) {
     APP.token = data.token;
     APP.user  = data.user;
     localStorage.setItem('hs_token', data.token);
     initApp();
-  } else {
-    showToast(data.error || 'Login failed.', 'error');
-    btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-sign-in-alt mr-2"></i>Sign In';
   }
 }
 
-async function handleRegisterSubmit(e) {
+async function handleVerifyOtpSubmit(e) {
   e.preventDefault();
-  const btn = $('register-btn');
+  const otpCode = $('otp-input').value.trim();
+  if (!otpCode || otpCode.length < 6) {
+    showToast('Masukkan 6 digit kode OTP yang valid.', 'error');
+    return;
+  }
+  const btn = $('btn-verify-otp');
   btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i>Creating account...';
-  const { ok, data } = await apiFetch('/api/auth/register', {
+  btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i>Memverifikasi...';
+
+  const { ok, data } = await apiFetch('/api/auth/verify-otp', {
     method: 'POST',
-    body: {
-      username: $('reg-username').value,
-      email:    $('reg-email').value || undefined,
-      password: $('reg-password').value,
-    },
+    body: { otp_code: otpCode, otp_challenge: currentOtpChallenge }
   });
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fas fa-shield-alt mr-2"></i>Verifikasi Masuk';
+
   if (ok && data.token) {
+    clearInterval(otpTimerInterval);
+    clearInterval(resendCooldownInterval);
     APP.token = data.token;
     APP.user  = data.user;
     localStorage.setItem('hs_token', data.token);
     initApp();
   } else {
-    showToast(data.error || 'Registration failed.', 'error');
+    showToast(data?.error || 'Kode OTP salah atau telah kedaluwarsa.', 'error');
+  }
+}
+
+async function handleResendOtpSubmit() {
+  if (!currentOtpChallenge) return;
+  const btn = $('btn-resend-otp');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i>Mengirim...';
+
+  const { ok, data } = await apiFetch('/api/auth/resend-otp', {
+    method: 'POST',
+    body: { otp_challenge: currentOtpChallenge }
+  });
+
+  if (ok && data.otp_challenge) {
+    currentOtpChallenge = data.otp_challenge;
+    showToast(data.message || 'Kode OTP baru telah dikirim.', 'success');
+    startOtpCountdown(600);
+    startResendCooldown(60);
+  } else {
     btn.disabled = false;
-    btn.innerHTML = '<i class="fas fa-user-plus mr-2"></i>Create Account';
+    btn.textContent = 'Kirim Ulang OTP';
+    showToast(data?.error || 'Gagal mengirim ulang OTP.', 'error');
+  }
+}
+
+async function handleForgotPasswordSubmit(e) {
+  e.preventDefault();
+  const idf = $('forgot-identifier').value.trim();
+  if (!idf) {
+    showToast('Masukkan email atau username Anda.', 'error');
+    return;
+  }
+  const btn = $('forgot-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i>Mengirim...';
+
+  const { ok, data } = await apiFetch('/api/auth/forgot-password', {
+    method: 'POST',
+    body: { identifier: idf }
+  });
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Kirim Kode Pemulihan';
+
+  if (ok && data.reset_challenge) {
+    currentResetChallenge = data.reset_challenge;
+    $('reset-masked-email').textContent = data.email || '';
+    $('reset-otp-input').value = '';
+    $('reset-new-password').value = '';
+    $('reset-confirm-password').value = '';
+    showAuthView('reset');
+    showToast(data.message || 'Kode OTP reset telah dikirim ke email.', 'info');
+  } else if (ok) {
+    showToast(data.message || 'Instruksi telah dikirim jika akun terdaftar.', 'info');
+    showAuthView('login');
+  } else {
+    showToast(data?.error || 'Gagal mengajukan reset password.', 'error');
+  }
+}
+
+async function handleResetPasswordSubmit(e) {
+  e.preventDefault();
+  const otp = $('reset-otp-input').value.trim();
+  const pass = $('reset-new-password').value;
+  const confirm = $('reset-confirm-password').value;
+
+  if (!otp || otp.length < 6) {
+    showToast('Masukkan 6 digit kode OTP.', 'error');
+    return;
+  }
+  if (!pass || pass.length < 6) {
+    showToast('Password baru minimal 6 karakter.', 'error');
+    return;
+  }
+  if (pass !== confirm) {
+    showToast('Konfirmasi password tidak cocok.', 'error');
+    return;
+  }
+
+  const btn = $('reset-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i>Menyimpan...';
+
+  const { ok, data } = await apiFetch('/api/auth/reset-password', {
+    method: 'POST',
+    body: {
+      reset_challenge: currentResetChallenge,
+      otp_code: otp,
+      new_password: pass
+    }
+  });
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fas fa-key mr-2"></i>Simpan Password Baru';
+
+  if (ok) {
+    showToast(data.message || 'Password berhasil diperbarui! Silakan login.', 'success');
+    showAuthView('login');
+    $('login-password').value = '';
+    $('login-username').value = '';
+  } else {
+    showToast(data?.error || 'Gagal mengatur ulang password.', 'error');
   }
 }
 

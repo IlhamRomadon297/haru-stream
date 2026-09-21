@@ -9,7 +9,7 @@
 const WORKER_URL = 'https://haru-stream.ilhamromadon220907.workers.dev';
 
 export async function onRequest(context) {
-  const { request, next } = context;
+  const { request, env, next } = context;
   const url = new URL(request.url);
 
   // If the request is for the API, Auth, Embed, Stream, or Download, proxy it to the Worker
@@ -23,9 +23,14 @@ export async function onRequest(context) {
   ) {
     const targetUrl = WORKER_URL + url.pathname + url.search;
 
+    const headers = new Headers(request.headers);
+    if (env && env.RESEND_API_KEY) {
+      headers.set('x-resend-api-key', env.RESEND_API_KEY);
+    }
+
     const newRequest = new Request(targetUrl, {
       method:  request.method,
-      headers: request.headers,
+      headers: headers,
       body:    ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
       redirect: 'follow',
     });

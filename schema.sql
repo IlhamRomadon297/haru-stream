@@ -150,3 +150,12 @@ CREATE INDEX IF NOT EXISTS idx_videos_drive_file_id ON videos(drive_file_id);
 CREATE INDEX IF NOT EXISTS idx_videos_title         ON videos(title);
 CREATE INDEX IF NOT EXISTS idx_videos_views         ON videos(views);
 CREATE INDEX IF NOT EXISTS idx_videos_created_at    ON videos(created_at);
+
+-- Compound Performance Indexes (Zero Full-Table Scan)
+CREATE INDEX IF NOT EXISTS idx_videos_user_views         ON videos(user_id, views DESC);
+CREATE INDEX IF NOT EXISTS idx_videos_user_created       ON videos(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_videos_user_title         ON videos(user_id, title ASC);
+CREATE INDEX IF NOT EXISTS idx_videos_user_folder_title  ON videos(user_id, folder_id, title ASC);
+CREATE INDEX IF NOT EXISTS idx_videos_user_drive_title   ON videos(user_id, drive_id, title ASC);
+CREATE INDEX IF NOT EXISTS idx_folders_user_drive        ON folders(user_id, drive_id);
+

@@ -41,6 +41,8 @@ JWT_EXPIRES_IN = "7d"
 CORS_ORIGIN    = "*"
 # Cron: auto-sync runs every 1 minute
 AUTO_SYNC_INTERVAL_MINUTES = "1"
+RESEND_FROM_EMAIL = "HaruStream Security <noreply@mail.harufilm.my.id>"
+ENABLE_2FA_LOGIN   = "false"
 
 # Development / Preview environment
 [env.development]
@@ -65,6 +67,9 @@ database_id   = "394035de-7e3c-42cc-b312-9b508a86c8c8"
 [env.production.vars]
 APP_NAME    = "HaruStream"
 CORS_ORIGIN = "https://haru-stream.pages.dev"
+RESEND_FROM_EMAIL = "HaruStream Security <noreply@mail.harufilm.my.id>"
+ENABLE_2FA_LOGIN   = "false"
+
 
 [[env.production.kv_namespaces]]
 binding = "STREAM_CACHE"

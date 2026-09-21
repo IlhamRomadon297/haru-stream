@@ -499,6 +499,93 @@ async function seedAdminAccount(env) {
   }
 }
 
+// ── AUTH HELPERS & STATISTIC CACHE INVALIDATION ─────────────
+
+function maskEmail(email) {
+  if (!email || !email.includes('@')) return '***@***.***';
+  const [user, domain] = email.split('@');
+  const visible = user.length <= 2 ? user[0] : user.slice(0, 2);
+  return `${visible}***@${domain}`;
+}
+
+function invalidateUserCaches(userId, env, ctx) {
+  if (!env || !env.STREAM_CACHE || !userId) return;
+  const p = Promise.all([
+    env.STREAM_CACHE.delete(`stats:${userId}`),
+    env.STREAM_CACHE.delete(`folders:${userId}`)
+  ]).catch(() => {});
+  if (ctx && ctx.waitUntil) ctx.waitUntil(p);
+}
+
+async function sendOtpEmail(env, { to, otpCode, clientIp, userAgent, subject }, request = null) {
+  const apiKey = env.RESEND_API_KEY || (request && request.headers ? request.headers.get('x-resend-api-key') : null);
+  if (!apiKey) {
+    console.warn('[HaruStream] RESEND_API_KEY not configured.');
+    return { success: false, error: 'RESEND_API_KEY not configured' };
+  }
+
+  const primaryFrom = env.RESEND_FROM_EMAIL || 'HaruStream Security <noreply@mail.harufilm.my.id>';
+  const fallbackFrom = 'HaruStream <onboarding@resend.dev>';
+
+  const html = `
+<div style="background-color:#0c0c1e;padding:40px 20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <div style="max-width:460px;margin:0 auto;background:#141428;border:1px solid rgba(99,102,241,0.25);border-radius:16px;padding:32px;box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="display:inline-block;width:44px;height:44px;border-radius:12px;background:rgba(99,102,241,0.15);line-height:44px;font-size:22px;">🎬</div>
+      <h2 style="color:#ffffff;margin:12px 0 4px 0;font-size:18px;font-weight:700;">HaruStream Security</h2>
+      <p style="color:#94a3b8;font-size:13px;margin:0;">Verifikasi Keamanan Akses Akun</p>
+    </div>
+    <div style="background:rgba(15,15,26,0.9);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;text-align:center;margin:24px 0;">
+      <div style="font-size:11px;font-weight:700;color:#818cf8;text-transform:uppercase;letter-spacing:2px;margin-bottom:8px;">KODE VERIFIKASI (OTP)</div>
+      <div style="font-size:36px;font-weight:800;color:#ffffff;letter-spacing:8px;font-family:monospace;">${otpCode}</div>
+      <div style="font-size:11px;color:#64748b;margin-top:8px;">Berlaku selama 10 menit</div>
+    </div>
+    <div style="font-size:12px;color:#64748b;line-height:1.6;border-top:1px solid rgba(255,255,255,0.05);padding-top:16px;">
+      <div>🌐 <b>IP Address:</b> ${clientIp}</div>
+      <div>💻 <b>Perangkat:</b> ${userAgent}</div>
+      <div style="margin-top:8px;color:#ef4444;font-size:11.5px;">⚠️ Jangan pernah memberikan kode ini kepada siapa pun.</div>
+    </div>
+  </div>
+</div>`;
+
+  const payload = {
+    from: primaryFrom,
+    to: [to],
+    subject: subject || 'HaruStream - Kode Verifikasi Keamanan',
+    html,
+    text: `Kode verifikasi HaruStream Anda adalah: ${otpCode}. Berlaku selama 10 menit.`
+  };
+
+  try {
+    let res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok && primaryFrom !== fallbackFrom) {
+      payload.from = fallbackFrom;
+      res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+    }
+
+    if (res.ok) return { success: true };
+    const errText = await res.text().catch(() => '');
+    return { success: false, error: errText };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 async function handleLogin(request, env) {
   const { username, password } = await request.json().catch(() => ({}));
   if (!username || !password) return errorResponse('Username and password are required.');
@@ -514,6 +601,36 @@ async function handleLogin(request, env) {
     if (!valid) return errorResponse('Invalid credentials.', 401);
 
     const jwtSecret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+
+    // 2FA OTP Check (if ENABLE_2FA_LOGIN is true and user has email configured)
+    const enable2FA = String(env.ENABLE_2FA_LOGIN || '').toLowerCase() === 'true';
+    if (enable2FA && user.email) {
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const challengeToken = await signJwt(
+        { type: 'otp_login', sub: user.id, username: user.username, role: user.role, email: user.email, otp: otpCode },
+        jwtSecret,
+        600 // 10 minutes
+      );
+
+      const clientIp = request.headers.get('cf-connecting-ip') || 'Unknown';
+      const userAgent = request.headers.get('user-agent') || 'Browser';
+
+      await sendOtpEmail(env, {
+        to: user.email,
+        otpCode,
+        clientIp,
+        userAgent,
+        subject: 'HaruStream - Kode Verifikasi Login (OTP)'
+      }, request);
+
+      return jsonResponse({
+        success: true,
+        requires_otp: true,
+        email: maskEmail(user.email),
+        otp_challenge: challengeToken
+      });
+    }
+
     const token = await signJwt(
       { sub: user.id, username: user.username, role: user.role },
       jwtSecret
@@ -528,6 +645,144 @@ async function handleLogin(request, env) {
     return errorResponse(`Login failed: ${e.message}`, 500);
   }
 }
+
+async function handleVerifyOtp(request, env) {
+  const { otp_code, otp_challenge } = await request.json().catch(() => ({}));
+  if (!otp_code || !otp_challenge) {
+    return errorResponse('Kode OTP dan token verifikasi diperlukan.', 400);
+  }
+
+  const jwtSecret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+  const payload = await verifyJwt(otp_challenge, jwtSecret);
+  if (!payload || payload.type !== 'otp_login') {
+    return errorResponse('Sesi verifikasi OTP telah kedaluwarsa atau tidak valid. Silakan login kembali.', 401);
+  }
+
+  if (String(payload.otp).trim() !== String(otp_code).trim()) {
+    return errorResponse('Kode OTP yang Anda masukkan salah.', 400);
+  }
+
+  const token = await signJwt(
+    { sub: payload.sub, username: payload.username, role: payload.role },
+    jwtSecret
+  );
+
+  return jsonResponse({
+    success: true,
+    token,
+    user: { id: payload.sub, username: payload.username, role: payload.role }
+  });
+}
+
+async function handleResendOtp(request, env) {
+  const { otp_challenge } = await request.json().catch(() => ({}));
+  if (!otp_challenge) return errorResponse('Token verifikasi diperlukan.', 400);
+
+  const jwtSecret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+  const payload = await verifyJwt(otp_challenge, jwtSecret);
+  if (!payload || !payload.email) {
+    return errorResponse('Sesi OTP telah kedaluwarsa. Silakan ulangi proses login.', 401);
+  }
+
+  const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
+  const newPayload = { ...payload, otp: newOtp };
+  delete newPayload.iat;
+  delete newPayload.exp;
+
+  const newChallenge = await signJwt(newPayload, jwtSecret, 600);
+  const clientIp = request.headers.get('cf-connecting-ip') || 'Unknown';
+  const userAgent = request.headers.get('user-agent') || 'Browser';
+
+  await sendOtpEmail(env, {
+    to: payload.email,
+    otpCode: newOtp,
+    clientIp,
+    userAgent,
+    subject: payload.type === 'password_reset' ? 'HaruStream - Kode Reset Password Baru' : 'HaruStream - Kode OTP Login Baru'
+  }, request);
+
+  return jsonResponse({
+    success: true,
+    otp_challenge: newChallenge,
+    message: 'Kode OTP baru telah dikirim ke email Anda.'
+  });
+}
+
+async function handleForgotPassword(request, env) {
+  const { identifier } = await request.json().catch(() => ({}));
+  if (!identifier) return errorResponse('Email atau Username wajib diisi.', 400);
+
+  const clean = String(identifier).trim();
+  const user = await env.DB.prepare(
+    'SELECT id, username, email FROM users WHERE username = ? OR LOWER(username) = LOWER(?) OR email = ? OR LOWER(email) = LOWER(?)'
+  ).bind(clean, clean.toLowerCase(), clean, clean.toLowerCase()).first();
+
+  // Anti-enumeration: kembalikan sukses meski user tidak ada
+  if (!user || !user.email) {
+    return jsonResponse({
+      success: true,
+      message: 'Jika akun terdaftar dengan email yang valid, instruksi reset password telah dikirim.'
+    });
+  }
+
+  const jwtSecret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+  const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+  const resetChallenge = await signJwt(
+    { type: 'password_reset', sub: user.id, email: user.email, username: user.username, otp: otpCode },
+    jwtSecret,
+    600 // 10 menit
+  );
+
+  const clientIp = request.headers.get('cf-connecting-ip') || 'Unknown';
+  const userAgent = request.headers.get('user-agent') || 'Browser';
+
+  await sendOtpEmail(env, {
+    to: user.email,
+    otpCode,
+    clientIp,
+    userAgent,
+    subject: 'HaruStream - Permintaan Reset Password Akun'
+  }, request);
+
+  return jsonResponse({
+    success: true,
+    email: maskEmail(user.email),
+    reset_challenge: resetChallenge,
+    message: 'Kode OTP reset password telah dikirim ke email Anda.'
+  });
+}
+
+async function handleResetPassword(request, env) {
+  const { reset_challenge, otp_code, new_password } = await request.json().catch(() => ({}));
+  if (!reset_challenge || !otp_code || !new_password) {
+    return errorResponse('Semua kolom (token, kode OTP, dan password baru) wajib diisi.', 400);
+  }
+
+  if (String(new_password).length < 6) {
+    return errorResponse('Password baru minimal harus 6 karakter.', 400);
+  }
+
+  const jwtSecret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+  const payload = await verifyJwt(reset_challenge, jwtSecret);
+  if (!payload || payload.type !== 'password_reset') {
+    return errorResponse('Sesi reset password telah kedaluwarsa. Silakan ajukan permohonan baru.', 401);
+  }
+
+  if (String(payload.otp).trim() !== String(otp_code).trim()) {
+    return errorResponse('Kode OTP yang Anda masukkan salah.', 400);
+  }
+
+  const { hash } = await hashPassword(new_password);
+  await env.DB.prepare(
+    "UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?"
+  ).bind(hash, payload.sub).run();
+
+  return jsonResponse({
+    success: true,
+    message: 'Password Anda berhasil diperbarui! Silakan masuk dengan password baru.'
+  });
+}
+
 
 // ── DRIVES ──────────────────────────────────────────────────
 
@@ -1204,6 +1459,7 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
     `UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).bind(totalBytes, 8.7 * 1024 * 1024 * 1024 * 1024, drive.id).run().catch(() => {});
 
+  invalidateUserCaches(drive.user_id, env);
   return { synced: totalSynced, removed: totalRemoved };
 }
 
@@ -1623,6 +1879,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
     `UPDATE drives SET quota_used = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).bind(totalBytes, drive.id).run().catch(() => {});
 
+  invalidateUserCaches(drive.user_id, env);
   return { synced: validFileIds.size, removed: deleteStmts.length };
 }
 
@@ -1801,6 +2058,7 @@ async function performDriveSync(drive, env, forceFullScan = false) {
       .bind(quota.used, quota.total, drive.id).run();
   } catch (e) {}
 
+  invalidateUserCaches(drive.user_id, env);
   return { synced: totalSynced, removed: totalRemoved };
 }
 
@@ -1911,27 +2169,40 @@ async function handleListMedia(request, env, user) {
        LIMIT ? OFFSET ?`
     ).bind(...bindings, limit, offset).all();
 
-    // Fetch folders with drive_id and video_count
+    // Fetch folders with drive_id and video_count (cached in KV to save D1 join)
     let folders = [];
-    try {
-      const foldersRes = await env.DB.prepare(
-        `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order,
-                COUNT(v.id) as video_count
-         FROM folders f
-         LEFT JOIN videos v ON v.folder_id = f.id
-         WHERE f.user_id = ?
-         GROUP BY f.id
-         ORDER BY f.drive_id, f.name`
-      ).bind(user.sub).all();
-      folders = foldersRes.results || [];
-    } catch (_) {
+    const folderCacheKey = `folders:${user.sub}`;
+    if (env.STREAM_CACHE) {
       try {
-        const fallback = await env.DB.prepare(
-          `SELECT id, parent_id, name, color, icon, sort_order FROM folders WHERE user_id = ? ORDER BY sort_order, name`
-        ).bind(user.sub).all();
-        folders = fallback.results || [];
+        folders = await env.STREAM_CACHE.get(folderCacheKey, 'json');
       } catch (_) {}
     }
+
+    if (!folders || !Array.isArray(folders)) {
+      try {
+        const foldersRes = await env.DB.prepare(
+          `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order,
+                  COUNT(v.id) as video_count
+           FROM folders f
+           LEFT JOIN videos v ON v.folder_id = f.id
+           WHERE f.user_id = ?
+           GROUP BY f.id
+           ORDER BY f.drive_id, f.name`
+        ).bind(user.sub).all();
+        folders = foldersRes.results || [];
+        if (env.STREAM_CACHE) {
+          env.STREAM_CACHE.put(folderCacheKey, JSON.stringify(folders), { expirationTtl: 600 }).catch(() => {});
+        }
+      } catch (_) {
+        try {
+          const fallback = await env.DB.prepare(
+            `SELECT id, parent_id, name, color, icon, sort_order FROM folders WHERE user_id = ? ORDER BY sort_order, name`
+          ).bind(user.sub).all();
+          folders = fallback.results || [];
+        } catch (_) {}
+      }
+    }
+
 
     return jsonResponse({
       success: true,
@@ -1961,6 +2232,7 @@ async function handleCreateFolder(request, env, user) {
     `INSERT INTO folders (user_id, parent_id, name, color, icon) VALUES (?, ?, ?, ?, ?)`
   ).bind(user.sub, parent_id || null, name, color || '#6366f1', icon || 'folder').run();
 
+  invalidateUserCaches(user.sub, env);
   return jsonResponse({ success: true, folder_id: result.meta?.last_row_id }, 201);
 }
 
@@ -1980,6 +2252,7 @@ async function handleUpdateFolder(folderId, request, env, user) {
     `UPDATE folders SET name = ?, parent_id = ?, color = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
   ).bind(name, parent_id || null, color || '#6366f1', folderId, user.sub).run();
 
+  invalidateUserCaches(user.sub, env);
   return jsonResponse({ success: true });
 }
 
@@ -2110,6 +2383,8 @@ async function handleDeleteFolder(folderId, request, env, user, ctx) {
     `DELETE FROM folders WHERE id IN (${folderPh}) AND user_id = ?`
   ).bind(...allFolderIds, user.sub).run();
 
+  invalidateUserCaches(user.sub, env, ctx);
+
   return jsonResponse({
     success: true,
     deleted_folders: allFolderIds.length,
@@ -2148,6 +2423,8 @@ async function handleMoveVideo(request, env, user, ctx) {
     invalidateVideoCache(row.id, row.drive_file_id, env, ctx);
   }
 
+  invalidateUserCaches(user.sub, env, ctx);
+
   return jsonResponse({ success: true, moved: video_ids.length });
 }
 
@@ -2174,6 +2451,8 @@ async function handleDeleteVideos(request, env, user, ctx) {
   for (const row of fileIdsForCache) {
     invalidateVideoCache(row.id, row.drive_file_id, env, ctx);
   }
+
+  invalidateUserCaches(user.sub, env, ctx);
 
   return jsonResponse({ success: true, deleted: video_ids.length });
 }
@@ -2413,12 +2692,20 @@ async function getCachedVideoMetadata(fileId, env, ctx) {
   }
 
   // 2. Cache MISS: Query D1 (hanya terjadi 1x per video per 7 hari)
-  const video = await env.DB.prepare(
-    `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
-            d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch,
-            d.transfer_url, d.transfer_expires_at, d.transfer_download_count, d.id as drive_row_id
-     FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ? OR v.id = ?`
-  ).bind(fileId, parseInt(fileId) || 0).first();
+  const isNum = /^\d+$/.test(String(fileId));
+  const video = isNum
+    ? await env.DB.prepare(
+        `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
+                d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch,
+                d.transfer_url, d.transfer_expires_at, d.transfer_download_count, d.id as drive_row_id
+         FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.id = ?`
+      ).bind(parseInt(fileId)).first()
+    : await env.DB.prepare(
+        `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
+                d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch,
+                d.transfer_url, d.transfer_expires_at, d.transfer_download_count, d.id as drive_row_id
+         FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ?`
+      ).bind(fileId).first();
 
   if (!video) return { video: null, fromCache: false };
 
@@ -2472,9 +2759,11 @@ async function invalidateVideoCache(videoId, driveFileId, env, ctx) {
 async function handleEmbed(fileId, request, env, ctx) {
   // Increment view count (fire-and-forget, sampled 1-in-5 to reduce D1 writes)
   if (Math.random() < 0.2) {
-    env.DB.prepare(
-      `UPDATE videos SET views = COALESCE(views, 0) + 5, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-    ).bind(fileId, parseInt(fileId) || 0).run().catch(() => {});
+    const isNum = /^\d+$/.test(String(fileId));
+    const stmt = isNum
+      ? env.DB.prepare(`UPDATE videos SET views = COALESCE(views, 0) + 5, updated_at = datetime('now') WHERE id = ?`).bind(parseInt(fileId))
+      : env.DB.prepare(`UPDATE videos SET views = COALESCE(views, 0) + 5, updated_at = datetime('now') WHERE drive_file_id = ?`).bind(fileId);
+    stmt.run().catch(() => {});
   }
 
   // Find the drive credentials via Smart KV Cache (D1 fallback on cache miss)
@@ -2955,6 +3244,14 @@ async function handleGetVideo(videoId, env, user) {
 // ── STATS ────────────────────────────────────────────────────
 
 async function handleStats(env, user) {
+  const cacheKey = `stats:${user.sub}`;
+  if (env.STREAM_CACHE) {
+    try {
+      const cached = await env.STREAM_CACHE.get(cacheKey, 'json');
+      if (cached) return jsonResponse({ success: true, ...cached });
+    } catch (_) {}
+  }
+
   const stats = await env.DB.prepare(`
     SELECT
       COALESCE(SUM(views), 0)     as total_views,
@@ -2977,8 +3274,7 @@ async function handleStats(env, user) {
     'SELECT COUNT(*) as cnt FROM drives WHERE user_id = ? AND is_active = 1'
   ).bind(user.sub).first();
 
-  return jsonResponse({
-    success: true,
+  const payload = {
     stats: {
       total_views:     stats?.total_views     || 0,
       total_downloads: stats?.total_downloads || 0,
@@ -2986,8 +3282,17 @@ async function handleStats(env, user) {
       total_videos:    stats?.total_videos    || 0,
       total_drives:    driveCount?.cnt        || 0,
     },
-    top_videos:      topVideos.results,
-    recent_activity: recentActivity.results,
+    top_videos:      topVideos.results || [],
+    recent_activity: recentActivity.results || [],
+  };
+
+  if (env.STREAM_CACHE) {
+    env.STREAM_CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: 300 }).catch(() => {});
+  }
+
+  return jsonResponse({
+    success: true,
+    ...payload
   });
 }
 
@@ -3755,16 +4060,17 @@ async function handleTrack(request, env, ctx) {
     const event = body.event;
     if (!targetId) return new Response('', { status: 204 });
 
+    const isNum = /^\d+$/.test(String(targetId));
     if (event === 'download') {
-      const p = env.DB.prepare(
-        `UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-      ).bind(targetId, parseInt(targetId) || 0).run();
+      const p = isNum
+        ? env.DB.prepare(`UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE id = ?`).bind(parseInt(targetId)).run()
+        : env.DB.prepare(`UPDATE videos SET downloads = COALESCE(downloads, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ?`).bind(targetId).run();
       if (ctx && ctx.waitUntil) ctx.waitUntil(p);
       else await p;
     } else if (event === 'view' || event === 'play' || event === 'complete') {
-      const p = env.DB.prepare(
-        `UPDATE videos SET views = COALESCE(views, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ? OR id = ?`
-      ).bind(targetId, parseInt(targetId) || 0).run();
+      const p = isNum
+        ? env.DB.prepare(`UPDATE videos SET views = COALESCE(views, 0) + 1, updated_at = datetime('now') WHERE id = ?`).bind(parseInt(targetId)).run()
+        : env.DB.prepare(`UPDATE videos SET views = COALESCE(views, 0) + 1, updated_at = datetime('now') WHERE drive_file_id = ?`).bind(targetId).run();
       if (ctx && ctx.waitUntil) ctx.waitUntil(p);
       else await p;
     }
@@ -3975,6 +4281,27 @@ export default {
       addCorsHeaders(res, corsHeaders);
       return res;
     }
+    if (method === 'POST' && path === '/api/auth/verify-otp') {
+      const res = await handleVerifyOtp(request, env);
+      addCorsHeaders(res, corsHeaders);
+      return res;
+    }
+    if (method === 'POST' && path === '/api/auth/resend-otp') {
+      const res = await handleResendOtp(request, env);
+      addCorsHeaders(res, corsHeaders);
+      return res;
+    }
+    if (method === 'POST' && path === '/api/auth/forgot-password') {
+      const res = await handleForgotPassword(request, env);
+      addCorsHeaders(res, corsHeaders);
+      return res;
+    }
+    if (method === 'POST' && path === '/api/auth/reset-password') {
+      const res = await handleResetPassword(request, env);
+      addCorsHeaders(res, corsHeaders);
+      return res;
+    }
+
 
     // ── Protected routes ────────────────────────────────────
     const user = await authenticate(request, env);
