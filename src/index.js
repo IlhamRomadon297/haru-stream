@@ -602,9 +602,16 @@ async function handleLogin(request, env) {
 
     const jwtSecret = env.JWT_SECRET || 'harustream-default-secret-change-me';
 
-    // 2FA OTP Check (if ENABLE_2FA_LOGIN is true and user has email configured)
-    const enable2FA = String(env.ENABLE_2FA_LOGIN || '').toLowerCase() === 'true';
-    if (enable2FA && user.email) {
+    // 2FA OTP Check:
+    // Aktif jika:
+    // 1. User memiliki email yang valid, DAN
+    // 2. two_factor_enabled bernilai 1 (default) atau true, DAN
+    // 3. Flag global ENABLE_2FA_LOGIN tidak bernilai false
+    const global2FA = String(env.ENABLE_2FA_LOGIN ?? 'true').toLowerCase() !== 'false';
+    const user2FA = user.two_factor_enabled === null || user.two_factor_enabled === undefined || Number(user.two_factor_enabled) === 1;
+    const hasEmail = Boolean(user.email && String(user.email).trim());
+
+    if (global2FA && user2FA && hasEmail) {
       const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
       const challengeToken = await signJwt(
         { type: 'otp_login', sub: user.id, username: user.username, role: user.role, email: user.email, otp: otpCode },
@@ -615,13 +622,18 @@ async function handleLogin(request, env) {
       const clientIp = request.headers.get('cf-connecting-ip') || 'Unknown';
       const userAgent = request.headers.get('user-agent') || 'Browser';
 
-      await sendOtpEmail(env, {
+      const emailRes = await sendOtpEmail(env, {
         to: user.email,
         otpCode,
         clientIp,
         userAgent,
         subject: 'HaruStream - Kode Verifikasi Login (OTP)'
       }, request);
+
+      if (!emailRes.success) {
+        console.error('[HaruStream] Gagal kirim OTP login:', emailRes.error);
+        return errorResponse(`Gagal mengirim kode OTP ke email ${maskEmail(user.email)}: ${emailRes.error || 'Periksa konfigurasi RESEND_API_KEY'}`, 500);
+      }
 
       return jsonResponse({
         success: true,
@@ -693,13 +705,17 @@ async function handleResendOtp(request, env) {
   const clientIp = request.headers.get('cf-connecting-ip') || 'Unknown';
   const userAgent = request.headers.get('user-agent') || 'Browser';
 
-  await sendOtpEmail(env, {
+  const emailRes = await sendOtpEmail(env, {
     to: payload.email,
     otpCode: newOtp,
     clientIp,
     userAgent,
     subject: payload.type === 'password_reset' ? 'HaruStream - Kode Reset Password Baru' : 'HaruStream - Kode OTP Login Baru'
   }, request);
+
+  if (!emailRes.success) {
+    return errorResponse(`Gagal mengirim ulang kode OTP: ${emailRes.error || 'Periksa konfigurasi RESEND_API_KEY'}`, 500);
+  }
 
   return jsonResponse({
     success: true,
@@ -783,6 +799,46 @@ async function handleResetPassword(request, env) {
   });
 }
 
+async function handleUpdateProfile(request, env, user) {
+  const body = await request.json().catch(() => ({}));
+  const email = body.email !== undefined ? (String(body.email || '').trim() || null) : undefined;
+  const twoFactor = body.two_factor_enabled !== undefined ? (body.two_factor_enabled ? 1 : 0) : undefined;
+
+  if (email !== undefined && email !== null) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return errorResponse('Format email tidak valid.', 400);
+    }
+    const existing = await env.DB.prepare('SELECT id FROM users WHERE email = ? AND id != ?').bind(email, user.sub).first();
+    if (existing) {
+      return errorResponse('Email ini sudah digunakan oleh akun lain.', 400);
+    }
+  }
+
+  const updates = [];
+  const bindings = [];
+  if (email !== undefined) {
+    updates.push('email = ?');
+    bindings.push(email);
+  }
+  if (twoFactor !== undefined) {
+    updates.push('two_factor_enabled = ?');
+    bindings.push(twoFactor);
+  }
+
+  if (updates.length > 0) {
+    updates.push("updated_at = datetime('now')");
+    bindings.push(user.sub);
+    await env.DB.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).bind(...bindings).run();
+  }
+
+  const updatedUser = await env.DB.prepare('SELECT id, username, email, role, two_factor_enabled, avatar_url FROM users WHERE id = ?').bind(user.sub).first();
+  return jsonResponse({
+    success: true,
+    message: 'Pengaturan akun berhasil disimpan.',
+    user: updatedUser
+  });
+}
 
 // ── DRIVES ──────────────────────────────────────────────────
 
@@ -4387,7 +4443,23 @@ export default {
 
     // Me
     else if (path === '/api/auth/me' && method === 'GET') {
-      res = jsonResponse({ success: true, user: { id: user.sub, username: user.username, role: user.role } });
+      const dbUser = await env.DB.prepare('SELECT id, username, email, role, two_factor_enabled, avatar_url FROM users WHERE id = ?').bind(user.sub).first();
+      res = jsonResponse({
+        success: true,
+        user: {
+          id: user.sub,
+          username: user.username,
+          role: user.role,
+          email: dbUser?.email || null,
+          two_factor_enabled: dbUser?.two_factor_enabled === null || dbUser?.two_factor_enabled === undefined ? 1 : dbUser.two_factor_enabled,
+          avatar_url: dbUser?.avatar_url || user.avatar_url
+        }
+      });
+    }
+
+    // Profile update
+    else if (path === '/api/auth/profile' && (method === 'PUT' || method === 'POST')) {
+      res = await handleUpdateProfile(request, env, user);
     }
 
     // Export Telegra.ph

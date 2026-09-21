@@ -1137,6 +1137,49 @@
           </button>
         </div>
 
+        <!-- Account & Security Settings Card -->
+        <div class="glass-card rounded-2xl p-5 mb-5 border border-indigo-500/20">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(99,102,241,0.15)">
+                <i class="fas fa-shield-alt text-indigo-400"></i>
+              </div>
+              <div>
+                <div class="text-sm font-semibold text-white flex items-center gap-2">
+                  <span>Keamanan Akun & 2FA OTP</span>
+                  <span id="badge-2fa-status" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold uppercase tracking-wider">Aktif</span>
+                </div>
+                <div class="text-xs" style="color:#64748b">Kelola email akun untuk pengiriman kode OTP login dan pemulihan kata sandi</div>
+              </div>
+            </div>
+            <!-- 2FA Toggle -->
+            <div class="flex items-center gap-2.5">
+              <span class="text-xs font-semibold" style="color:#94a3b8">2FA OTP:</span>
+              <label class="toggle-switch" title="Aktifkan atau Nonaktifkan verifikasi 2FA OTP saat login">
+                <input type="checkbox" id="profile-2fa-enabled" onchange="saveProfileSecurity()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">EMAIL AKUN (OTP & RESET PASSWORD)</label>
+              <div class="flex gap-2">
+                <input type="email" id="profile-email-input" class="form-input text-sm flex-1" placeholder="Masukkan email akun Anda" />
+                <button type="button" id="btn-save-profile" onclick="saveProfileSecurity()" class="btn-gradient px-4 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 flex-shrink-0">
+                  <i class="fas fa-save"></i>Simpan
+                </button>
+              </div>
+            </div>
+            <div class="flex items-center">
+              <div class="text-xs p-3 rounded-xl w-full" style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.18);color:#c7d2fe">
+                <i class="fas fa-info-circle mr-1 text-indigo-400"></i>
+                Jika email belum diisi, proteksi 2FA akan dinonaktifkan secara otomatis. Begitu email terisi dan 2FA aktif, kode OTP 6-digit wajib diverifikasi saat login.
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Auto-Sync Settings Card -->
         <div class="glass-card rounded-2xl p-5 mb-5">
           <div class="flex items-center justify-between mb-4">
@@ -2359,9 +2402,59 @@ async function initApp() {
     APP.user = data.user;
     $('sidebar-username').textContent = data.user.username;
     $('sidebar-role').textContent = data.user.role.toUpperCase();
+    if ($('profile-email-input')) $('profile-email-input').value = data.user.email || '';
+    if ($('profile-2fa-enabled')) {
+      const is2Fa = data.user.two_factor_enabled !== 0;
+      $('profile-2fa-enabled').checked = is2Fa;
+      const b = $('badge-2fa-status');
+      if (b) {
+        b.textContent = is2Fa && data.user.email ? 'Aktif' : 'Nonaktif';
+        b.className = is2Fa && data.user.email 
+          ? 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold uppercase tracking-wider'
+          : 'text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold uppercase tracking-wider';
+      }
+    }
   }
   showView('dashboard');
   loadDrives();
+}
+
+async function saveProfileSecurity() {
+  const emailInput = $('profile-email-input');
+  const toggle2Fa = $('profile-2fa-enabled');
+  const email = (emailInput?.value || '').trim();
+  const twoFactor = toggle2Fa ? toggle2Fa.checked : true;
+  const btn = $('btn-save-profile');
+
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-circle-notch fa-spin mr-1"></i>Menyimpan...';
+  }
+
+  const { ok, data } = await apiFetch('/api/auth/profile', {
+    method: 'PUT',
+    body: { email: email || null, two_factor_enabled: twoFactor }
+  });
+
+  if (btn) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-save mr-1"></i>Simpan';
+  }
+
+  if (ok && data.user) {
+    APP.user = { ...APP.user, ...data.user };
+    const b = $('badge-2fa-status');
+    const is2Fa = data.user.two_factor_enabled !== 0 && Boolean(data.user.email);
+    if (b) {
+      b.textContent = is2Fa ? 'Aktif' : 'Nonaktif';
+      b.className = is2Fa 
+        ? 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold uppercase tracking-wider'
+        : 'text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold uppercase tracking-wider';
+    }
+    showToast(data.message || 'Pengaturan akun & 2FA berhasil disimpan!', 'success');
+  } else {
+    showToast(data?.error || 'Gagal menyimpan pengaturan akun.', 'error');
+  }
 }
 
 // Auto-login if token exists

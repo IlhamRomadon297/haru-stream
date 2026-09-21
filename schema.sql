@@ -11,11 +11,12 @@ CREATE TABLE IF NOT EXISTS users (
     id            INTEGER  PRIMARY KEY AUTOINCREMENT,
     username      TEXT     NOT NULL UNIQUE,
     password_hash TEXT     NOT NULL,
-    email         TEXT     UNIQUE,
-    role          TEXT     NOT NULL DEFAULT 'user',
-    avatar_url    TEXT,
-    created_at    DATETIME NOT NULL DEFAULT (datetime('now')),
-    updated_at    DATETIME NOT NULL DEFAULT (datetime('now'))
+    email              TEXT     UNIQUE,
+    role               TEXT     NOT NULL DEFAULT 'user',
+    two_factor_enabled INTEGER  NOT NULL DEFAULT 1,
+    avatar_url         TEXT,
+    created_at         DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at         DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ============================================================
