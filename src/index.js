@@ -1089,7 +1089,7 @@ async function handleUpdateDrive(driveId, request, env, user) {
   const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?').bind(driveId, user.sub).first();
   if (!drive) return errorResponse('Drive not found.', 404);
 
-  const { drive_name, transfer_sid, client_id, client_secret, refresh_token, hf_token } = body;
+  const { drive_name, transfer_sid, client_id, client_secret, refresh_token, hf_token, hf_repo_id, hf_branch } = body;
   const updates = [];
   const params = [];
 
@@ -1165,10 +1165,33 @@ async function handleUpdateDrive(driveId, request, env, user) {
     params.push(cleanSid);
   }
 
-  // ── HF Token update ───────────────────────────────────────
-  if (drive.provider_type === 'huggingface' && typeof hf_token !== 'undefined') {
-    updates.push('hf_token = ?');
-    params.push(hf_token ? hf_token.trim() : null);
+  // ── HF Credentials Re-authorization ───────────────────────
+  if (drive.provider_type === 'huggingface') {
+    if (typeof hf_token !== 'undefined') {
+      const cleanHfToken = hf_token && hf_token.trim() ? hf_token.trim() : null;
+      if (cleanHfToken) {
+        try {
+          const testResp = await fetch('https://huggingface.co/api/whoami-v2', {
+            headers: { Authorization: `Bearer ${cleanHfToken}` }
+          });
+          if (!testResp.ok) {
+            return errorResponse(`Validasi Hugging Face token gagal (HTTP ${testResp.status}). Pastikan token benar.`);
+          }
+        } catch (err) {
+          return errorResponse(`Gagal memvalidasi token ke Hugging Face: ${err.message}`);
+        }
+      }
+      updates.push('hf_token = ?');
+      params.push(cleanHfToken);
+    }
+    if (hf_repo_id && hf_repo_id.trim()) {
+      updates.push('hf_repo_id = ?');
+      params.push(hf_repo_id.trim());
+    }
+    if (hf_branch && hf_branch.trim()) {
+      updates.push('hf_branch = ?');
+      params.push(hf_branch.trim());
+    }
   }
 
   if (!updates.length) return errorResponse('No fields to update.');
@@ -2226,19 +2249,22 @@ async function handleListMedia(request, env, user) {
        LIMIT ? OFFSET ?`
     ).bind(...bindings, limit, offset).all();
 
-    // Fetch folders with drive_id and video_count (cached in KV to save D1 join)
+    // Fetch folders with drive_id, created_at and video_count (cached in KV to save D1 join)
     let folders = [];
     const folderCacheKey = `folders:${user.sub}`;
     if (env.STREAM_CACHE) {
       try {
-        folders = await env.STREAM_CACHE.get(folderCacheKey, 'json');
+        const cached = await env.STREAM_CACHE.get(folderCacheKey, 'json');
+        if (Array.isArray(cached) && (cached.length === 0 || cached[0].created_at !== undefined)) {
+          folders = cached;
+        }
       } catch (_) {}
     }
 
-    if (!folders || !Array.isArray(folders)) {
+    if (!folders || !Array.isArray(folders) || (folders.length > 0 && folders[0].created_at === undefined)) {
       try {
         const foldersRes = await env.DB.prepare(
-          `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order,
+          `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order, f.created_at,
                   COUNT(v.id) as video_count
            FROM folders f
            LEFT JOIN videos v ON v.folder_id = f.id
@@ -2253,7 +2279,7 @@ async function handleListMedia(request, env, user) {
       } catch (_) {
         try {
           const fallback = await env.DB.prepare(
-            `SELECT id, parent_id, name, color, icon, sort_order FROM folders WHERE user_id = ? ORDER BY sort_order, name`
+            `SELECT id, parent_id, name, color, icon, sort_order, created_at FROM folders WHERE user_id = ? ORDER BY sort_order, name`
           ).bind(user.sub).all();
           folders = fallback.results || [];
         } catch (_) {}
@@ -2295,22 +2321,56 @@ async function handleCreateFolder(request, env, user) {
 
 async function handleUpdateFolder(folderId, request, env, user) {
   const { name, parent_id, color } = await request.json().catch(() => ({}));
-  if (!name) return errorResponse('Folder name is required.');
+  if (!name || !name.trim()) return errorResponse('Folder name is required.');
+  const newName = name.trim();
 
-  const folder = await env.DB.prepare('SELECT id FROM folders WHERE id = ? AND user_id = ?')
-    .bind(folderId, user.sub).first();
+  const folder = await env.DB.prepare(
+    `SELECT f.*, d.provider_type, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at
+     FROM folders f
+     LEFT JOIN drives d ON d.id = f.drive_id
+     WHERE f.id = ? AND f.user_id = ?`
+  ).bind(folderId, user.sub).first();
   if (!folder) return errorResponse('Folder not found.', 404);
 
-  if (parent_id && parent_id === folderId) {
+  if (parent_id && Number(parent_id) === Number(folderId)) {
     return errorResponse('Folder cannot be its own parent.');
   }
 
+  // 1. Jika folder berasal dari Google Drive, rename juga di Google Drive fisik via API
+  let cloudRenamed = false;
+  if (folder.provider_type === 'gdrive' && folder.gdrive_folder_id && folder.refresh_token && folder.name !== newName) {
+    try {
+      const accessToken = await getAccessToken(folder, env.DB, false, env);
+      const patchResp = await fetch(`${GOOGLE_DRIVE_API}/files/${encodeURIComponent(folder.gdrive_folder_id)}?supportsAllDrives=true`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: newName })
+      });
+      if (patchResp.ok) {
+        cloudRenamed = true;
+      } else {
+        console.warn(`[HaruStream] GDrive rename API status: ${patchResp.status}`);
+      }
+    } catch (err) {
+      console.warn(`[HaruStream] GDrive rename API error: ${err.message}`);
+    }
+  }
+
+  // 2. Simpan nama baru ke D1
   await env.DB.prepare(
     `UPDATE folders SET name = ?, parent_id = ?, color = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
-  ).bind(name, parent_id || null, color || '#6366f1', folderId, user.sub).run();
+  ).bind(newName, parent_id || null, color || '#6366f1', folderId, user.sub).run();
 
   invalidateUserCaches(user.sub, env);
-  return jsonResponse({ success: true });
+  return jsonResponse({
+    success: true,
+    message: cloudRenamed 
+      ? 'Folder di HaruStream dan Google Drive berhasil direname!' 
+      : 'Folder berhasil diperbarui!'
+  });
 }
 
 async function handleDeleteFolder(folderId, request, env, user, ctx) {

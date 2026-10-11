@@ -1007,23 +1007,31 @@
                   <button type="button" id="btn-folder-sort" onclick="toggleFolderSortMenu(event)" class="w-6 h-6 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-300 hover:bg-white/5 transition-all text-xs" title="Urutkan Folder">
                     <i class="fas fa-arrow-down-a-z text-[11px]" id="folder-sort-icon"></i>
                   </button>
-                  <div id="folder-sort-dropdown" class="hidden absolute right-0 mt-1 w-44 rounded-xl shadow-2xl py-1 text-xs z-50 border border-indigo-500/25" style="background:#141428;box-shadow:0 12px 32px rgba(0,0,0,0.85)">
+                  <div id="folder-sort-dropdown" class="hidden absolute right-0 mt-1 w-48 rounded-xl shadow-2xl py-1 text-xs z-50 border border-indigo-500/25" style="background:#141428;box-shadow:0 12px 32px rgba(0,0,0,0.85)">
                     <div class="px-3 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider border-b border-white/5">Urutkan Folder</div>
-                    <button type="button" onclick="setFolderSort('name', 'asc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                    <button type="button" onclick="setFolderSort('name', 'asc', 'Nama (A-Z)', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
                       <span class="flex items-center gap-2"><i class="fas fa-arrow-down-a-z text-indigo-400 text-[10px]"></i>Nama (A-Z)</span>
                       <i class="fas fa-check text-[10px] text-indigo-400" id="sort-check-name-asc"></i>
                     </button>
-                    <button type="button" onclick="setFolderSort('name', 'desc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                    <button type="button" onclick="setFolderSort('name', 'desc', 'Nama (Z-A)', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
                       <span class="flex items-center gap-2"><i class="fas fa-arrow-down-z-a text-indigo-400 text-[10px]"></i>Nama (Z-A)</span>
                       <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-name-desc"></i>
                     </button>
-                    <button type="button" onclick="setFolderSort('date', 'desc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                    <button type="button" onclick="setFolderSort('date', 'desc', 'Tanggal (Terbaru)', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
                       <span class="flex items-center gap-2"><i class="fas fa-clock text-indigo-400 text-[10px]"></i>Terbaru (Date)</span>
                       <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-date-desc"></i>
                     </button>
-                    <button type="button" onclick="setFolderSort('date', 'asc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                    <button type="button" onclick="setFolderSort('date', 'asc', 'Tanggal (Terlama)', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
                       <span class="flex items-center gap-2"><i class="fas fa-history text-indigo-400 text-[10px]"></i>Terlama (Date)</span>
                       <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-date-asc"></i>
+                    </button>
+                    <button type="button" onclick="setFolderSort('count', 'desc', 'Jumlah Video (Terbanyak)', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                      <span class="flex items-center gap-2"><i class="fas fa-film text-indigo-400 text-[10px]"></i>Video (Terbanyak)</span>
+                      <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-count-desc"></i>
+                    </button>
+                    <button type="button" onclick="setFolderSort('count', 'asc', 'Jumlah Video (Tersedikit)', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                      <span class="flex items-center gap-2"><i class="fas fa-video text-indigo-400 text-[10px]"></i>Video (Tersedikit)</span>
+                      <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-count-asc"></i>
                     </button>
                   </div>
                 </div>
@@ -1504,6 +1512,76 @@
   </div>
 </div>
 
+<!-- Re-authorize Hugging Face Modal -->
+<div id="modal-reauth-hf" class="modal-overlay hidden">
+  <div class="modal-box w-full max-w-md mx-3 p-5 sm:p-6" style="border:1px solid rgba(251,191,36,0.3);box-shadow:0 20px 60px rgba(0,0,0,0.8), 0 0 30px rgba(251,191,36,0.15)">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(251,191,36,0.15)">
+          <span style="font-size:20px;line-height:1">🤗</span>
+        </div>
+        <div>
+          <h3 class="font-bold text-white text-sm sm:text-base">Re-authorize Hugging Face</h3>
+          <p class="text-xs text-slate-400 mt-0.5">Storage: <strong id="reauth-hf-drive-name" class="text-yellow-300"></strong></p>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-reauth-hf')" class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 transition-all">
+        <i class="fas fa-times text-sm"></i>
+      </button>
+    </div>
+
+    <div class="rounded-xl p-3 mb-4 text-xs" style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.2);color:#fbbf24">
+      <i class="fas fa-shield-alt mr-1.5"></i>
+      <strong>Perbarui Access Token / Konfigurasi.</strong> Semua file dan video ID yang telah terindeks tetap aman tanpa perubahan.
+    </div>
+
+    <form onsubmit="submitReauthorizeHf(event)" class="space-y-4">
+      <input type="hidden" id="reauth-hf-drive-id" value="">
+
+      <div>
+        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Repo Dataset ID (format: username/repo-name)</label>
+        <input id="reauth-hf-repo-id" type="text" placeholder="e.g. username/my-dataset" required
+          class="w-full px-3 py-2 rounded-xl text-xs font-mono" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Branch (default: main)</label>
+        <input id="reauth-hf-branch" type="text" placeholder="main" value="main"
+          class="w-full px-3 py-2 rounded-xl text-xs font-mono" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
+      </div>
+
+      <div>
+        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">
+          Hugging Face Access Token (User Access Token)
+        </label>
+        <div class="relative">
+          <input id="reauth-hf-token" type="password" placeholder="hf_... (opsional untuk repo publik, wajib untuk repo privat)"
+            class="w-full pl-3 pr-10 py-2 rounded-xl text-xs font-mono" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
+          <button type="button" onclick="togglePasswordVisibility('reauth-hf-token', this)" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs">
+            <i class="fas fa-eye"></i>
+          </button>
+        </div>
+        <p class="text-[11px] mt-1.5 text-slate-500">
+          <i class="fas fa-info-circle mr-1"></i>
+          Dapatkan token di <a href="https://huggingface.co/settings/tokens" target="_blank" class="text-indigo-400 hover:underline">Hugging Face Settings &gt; Tokens</a>.
+        </p>
+      </div>
+
+      <div class="flex justify-end gap-2.5 pt-3 border-t border-white/5">
+        <button type="button" onclick="closeModal('modal-reauth-hf')"
+          class="px-4 py-2 rounded-xl text-xs font-semibold" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+          Batal
+        </button>
+        <button type="submit" id="reauth-hf-btn"
+          class="px-5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5"
+          style="background:linear-gradient(135deg,#d97706,#b45309)">
+          <i class="fas fa-key"></i>Simpan Perubahan
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- Video Detail Modal (Player4Me style) -->
 <div id="modal-video-detail" class="modal-overlay hidden">
   <div class="modal-box" style="max-width:900px;width:96%;padding:0;overflow:hidden">
@@ -1969,11 +2047,11 @@
     <div class="flex items-center justify-between mb-5">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(99,102,241,0.15)">
-          <i class="fas fa-folder text-brand-400"></i>
+          <i class="fas fa-folder-open text-brand-400"></i>
         </div>
         <div>
-          <h3 class="font-bold text-white text-base">Edit Virtual Folder</h3>
-          <p class="text-xs text-slate-400">Rename, move, or delete folder</p>
+          <h3 class="font-bold text-white text-base">Rename / Edit Folder</h3>
+          <p class="text-xs text-slate-400">Ubah nama folder atau posisi induknya</p>
         </div>
       </div>
       <button onclick="closeModal('modal-edit-folder')" class="text-slate-400 hover:text-white transition-colors">
@@ -1984,32 +2062,34 @@
     <form onsubmit="submitEditFolder(event)" class="space-y-4">
       <input type="hidden" id="edit-folder-id" />
       <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">FOLDER NAME</label>
-        <input id="edit-folder-name" type="text" class="form-input" placeholder="Folder name..." required />
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">NAMA FOLDER</label>
+        <input id="edit-folder-name" type="text" class="form-input" placeholder="Nama folder..." required />
       </div>
 
+      <div id="edit-folder-storage-notice" class="text-[11px] p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400"></div>
+
       <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">PARENT FOLDER (MOVE FOLDER)</label>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">FOLDER INDUK (OPSIONAL)</label>
         <select id="edit-folder-parent" class="form-input">
-          <option value="">— None (Root level) —</option>
+          <option value="">— Root (Tingkat Teratas) —</option>
         </select>
       </div>
 
       <div>
-        <label class="block text-xs font-semibold mb-2" style="color:#64748b">ACCENT COLOR</label>
+        <label class="block text-xs font-semibold mb-2" style="color:#64748b">WARNA AKSEN</label>
         <input id="edit-folder-color" type="color" value="#6366f1" class="h-10 w-full rounded-xl bg-slate-900 border border-slate-800 cursor-pointer px-1 py-1" />
       </div>
 
       <div class="flex items-center justify-between pt-3">
         <button type="button" onclick="confirmDeleteFolder()" class="px-4 py-2.5 rounded-xl text-xs font-semibold transition-all text-red-400 hover:bg-red-500/20" style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2)">
-          <i class="fas fa-trash mr-1.5"></i>Delete Folder
+          <i class="fas fa-trash mr-1.5"></i>Hapus Folder
         </button>
         <div class="flex gap-2">
           <button type="button" onclick="closeModal('modal-edit-folder')" class="px-4 py-2.5 rounded-xl text-xs font-semibold transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
-            Cancel
+            Batal
           </button>
           <button type="submit" class="btn-gradient px-5 py-2.5 rounded-xl text-xs font-semibold text-white">
-            <i class="fas fa-save mr-1.5"></i>Save Changes
+            <i class="fas fa-save mr-1.5"></i>Simpan Perubahan
           </button>
         </div>
       </div>
@@ -2934,6 +3014,13 @@ function renderDrivesList() {
               title="Perbarui credentials Google Drive (jika token expired)">
               <i class="fas fa-key text-[10px]"></i><span>Re-auth</span>
             </button>` : ''}
+            ${pType === 'huggingface' ? `
+            <button onclick="openReauthorizeHf(${d.id}, '${escHtml(d.drive_name)}', '${escHtml(d.hf_repo_id || '')}', '${escHtml(d.hf_branch || 'main')}')"
+              class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex items-center gap-1"
+              style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25)"
+              title="Perbarui HF Token atau konfigurasi Dataset">
+              <i class="fas fa-key text-[10px]"></i><span>Re-auth</span>
+            </button>` : ''}
             <button onclick="triggerSync(${d.id})" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex items-center gap-1" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)">
               <i class="fas fa-sync-alt text-[10px]"></i><span>Sync</span>
             </button>
@@ -3075,6 +3162,51 @@ async function submitReauthorizeDrive(e) {
   }
 }
 
+function openReauthorizeHf(driveId, driveName, repoId, branch) {
+  $('reauth-hf-drive-id').value = driveId;
+  $('reauth-hf-drive-name').textContent = driveName;
+  $('reauth-hf-repo-id').value = repoId || '';
+  $('reauth-hf-branch').value = branch || 'main';
+  $('reauth-hf-token').value = '';
+  $('modal-reauth-hf').classList.remove('hidden');
+}
+
+async function submitReauthorizeHf(e) {
+  e.preventDefault();
+  const driveId = $('reauth-hf-drive-id').value;
+  const repoId = $('reauth-hf-repo-id').value.trim();
+  const branch = $('reauth-hf-branch').value.trim() || 'main';
+  const token = $('reauth-hf-token').value.trim();
+  const btn = $('reauth-hf-btn');
+
+  if (!repoId) {
+    showToast('Repo Dataset ID wajib diisi.', 'error');
+    return;
+  }
+
+  setButtonLoading('reauth-hf-btn', true);
+
+  const payload = {
+    hf_repo_id: repoId,
+    hf_branch: branch,
+    hf_token: token || ''
+  };
+
+  const { ok, data } = await apiFetch(`/api/settings/drives/${driveId}`, {
+    method: 'PUT',
+    body: payload,
+  });
+
+  setButtonLoading('reauth-hf-btn', false);
+  if (ok) {
+    showToast('✅ Hugging Face credentials berhasil diperbarui! Semua video ID tetap aman.', 'success', 5000);
+    closeModal('modal-reauth-hf');
+    loadDrives();
+  } else {
+    showToast(data.error || 'Gagal memperbarui konfigurasi Hugging Face.', 'error', 5000);
+  }
+}
+
 async function editTransferSid(driveId) {
   const newSid = prompt('Masukkan Session ID (SID) baru dari transfer.it:\n(F12 > Application > Local storage > transfer.it > sid)');
   if (!newSid || !newSid.trim()) return;
@@ -3130,21 +3262,26 @@ function renderMediaTree() {
   }
 
   const buildFolderBranch = (driveId, parentId, depth = 0) => {
-    const driveFolders = (APP.folders || []).filter(f => f.drive_id === driveId);
+    const driveFolders = (APP.folders || []).filter(f => Number(f.drive_id) === Number(driveId));
     return driveFolders
-      .filter(f => (f.parent_id || null) === parentId)
+      .filter(f => (f.parent_id === null ? null : Number(f.parent_id)) === (parentId === null ? null : Number(parentId)))
       .sort((a, b) => {
         if (APP.folderSortBy === 'date') {
           const tA = new Date(a.created_at || 0).getTime();
           const tB = new Date(b.created_at || 0).getTime();
           return APP.folderSortOrder === 'desc' ? tB - tA : tA - tB;
         }
+        if (APP.folderSortBy === 'count') {
+          const cA = Number(a.video_count || 0);
+          const cB = Number(b.video_count || 0);
+          return APP.folderSortOrder === 'desc' ? cB - cA : cA - cB;
+        }
         const res = (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
         return APP.folderSortOrder === 'desc' ? -res : res;
       })
       .map(f => {
-        const isCurrent = APP.currentDrive === driveId && APP.currentFolder === f.id;
-        const childFolders = driveFolders.filter(c => c.parent_id === f.id);
+        const isCurrent = Number(APP.currentDrive) === Number(driveId) && Number(APP.currentFolder) === Number(f.id);
+        const childFolders = driveFolders.filter(c => Number(c.parent_id) === Number(f.id));
         const hasChildren  = childFolders.length > 0;
         const isExpanded   = APP.expandedFolders.has(f.id);
         const isSelected   = APP.selectedFolderIds && APP.selectedFolderIds.has(f.id);
@@ -3168,6 +3305,9 @@ function renderMediaTree() {
             ${countBadge}
             <button type="button" onclick="openMoveFolderModal([${f.id}], event)" class="folder-action-btn p-1 hover:bg-indigo-500/20 rounded text-slate-400 hover:text-indigo-300 transition-all flex-shrink-0 ml-1" title="Pindah ke Folder Lain">
               <i class="fas fa-arrows-alt text-[9.5px]"></i>
+            </button>
+            <button type="button" onclick="openEditFolderModal(${f.id}, event)" class="folder-action-btn p-1 hover:bg-amber-500/20 rounded text-slate-400 hover:text-amber-300 transition-all flex-shrink-0 ml-0.5" title="Rename Folder">
+              <i class="fas fa-pen text-[9.5px]"></i>
             </button>
             <button type="button" onclick="promptDeleteFolder(${f.id}, event)" class="folder-del-btn p-1 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-all flex-shrink-0 ml-0.5" title="Hapus Folder &amp; Isinya">
               <i class="fas fa-trash-alt text-[9.5px]"></i>
@@ -3266,7 +3406,7 @@ function toggleFolderSortMenu(event) {
   if (dropdown) dropdown.classList.toggle('hidden');
 }
 
-function setFolderSort(by, order, event) {
+function setFolderSort(by, order, label, event) {
   if (event) event.stopPropagation();
   APP.folderSortBy = by;
   APP.folderSortOrder = order;
@@ -3276,6 +3416,7 @@ function setFolderSort(by, order, event) {
   if (dropdown) dropdown.classList.add('hidden');
   updateFolderSortUI();
   renderMediaTree();
+  if (label) showToast(`Urutan folder: ${label}`, 'info', 1800);
 }
 
 function updateFolderSortUI() {
@@ -3284,15 +3425,21 @@ function updateFolderSortUI() {
   const checkNameDesc = $('sort-check-name-desc');
   const checkDateDesc = $('sort-check-date-desc');
   const checkDateAsc = $('sort-check-date-asc');
+  const checkCountDesc = $('sort-check-count-desc');
+  const checkCountAsc = $('sort-check-count-asc');
 
   if (checkNameAsc) checkNameAsc.classList.toggle('hidden', !(APP.folderSortBy === 'name' && APP.folderSortOrder === 'asc'));
   if (checkNameDesc) checkNameDesc.classList.toggle('hidden', !(APP.folderSortBy === 'name' && APP.folderSortOrder === 'desc'));
   if (checkDateDesc) checkDateDesc.classList.toggle('hidden', !(APP.folderSortBy === 'date' && APP.folderSortOrder === 'desc'));
   if (checkDateAsc) checkDateAsc.classList.toggle('hidden', !(APP.folderSortBy === 'date' && APP.folderSortOrder === 'asc'));
+  if (checkCountDesc) checkCountDesc.classList.toggle('hidden', !(APP.folderSortBy === 'count' && APP.folderSortOrder === 'desc'));
+  if (checkCountAsc) checkCountAsc.classList.toggle('hidden', !(APP.folderSortBy === 'count' && APP.folderSortOrder === 'asc'));
 
   if (icon) {
     if (APP.folderSortBy === 'date') {
       icon.className = APP.folderSortOrder === 'desc' ? 'fas fa-clock text-[11px]' : 'fas fa-history text-[11px]';
+    } else if (APP.folderSortBy === 'count') {
+      icon.className = APP.folderSortOrder === 'desc' ? 'fas fa-film text-[11px]' : 'fas fa-video text-[11px]';
     } else {
       icon.className = APP.folderSortOrder === 'desc' ? 'fas fa-arrow-down-z-a text-[11px]' : 'fas fa-arrow-down-a-z text-[11px]';
     }
@@ -5746,26 +5893,45 @@ async function submitNewFolder(e) {
 }
 
 function openEditFolderModal(folderId, event) {
-  if (event) event.stopPropagation();
-  const f = APP.folders.find(x => x.id === folderId);
+  if (event && event.stopPropagation) event.stopPropagation();
+  const f = (APP.folders || []).find(x => Number(x.id) === Number(folderId));
   if (!f) return;
 
   $('edit-folder-id').value    = f.id;
   $('edit-folder-name').value  = f.name;
   $('edit-folder-color').value = f.color || '#6366f1';
 
-  // Build parent options excluding current folder and its descendants
+  const d = (APP.drives || []).find(x => Number(x.id) === Number(f.drive_id));
+  const pType = (d?.provider_type || 'gdrive').toLowerCase();
+  const noticeEl = $('edit-folder-storage-notice');
+  if (noticeEl) {
+    if (pType === 'gdrive') {
+      noticeEl.innerHTML = `<i class="fab fa-google-drive text-emerald-400 mr-1.5"></i> Nama folder di <strong>Google Drive</strong> juga akan otomatis diperbarui secara real-time via API.`;
+      noticeEl.className = 'text-[11px] p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 mt-2';
+    } else if (pType === 'huggingface') {
+      noticeEl.innerHTML = `<i class="fas fa-cube text-amber-400 mr-1.5"></i> Folder di <strong>Hugging Face</strong> tersimpan dan direname secara virtual di HaruStream tanpa mengubah struktur repo Git.`;
+      noticeEl.className = 'text-[11px] p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 mt-2';
+    } else {
+      noticeEl.innerHTML = `<i class="fas fa-bolt text-cyan-400 mr-1.5"></i> Folder di <strong>Transfer.it</strong> tersimpan secara virtual di database HaruStream.`;
+      noticeEl.className = 'text-[11px] p-2.5 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-300 mt-2';
+    }
+  }
+
+  // Build parent options excluding current folder and its descendants (within same drive)
   const parentSelect = $('edit-folder-parent');
-  const buildOpts = (parentId = null, depth = 0) => {
-    return APP.folders
-      .filter(item => item.id !== f.id && (item.parent_id || null) === parentId)
-      .map(item => {
-        const indent = '  '.repeat(depth) + (depth > 0 ? '└ ' : '');
-        return `<option value="${item.id}">${indent}${escHtml(item.name)}</option>` + buildOpts(item.id, depth + 1);
-      }).join('');
-  };
-  parentSelect.innerHTML = '<option value="">— None (Root level) —</option>' + buildOpts(null);
-  parentSelect.value = f.parent_id || '';
+  if (parentSelect) {
+    const driveFolders = (APP.folders || []).filter(item => Number(item.drive_id) === Number(f.drive_id));
+    const buildOpts = (parentId = null, depth = 0) => {
+      return driveFolders
+        .filter(item => Number(item.id) !== Number(f.id) && (item.parent_id === null ? null : Number(item.parent_id)) === (parentId === null ? null : Number(parentId)))
+        .map(item => {
+          const indent = '  '.repeat(depth) + (depth > 0 ? '└ ' : '');
+          return `<option value="${item.id}">${indent}${escHtml(item.name)}</option>` + buildOpts(Number(item.id), depth + 1);
+        }).join('');
+    };
+    parentSelect.innerHTML = '<option value="">— Root (Tingkat Teratas) —</option>' + buildOpts(null);
+    parentSelect.value = (f.parent_id !== null && f.parent_id !== undefined) ? String(f.parent_id) : '';
+  }
 
   $('modal-edit-folder').classList.remove('hidden');
 }
@@ -5773,10 +5939,15 @@ function openEditFolderModal(folderId, event) {
 async function submitEditFolder(e) {
   e.preventDefault();
   const fid = parseInt($('edit-folder-id').value);
-  const name = $('edit-folder-name').value;
-  const parentVal = $('edit-folder-parent').value;
+  const name = $('edit-folder-name').value.trim();
+  const parentVal = $('edit-folder-parent') ? $('edit-folder-parent').value : '';
   const parent_id = parentVal ? parseInt(parentVal) : null;
-  const color = $('edit-folder-color').value;
+  const color = $('edit-folder-color')?.value || '#6366f1';
+
+  if (!name) {
+    showToast('Nama folder tidak boleh kosong.', 'error');
+    return;
+  }
 
   const { ok, data } = await apiFetch(`/api/folders/${fid}`, {
     method: 'PUT',
@@ -5784,11 +5955,12 @@ async function submitEditFolder(e) {
   });
 
   if (ok) {
-    showToast('Folder updated!', 'success');
+    showToast(data.message || 'Folder berhasil diperbarui!', 'success');
     closeModal('modal-edit-folder');
-    loadFolders();
+    await loadFolders();
+    renderMediaTree();
   } else {
-    showToast(data.error || 'Failed to update folder.', 'error');
+    showToast(data.error || 'Gagal memperbarui folder.', 'error');
   }
 }
 
