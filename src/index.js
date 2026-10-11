@@ -2250,18 +2250,18 @@ async function handleListMedia(request, env, user) {
     ).bind(...bindings, limit, offset).all();
 
     // Fetch folders with drive_id, created_at and video_count (cached in KV to save D1 join)
-    let folders = [];
+    let folders = null;
     const folderCacheKey = `folders:${user.sub}`;
     if (env.STREAM_CACHE) {
       try {
         const cached = await env.STREAM_CACHE.get(folderCacheKey, 'json');
-        if (Array.isArray(cached) && (cached.length === 0 || cached[0].created_at !== undefined)) {
+        if (Array.isArray(cached) && cached.length > 0 && cached[0].created_at !== undefined) {
           folders = cached;
         }
       } catch (_) {}
     }
 
-    if (!folders || !Array.isArray(folders) || (folders.length > 0 && folders[0].created_at === undefined)) {
+    if (!folders) {
       try {
         const foldersRes = await env.DB.prepare(
           `SELECT f.id, f.parent_id, f.drive_id, f.name, f.color, f.icon, f.sort_order, f.created_at,
@@ -2273,16 +2273,18 @@ async function handleListMedia(request, env, user) {
            ORDER BY f.drive_id, f.name`
         ).bind(user.sub).all();
         folders = foldersRes.results || [];
-        if (env.STREAM_CACHE) {
+        if (env.STREAM_CACHE && folders.length > 0) {
           env.STREAM_CACHE.put(folderCacheKey, JSON.stringify(folders), { expirationTtl: 600 }).catch(() => {});
         }
       } catch (_) {
         try {
           const fallback = await env.DB.prepare(
-            `SELECT id, parent_id, name, color, icon, sort_order, created_at FROM folders WHERE user_id = ? ORDER BY sort_order, name`
+            `SELECT id, parent_id, drive_id, name, color, icon, sort_order, created_at FROM folders WHERE user_id = ? ORDER BY sort_order, name`
           ).bind(user.sub).all();
           folders = fallback.results || [];
-        } catch (_) {}
+        } catch (_) {
+          folders = [];
+        }
       }
     }
 

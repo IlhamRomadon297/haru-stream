@@ -3261,14 +3261,18 @@ function renderMediaTree() {
     APP.expandedFolders = new Set();
   }
 
-  const buildFolderBranch = (driveId, parentId, depth = 0) => {
+  const buildFolderBranch = (driveId, parentId = null, depth = 0) => {
     const driveFolders = (APP.folders || []).filter(f => Number(f.drive_id) === Number(driveId));
+    const targetParent = (parentId === null || parentId === undefined || parentId === 'null') ? null : Number(parentId);
     return driveFolders
-      .filter(f => (f.parent_id === null ? null : Number(f.parent_id)) === (parentId === null ? null : Number(parentId)))
+      .filter(f => {
+        const p = (f.parent_id === null || f.parent_id === undefined || f.parent_id === 'null' || f.parent_id === '') ? null : Number(f.parent_id);
+        return p === targetParent;
+      })
       .sort((a, b) => {
         if (APP.folderSortBy === 'date') {
-          const tA = new Date(a.created_at || 0).getTime();
-          const tB = new Date(b.created_at || 0).getTime();
+          const tA = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const tB = b.created_at ? new Date(b.created_at).getTime() : 0;
           return APP.folderSortOrder === 'desc' ? tB - tA : tA - tB;
         }
         if (APP.folderSortBy === 'count') {
@@ -3283,8 +3287,8 @@ function renderMediaTree() {
         const isCurrent = Number(APP.currentDrive) === Number(driveId) && Number(APP.currentFolder) === Number(f.id);
         const childFolders = driveFolders.filter(c => Number(c.parent_id) === Number(f.id));
         const hasChildren  = childFolders.length > 0;
-        const isExpanded   = APP.expandedFolders.has(f.id);
-        const isSelected   = APP.selectedFolderIds && APP.selectedFolderIds.has(f.id);
+        const isExpanded   = APP.expandedFolders.has(Number(f.id)) || APP.expandedFolders.has(f.id);
+        const isSelected   = APP.selectedFolderIds && (APP.selectedFolderIds.has(Number(f.id)) || APP.selectedFolderIds.has(f.id));
         const paddingLeft  = depth * 14 + 14;
         const countBadge   = (f.video_count !== undefined && f.video_count !== null) 
           ? `<span class="text-[10px] font-mono px-1.5 py-0.2 rounded text-slate-400 bg-white/5 ml-auto flex-shrink-0">${f.video_count}</span>` 
@@ -3620,10 +3624,12 @@ function toggleDriveExpand(driveId, event) {
 function toggleFolderExpand(folderId, event) {
   if (event) event.stopPropagation();
   if (!APP.expandedFolders) APP.expandedFolders = new Set();
-  if (APP.expandedFolders.has(folderId)) {
+  const idNum = Number(folderId);
+  if (APP.expandedFolders.has(idNum) || APP.expandedFolders.has(folderId)) {
+    APP.expandedFolders.delete(idNum);
     APP.expandedFolders.delete(folderId);
   } else {
-    APP.expandedFolders.add(folderId);
+    APP.expandedFolders.add(idNum);
   }
   renderMediaTree();
 }
