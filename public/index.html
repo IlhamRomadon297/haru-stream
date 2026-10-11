@@ -228,7 +228,7 @@
     }
 
     /* Floating bulk bar */
-    #bulk-bar {
+    #bulk-bar, #folder-bulk-bar {
       position: fixed;
       bottom: 24px;
       left: calc(50% + 32px);
@@ -268,7 +268,7 @@
       }
     }
     @media (max-width: 768px) {
-      #bulk-bar {
+      #bulk-bar, #folder-bulk-bar {
         bottom: 74px;
         left: 50%;
         transform: translate(-50%, 0);
@@ -281,22 +281,22 @@
         animation: bulkBarInMobile 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         box-sizing: border-box;
       }
-      #bulk-bar .bulk-action-btn {
+      #bulk-bar .bulk-action-btn, #folder-bulk-bar .bulk-action-btn {
         padding: 6px 7px !important;
         font-size: 11px !important;
         gap: 3.5px !important;
       }
-      #bulk-bar .bulk-action-btn i {
+      #bulk-bar .bulk-action-btn i, #folder-bulk-bar .bulk-action-btn i {
         font-size: 10px !important;
       }
-      #bulk-bar .bulk-sep {
+      #bulk-bar .bulk-sep, #folder-bulk-bar .bulk-sep {
         display: none !important;
       }
-      #bulk-bar .bulk-count-pill {
+      #bulk-bar .bulk-count-pill, #folder-bulk-bar .bulk-count-pill {
         padding: 5px 7px !important;
         font-size: 11px !important;
       }
-      #bulk-bar .bulk-close-btn {
+      #bulk-bar .bulk-close-btn, #folder-bulk-bar .bulk-close-btn {
         width: 26px !important;
         height: 26px !important;
       }
@@ -394,11 +394,26 @@
       display: flex; align-items: center; gap: 8px;
       padding: 6px 10px; border-radius: 8px; cursor: pointer;
       color: #94a3b8; font-size: 13px; transition: all 0.15s;
+      position: relative;
     }
     .folder-tree-item:hover { background: rgba(99,102,241,0.1); color: #c7d2fe; }
     .folder-tree-item.active { background: rgba(99,102,241,0.2); color: #a5b4fc; }
+    .folder-tree-item .folder-action-btn,
     .folder-tree-item .folder-del-btn { opacity: 0; transition: all 0.15s ease; }
+    .folder-tree-item:hover .folder-action-btn,
     .folder-tree-item:hover .folder-del-btn { opacity: 1 !important; }
+    .folder-tree-item .folder-select-cb {
+      opacity: 0; transition: opacity 0.15s ease;
+      cursor: pointer; accent-color: #6366f1;
+    }
+    .folder-tree-item:hover .folder-select-cb,
+    .folder-tree-item .folder-select-cb:checked,
+    body.folder-selection-active .folder-tree-item .folder-select-cb {
+      opacity: 1 !important;
+    }
+    #folder-sidebar.wide-sidebar {
+      width: 460px !important;
+    }
 
     /* Progress bar */
     .progress-bar {
@@ -981,9 +996,42 @@
           
           <!-- UNIFIED DRIVE & FOLDER LIBRARY TREE -->
           <div class="mb-4">
-            <div class="text-xs font-semibold mb-2.5 px-3 flex items-center justify-between" style="color:#64748b;letter-spacing:0.8px">
-              <span class="uppercase tracking-wider">LIBRARY</span>
-              <span id="library-total-badge" class="text-[10px] font-mono px-2 py-0.5 rounded-full" style="background:rgba(99,102,241,0.15);color:#a5b4fc">0 files</span>
+            <div class="text-xs font-semibold mb-2.5 px-2 flex items-center justify-between relative" style="color:#64748b;letter-spacing:0.8px">
+              <div class="flex items-center gap-1.5 min-w-0">
+                <span class="uppercase tracking-wider">LIBRARY</span>
+                <span id="library-total-badge" class="text-[10px] font-mono px-1.5 py-0.5 rounded-full" style="background:rgba(99,102,241,0.15);color:#a5b4fc">0 files</span>
+              </div>
+              <div class="flex items-center gap-1 flex-shrink-0">
+                <!-- Folder Sort Dropdown -->
+                <div class="relative inline-block">
+                  <button type="button" id="btn-folder-sort" onclick="toggleFolderSortMenu(event)" class="w-6 h-6 rounded-lg flex items-center justify-center text-slate-400 hover:text-indigo-300 hover:bg-white/5 transition-all text-xs" title="Urutkan Folder">
+                    <i class="fas fa-arrow-down-a-z text-[11px]" id="folder-sort-icon"></i>
+                  </button>
+                  <div id="folder-sort-dropdown" class="hidden absolute right-0 mt-1 w-44 rounded-xl shadow-2xl py-1 text-xs z-50 border border-indigo-500/25" style="background:#141428;box-shadow:0 12px 32px rgba(0,0,0,0.85)">
+                    <div class="px-3 py-1 text-[10px] uppercase font-bold text-slate-500 tracking-wider border-b border-white/5">Urutkan Folder</div>
+                    <button type="button" onclick="setFolderSort('name', 'asc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                      <span class="flex items-center gap-2"><i class="fas fa-arrow-down-a-z text-indigo-400 text-[10px]"></i>Nama (A-Z)</span>
+                      <i class="fas fa-check text-[10px] text-indigo-400" id="sort-check-name-asc"></i>
+                    </button>
+                    <button type="button" onclick="setFolderSort('name', 'desc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                      <span class="flex items-center gap-2"><i class="fas fa-arrow-down-z-a text-indigo-400 text-[10px]"></i>Nama (Z-A)</span>
+                      <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-name-desc"></i>
+                    </button>
+                    <button type="button" onclick="setFolderSort('date', 'desc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                      <span class="flex items-center gap-2"><i class="fas fa-clock text-indigo-400 text-[10px]"></i>Terbaru (Date)</span>
+                      <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-date-desc"></i>
+                    </button>
+                    <button type="button" onclick="setFolderSort('date', 'asc', event)" class="w-full text-left px-3 py-1.5 flex items-center justify-between hover:bg-white/5 text-slate-300 hover:text-white transition-colors">
+                      <span class="flex items-center gap-2"><i class="fas fa-history text-indigo-400 text-[10px]"></i>Terlama (Date)</span>
+                      <i class="fas fa-check text-[10px] text-indigo-400 hidden" id="sort-check-date-asc"></i>
+                    </button>
+                  </div>
+                </div>
+                <!-- Toggle Expand Width Desktop -->
+                <button type="button" id="btn-toggle-sidebar-width" onclick="toggleFolderSidebarWidth()" class="hidden md:flex w-6 h-6 rounded-lg items-center justify-center text-slate-400 hover:text-indigo-300 hover:bg-white/5 transition-all text-xs" title="Perlebar Sidebar Desktop (Expand/Collapse)">
+                  <i class="fas fa-up-right-and-down-left-from-center text-[10.5px]" id="icon-sidebar-width"></i>
+                </button>
+              </div>
             </div>
             <!-- All Videos Root Item -->
             <div class="folder-tree-item active" id="tree-item-all" onclick="selectLibraryNode(null, null)">
@@ -1126,14 +1174,14 @@
       </div>
 
       <!-- ── DRIVES VIEW ─────────────────────────────────── -->
-      <div id="view-drives" class="p-6 hidden animate-slide-in">
-        <div class="flex items-center justify-between mb-6">
+      <div id="view-drives" class="p-3.5 sm:p-6 hidden animate-slide-in">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div>
-            <div class="text-base font-semibold text-white">Google Drive Accounts</div>
-            <div class="text-xs mt-0.5" style="color:#64748b">Manage OAuth credentials for multiple Google Drive accounts</div>
+            <div class="text-base font-semibold text-white">Cloud Storage Accounts</div>
+            <div class="text-xs mt-0.5" style="color:#64748b">Kelola akun Google Drive, Hugging Face Datasets, dan Transfer.it</div>
           </div>
-          <button onclick="openAddDriveModal()" class="btn-gradient px-5 py-2.5 rounded-xl text-sm font-semibold text-white flex items-center gap-2">
-            <i class="fas fa-plus"></i>Add Drive
+          <button onclick="openAddDriveModal()" class="btn-gradient px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white flex items-center gap-2 self-start sm:self-auto flex-shrink-0">
+            <i class="fas fa-plus"></i>Add Storage
           </button>
         </div>
 
@@ -1253,7 +1301,20 @@
   <button type="button" onclick="openExportModal(true)" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(16,185,129,0.12);color:#34d399;border:1px solid rgba(16,185,129,0.3)">
     <i class="fas fa-file-export text-xs"></i><span>Export</span>
   </button>
-  <button type="button" onclick="clearSelection()" class="bulk-close-btn w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors" title="Batal Pilih (Clear Selection)">
+</div>
+
+<!-- Floating Folder Action Bar -->
+<div id="folder-bulk-bar" style="display:none">
+  <button type="button" onclick="clearFolderSelection()" id="folder-bulk-count-btn" class="bulk-count-pill flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all text-white hover:bg-white/10 flex-shrink-0" style="background:rgba(99,102,241,0.2);border:1px solid rgba(99,102,241,0.35)" title="Klik untuk batal pilih semua folder">
+    <span id="folder-bulk-count">0</span>
+    <span class="bulk-count-label hidden sm:inline font-medium text-indigo-200">folder dipilih</span>
+    <i class="fas fa-times text-[10px] text-indigo-300 ml-0.5 opacity-70"></i>
+  </button>
+  <div class="bulk-sep" style="width:1px;height:20px;background:#2a2a4a"></div>
+  <button type="button" onclick="openMoveFolderModal()" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)">
+    <i class="fas fa-arrows-alt text-xs"></i><span>Pindah ke Folder Lain</span>
+  </button>
+  <button type="button" onclick="clearFolderSelection()" class="bulk-close-btn w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors" title="Batal Pilih Folder">
     <i class="fas fa-times text-xs"></i>
   </button>
 </div>
@@ -2059,6 +2120,55 @@
           <i class="fas fa-check mr-2"></i>Move Now
         </button>
       </div>
+  </div>
+</div>
+
+<!-- RELOCATE FOLDERS MODAL -->
+<div id="modal-relocate-folders" class="modal-overlay hidden" style="z-index:1020">
+  <div class="modal-box w-full max-w-md mx-3 p-5 sm:p-6" style="border:1px solid rgba(99,102,241,0.3);box-shadow:0 20px 60px rgba(0,0,0,0.8), 0 0 30px rgba(99,102,241,0.15)">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3)">
+          <i class="fas fa-folder-tree text-indigo-400 text-lg"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-white text-base">Pindah Posisi Folder</h3>
+          <p id="relocate-folder-subtitle" class="text-xs text-slate-400">Pindahkan folder ke folder lain dalam storage ini</p>
+        </div>
+      </div>
+      <button onclick="closeModal('modal-relocate-folders')" class="text-slate-400 hover:text-white transition-colors">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+
+    <!-- Selected Folders Preview Box -->
+    <div class="p-3.5 rounded-xl mb-4 text-xs" style="background:rgba(15,15,26,0.85);border:1px solid rgba(255,255,255,0.08)">
+      <div class="text-slate-400 mb-1.5 flex items-center justify-between">
+        <span class="font-semibold uppercase tracking-wider text-[10px]">Folder yang Dipindahkan:</span>
+        <span id="relocate-storage-name" class="font-mono text-indigo-300 text-[10.5px]">Storage</span>
+      </div>
+      <div id="relocate-folders-list" class="space-y-1 max-h-24 overflow-y-auto pr-1"></div>
+    </div>
+
+    <form onsubmit="submitRelocateFolders(event)" class="space-y-4">
+      <div>
+        <label class="block text-xs font-semibold mb-2" style="color:#94a3b8">PILIH TARGET FOLDER TUJUAN</label>
+        <select id="relocate-target-parent-select" class="form-input text-xs">
+          <option value="">📁 Root / Tingkat Teratas (Tanpa Folder Induk)</option>
+        </select>
+        <p class="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+          Folder tujuan harus berada dalam 1 storage yang sama. Folder tidak dapat dipindahkan ke dalam dirinya sendiri atau ke dalam sub-foldernya.
+        </p>
+      </div>
+
+      <div class="flex justify-end gap-2.5 pt-3 border-t border-white/5">
+        <button type="button" onclick="closeModal('modal-relocate-folders')" class="px-4 py-2.5 rounded-xl text-xs font-semibold transition-all" style="background:#1a1a30;color:#94a3b8;border:1px solid #2a2a4a">
+          Batal
+        </button>
+        <button id="btn-submit-relocate-folder" type="submit" class="btn-gradient px-5 py-2.5 rounded-xl text-xs font-bold text-white flex items-center gap-1.5">
+          <i class="fas fa-check"></i>Pindahkan Sekarang
+        </button>
+      </div>
     </form>
   </div>
 </div>
@@ -2077,6 +2187,12 @@ const APP = {
   currentFolder:  undefined, // undefined = all, null = unsorted, number = folder id
   mediaData:      [],      // current sorted data set (mirrors DB order)
   selectedIds:    new Set(),
+  selectedFolderIds: new Set(),
+  folderSidebarWide: localStorage.getItem('harustream_folder_sidebar_wide') === 'true',
+  folderSortBy:   localStorage.getItem('harustream_folder_sort_by') || 'name', // 'name' | 'date'
+  folderSortOrder: localStorage.getItem('harustream_folder_sort_order') || 'asc', // 'asc' | 'desc'
+  expandedDrives: new Set(),
+  expandedFolders: new Set(),
   page:           1,
   totalPages:     1,
   totalItems:     0,
@@ -2417,6 +2533,7 @@ async function initApp() {
   }
   showView('dashboard');
   loadDrives();
+  initFolderSidebarPreferences();
 }
 
 async function saveProfileSecurity() {
@@ -2758,11 +2875,11 @@ function renderDrivesList() {
 
     if (pType === 'huggingface') {
       iconHtml = `<span style="font-size:22px;line-height:1">🤗</span>`;
-      subInfo = `Hugging Face Dataset: <span class="font-mono text-indigo-300">${escHtml(d.hf_repo_id || '')}</span> (${escHtml(d.hf_branch || 'main')}) • Last synced: ${synced}`;
+      subInfo = `Hugging Face Dataset: <span class="font-mono text-indigo-300 break-all">${escHtml(d.hf_repo_id || '')}</span> (${escHtml(d.hf_branch || 'main')}) • Last synced: ${synced}`;
       extraMeta = `
-        <div class="mt-3 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-slate-400">
-          <span>Public Dataset Storage: <strong>${formatBytes(d.quota_used)}</strong> used (Batas ~8.7TB)</span>
-          <a href="https://huggingface.co/datasets/${escHtml(d.hf_repo_id || '')}" target="_blank" class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+        <div class="mt-3 pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 gap-2">
+          <span class="break-words">Public Dataset Storage: <strong>${formatBytes(d.quota_used)}</strong> used (Batas ~8.7TB)</span>
+          <a href="https://huggingface.co/datasets/${escHtml(d.hf_repo_id || '')}" target="_blank" class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 flex-shrink-0">
             <i class="fas fa-external-link-alt text-[10px]"></i>Buka di HF
           </a>
         </div>
@@ -2771,9 +2888,9 @@ function renderDrivesList() {
       iconHtml = `<i class="fas fa-bolt text-cyan-400" style="font-size:20px"></i>`;
       subInfo = `Transfer.it Account • Storage: <strong class="text-white">${formatBytes(d.quota_used)}</strong> (${synced !== 'Never' ? 'Synced ' + synced : 'Belum sync'})`;
       extraMeta = `
-        <div class="mt-3 pt-3 border-t border-white/5 flex items-center justify-between text-xs text-slate-400 flex-wrap gap-2">
-          <span class="text-xs text-slate-400"><i class="fas fa-key mr-1.5 text-cyan-400"></i>Session ID: <code class="font-mono text-cyan-300">${d.transfer_sid ? d.transfer_sid.slice(0, 12) + '...' : 'Tersimpan'}</code></span>
-          <div class="flex items-center gap-2">
+        <div class="mt-3 pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 gap-2">
+          <span class="text-xs text-slate-400 break-words"><i class="fas fa-key mr-1.5 text-cyan-400"></i>Session ID: <code class="font-mono text-cyan-300">${d.transfer_sid ? d.transfer_sid.slice(0, 12) + '...' : 'Tersimpan'}</code></span>
+          <div class="flex items-center gap-2 flex-wrap">
             <button onclick="editTransferSid(${d.id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all hover:opacity-90" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)" title="Ubah Session ID (jika login ulang)">
               <i class="fas fa-key text-[10px]"></i>Update SID
             </button>
@@ -2786,40 +2903,41 @@ function renderDrivesList() {
     }
 
     return `
-      <div class="glass-card rounded-2xl p-5 transition-all" id="drive-card-${d.id}">
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex items-center gap-3 min-w-0">
-            <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.15)">
+      <div class="glass-card rounded-2xl p-4 sm:p-5 transition-all" id="drive-card-${d.id}">
+        <div class="flex flex-col md:flex-row md:items-start justify-between gap-3 md:gap-4">
+          <div class="flex items-start gap-3 min-w-0">
+            <div class="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(99,102,241,0.15)">
               ${iconHtml}
             </div>
-            <div class="min-w-0">
+            <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-semibold text-sm text-white">${escHtml(d.drive_name)}</span>
+                <span class="font-semibold text-sm text-white break-words">${escHtml(d.drive_name)}</span>
                 ${getProviderBadge(d.provider_type)}
+                <span class="badge ${d.is_active ? 'badge-green' : 'badge-red'} md:hidden">${d.is_active ? 'Active' : 'Disabled'}</span>
               </div>
-              <div class="text-xs mt-0.5 text-slate-400">${subInfo}</div>
+              <div class="text-xs mt-1 text-slate-400 break-words leading-relaxed">${subInfo}</div>
             </div>
           </div>
-          <div class="flex items-center gap-2 flex-shrink-0">
-            <span class="badge ${d.is_active ? 'badge-green' : 'badge-red'}">${d.is_active ? 'Active' : 'Disabled'}</span>
+          <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap pt-2.5 md:pt-0 border-t border-white/5 md:border-0 justify-start md:justify-end flex-shrink-0">
+            <span class="badge ${d.is_active ? 'badge-green' : 'badge-red'} hidden md:inline-flex">${d.is_active ? 'Active' : 'Disabled'}</span>
             <button onclick="checkDriveStatus(${d.id})"
-              class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80"
+              class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex items-center gap-1"
               style="background:rgba(6,182,212,0.12);color:#22d3ee;border:1px solid rgba(6,182,212,0.25)"
               id="check-btn-${d.id}"
               title="Cek apakah koneksi & token masih valid">
-              <i class="fas fa-wifi mr-1"></i>Check
+              <i class="fas fa-wifi text-[10px]"></i><span>Check</span>
             </button>
             ${pType === 'gdrive' ? `
             <button onclick="openReauthorizeDrive(${d.id}, '${escHtml(d.drive_name)}')"
-              class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80"
+              class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex items-center gap-1"
               style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25)"
               title="Perbarui credentials Google Drive (jika token expired)">
-              <i class="fas fa-key mr-1"></i>Re-auth
+              <i class="fas fa-key text-[10px]"></i><span>Re-auth</span>
             </button>` : ''}
-            <button onclick="triggerSync(${d.id})" class="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)">
-              <i class="fas fa-sync-alt mr-1"></i>Sync
+            <button onclick="triggerSync(${d.id})" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex items-center gap-1" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)">
+              <i class="fas fa-sync-alt text-[10px]"></i><span>Sync</span>
             </button>
-            <button onclick="deleteDrive(${d.id})" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-red-500/20" style="color:#f87171;background:none;border:none;cursor:pointer" title="Remove Storage">
+            <button onclick="deleteDrive(${d.id})" class="p-1.5 rounded-lg text-xs transition-colors hover:bg-red-500/20 text-red-400" title="Remove Storage">
               <i class="fas fa-trash"></i>
             </button>
           </div>
@@ -3015,12 +3133,21 @@ function renderMediaTree() {
     const driveFolders = (APP.folders || []).filter(f => f.drive_id === driveId);
     return driveFolders
       .filter(f => (f.parent_id || null) === parentId)
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => {
+        if (APP.folderSortBy === 'date') {
+          const tA = new Date(a.created_at || 0).getTime();
+          const tB = new Date(b.created_at || 0).getTime();
+          return APP.folderSortOrder === 'desc' ? tB - tA : tA - tB;
+        }
+        const res = (a.name || '').localeCompare(b.name || '', undefined, { numeric: true, sensitivity: 'base' });
+        return APP.folderSortOrder === 'desc' ? -res : res;
+      })
       .map(f => {
         const isCurrent = APP.currentDrive === driveId && APP.currentFolder === f.id;
         const childFolders = driveFolders.filter(c => c.parent_id === f.id);
         const hasChildren  = childFolders.length > 0;
         const isExpanded   = APP.expandedFolders.has(f.id);
+        const isSelected   = APP.selectedFolderIds && APP.selectedFolderIds.has(f.id);
         const paddingLeft  = depth * 14 + 14;
         const countBadge   = (f.video_count !== undefined && f.video_count !== null) 
           ? `<span class="text-[10px] font-mono px-1.5 py-0.2 rounded text-slate-400 bg-white/5 ml-auto flex-shrink-0">${f.video_count}</span>` 
@@ -3033,12 +3160,16 @@ function renderMediaTree() {
         ` : `<span class="w-4 inline-block flex-shrink-0 text-center text-slate-600 font-mono text-[11px] mr-0.5">└</span>`;
 
         return `
-          <div class="folder-tree-item group ${isCurrent ? 'active' : ''}" id="tree-folder-${f.id}" onclick="selectLibraryNode(${driveId}, ${f.id}, event)" style="padding-left:${paddingLeft}px" title="${escHtml(f.name)}">
+          <div class="folder-tree-item group ${isCurrent ? 'active' : ''} ${isSelected ? 'has-selected' : ''}" id="tree-folder-${f.id}" onclick="selectLibraryNode(${driveId}, ${f.id}, event)" style="padding-left:${paddingLeft}px" title="${escHtml(f.name)}">
+            <input type="checkbox" class="folder-select-cb w-3.5 h-3.5 rounded flex-shrink-0 mr-0.5" ${isSelected ? 'checked' : ''} onclick="toggleSelectFolder(${f.id}, event)" title="Pilih folder untuk dipindahkan" />
             ${expandBtn}
             <i class="${isCurrent ? 'fas fa-folder-open' : 'fas fa-folder'} text-xs flex-shrink-0" style="color:${isCurrent ? '#818cf8' : '#6366f1'}"></i>
-            <span class="flex-1 truncate min-w-0 font-normal ml-1" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+            <span class="flex-1 truncate min-w-0 font-normal ml-0.5" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
             ${countBadge}
-            <button type="button" onclick="promptDeleteFolder(${f.id}, event)" class="folder-del-btn p-1 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-all flex-shrink-0 ml-1" title="Hapus Folder &amp; Isinya">
+            <button type="button" onclick="openMoveFolderModal([${f.id}], event)" class="folder-action-btn p-1 hover:bg-indigo-500/20 rounded text-slate-400 hover:text-indigo-300 transition-all flex-shrink-0 ml-1" title="Pindah ke Folder Lain">
+              <i class="fas fa-arrows-alt text-[9.5px]"></i>
+            </button>
+            <button type="button" onclick="promptDeleteFolder(${f.id}, event)" class="folder-del-btn p-1 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-all flex-shrink-0 ml-0.5" title="Hapus Folder &amp; Isinya">
               <i class="fas fa-trash-alt text-[9.5px]"></i>
             </button>
           </div>
@@ -3086,6 +3217,246 @@ function renderMediaTree() {
   }).join('');
 
   tree.innerHTML = html;
+}
+
+// ── FOLDER SIDEBAR ENHANCEMENTS (WIDTH & SORTING & ACTIONS) ─────
+function initFolderSidebarPreferences() {
+  const sidebar = $('folder-sidebar');
+  if (sidebar && APP.folderSidebarWide) {
+    sidebar.classList.add('wide-sidebar');
+    updateSidebarWidthIcon(true);
+  }
+  updateFolderSortUI();
+
+  // Close sort dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    const dropdown = $('folder-sort-dropdown');
+    const btn = $('btn-folder-sort');
+    if (dropdown && !dropdown.classList.contains('hidden')) {
+      if (btn && !btn.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.classList.add('hidden');
+      }
+    }
+  });
+}
+
+function toggleFolderSidebarWidth() {
+  const sidebar = $('folder-sidebar');
+  if (!sidebar) return;
+  const isWide = sidebar.classList.toggle('wide-sidebar');
+  APP.folderSidebarWide = isWide;
+  localStorage.setItem('harustream_folder_sidebar_wide', isWide ? 'true' : 'false');
+  updateSidebarWidthIcon(isWide);
+}
+
+function updateSidebarWidthIcon(isWide) {
+  const icon = $('icon-sidebar-width');
+  const btn = $('btn-toggle-sidebar-width');
+  if (icon) {
+    icon.className = isWide ? 'fas fa-down-left-and-up-right-to-center text-[10.5px]' : 'fas fa-up-right-and-down-left-from-center text-[10.5px]';
+  }
+  if (btn) {
+    btn.title = isWide ? 'Ciutkan Lebar Sidebar Desktop' : 'Perlebar Sidebar Desktop (Expand)';
+  }
+}
+
+function toggleFolderSortMenu(event) {
+  if (event) event.stopPropagation();
+  const dropdown = $('folder-sort-dropdown');
+  if (dropdown) dropdown.classList.toggle('hidden');
+}
+
+function setFolderSort(by, order, event) {
+  if (event) event.stopPropagation();
+  APP.folderSortBy = by;
+  APP.folderSortOrder = order;
+  localStorage.setItem('harustream_folder_sort_by', by);
+  localStorage.setItem('harustream_folder_sort_order', order);
+  const dropdown = $('folder-sort-dropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+  updateFolderSortUI();
+  renderMediaTree();
+}
+
+function updateFolderSortUI() {
+  const icon = $('folder-sort-icon');
+  const checkNameAsc = $('sort-check-name-asc');
+  const checkNameDesc = $('sort-check-name-desc');
+  const checkDateDesc = $('sort-check-date-desc');
+  const checkDateAsc = $('sort-check-date-asc');
+
+  if (checkNameAsc) checkNameAsc.classList.toggle('hidden', !(APP.folderSortBy === 'name' && APP.folderSortOrder === 'asc'));
+  if (checkNameDesc) checkNameDesc.classList.toggle('hidden', !(APP.folderSortBy === 'name' && APP.folderSortOrder === 'desc'));
+  if (checkDateDesc) checkDateDesc.classList.toggle('hidden', !(APP.folderSortBy === 'date' && APP.folderSortOrder === 'desc'));
+  if (checkDateAsc) checkDateAsc.classList.toggle('hidden', !(APP.folderSortBy === 'date' && APP.folderSortOrder === 'asc'));
+
+  if (icon) {
+    if (APP.folderSortBy === 'date') {
+      icon.className = APP.folderSortOrder === 'desc' ? 'fas fa-clock text-[11px]' : 'fas fa-history text-[11px]';
+    } else {
+      icon.className = APP.folderSortOrder === 'desc' ? 'fas fa-arrow-down-z-a text-[11px]' : 'fas fa-arrow-down-a-z text-[11px]';
+    }
+  }
+}
+
+// Folder Selection & Bulk Actions
+function toggleSelectFolder(folderId, event) {
+  if (event) event.stopPropagation();
+  if (!APP.selectedFolderIds) APP.selectedFolderIds = new Set();
+  
+  if (APP.selectedFolderIds.has(folderId)) {
+    APP.selectedFolderIds.delete(folderId);
+  } else {
+    APP.selectedFolderIds.add(folderId);
+  }
+  updateFolderBulkBar();
+  renderMediaTree();
+}
+
+function clearFolderSelection() {
+  if (APP.selectedFolderIds) APP.selectedFolderIds.clear();
+  updateFolderBulkBar();
+  renderMediaTree();
+}
+
+function updateFolderBulkBar() {
+  const bar = $('folder-bulk-bar');
+  const countSpan = $('folder-bulk-count');
+  const count = APP.selectedFolderIds ? APP.selectedFolderIds.size : 0;
+
+  if (countSpan) countSpan.textContent = count;
+  if (bar) {
+    bar.style.display = count > 0 ? 'flex' : 'none';
+  }
+  if (count > 0) {
+    document.body.classList.add('folder-selection-active');
+  } else {
+    document.body.classList.remove('folder-selection-active');
+  }
+}
+
+// Relocate Folders Modal & Action
+let pendingRelocateFolderIds = [];
+
+function openMoveFolderModal(folderIds = null, event) {
+  if (event) event.stopPropagation();
+  pendingRelocateFolderIds = folderIds ? (Array.isArray(folderIds) ? folderIds : [folderIds]) : [...(APP.selectedFolderIds || [])];
+  
+  if (!pendingRelocateFolderIds.length) {
+    showToast('Pilih setidaknya 1 folder untuk dipindahkan.', 'error');
+    return;
+  }
+
+  const allFolders = APP.folders || [];
+  const selectedObjs = pendingRelocateFolderIds.map(id => allFolders.find(f => Number(f.id) === Number(id))).filter(Boolean);
+
+  if (!selectedObjs.length) {
+    showToast('Data folder tidak ditemukan.', 'error');
+    return;
+  }
+
+  // Ensure all selected folders belong to the exact same storage drive
+  const driveIds = new Set(selectedObjs.map(f => f.drive_id));
+  if (driveIds.size > 1) {
+    showToast('Folder yang dipindahkan harus berada dalam 1 storage yang sama.', 'error');
+    return;
+  }
+
+  const driveId = selectedObjs[0].drive_id;
+  const drive = (APP.drives || []).find(d => Number(d.id) === Number(driveId));
+  const driveName = drive ? drive.drive_name : 'Storage';
+
+  // Calculate all forbidden target IDs (selected folders + all their descendants)
+  const forbiddenIds = new Set(pendingRelocateFolderIds);
+  let queue = [...pendingRelocateFolderIds];
+  while (queue.length > 0) {
+    const parentId = queue.shift();
+    const children = allFolders.filter(f => Number(f.parent_id) === Number(parentId));
+    for (const ch of children) {
+      if (!forbiddenIds.has(ch.id)) {
+        forbiddenIds.add(ch.id);
+        queue.push(ch.id);
+      }
+    }
+  }
+
+  // Update modal preview
+  $('relocate-storage-name').textContent = driveName;
+  $('relocate-folder-subtitle').textContent = `Memindahkan ${selectedObjs.length} folder dalam "${driveName}"`;
+
+  const listContainer = $('relocate-folders-list');
+  if (listContainer) {
+    listContainer.innerHTML = selectedObjs.map(f => `
+      <div class="flex items-center gap-1.5 text-slate-300">
+        <i class="fas fa-folder text-indigo-400 text-[10px]"></i>
+        <span class="truncate font-medium">${escHtml(f.name)}</span>
+      </div>
+    `).join('');
+  }
+
+  // Build target options (allowed folders within the same drive)
+  const select = $('relocate-target-parent-select');
+  if (select) {
+    select.innerHTML = '<option value="">📁 Root / Tingkat Teratas (Tanpa Folder Induk)</option>';
+    
+    const driveFolders = allFolders.filter(f => Number(f.drive_id) === Number(driveId));
+    const appendOptions = (parentId, depth) => {
+      const children = driveFolders
+        .filter(f => (f.parent_id === null ? null : Number(f.parent_id)) === parentId)
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+      for (const ch of children) {
+        if (!forbiddenIds.has(ch.id)) {
+          const indent = '— '.repeat(depth);
+          const opt = document.createElement('option');
+          opt.value = ch.id;
+          opt.textContent = `${indent}📁 ${ch.name}`;
+          select.appendChild(opt);
+          appendOptions(Number(ch.id), depth + 1);
+        }
+      }
+    };
+
+    appendOptions(null, 1);
+  }
+
+  openModal('modal-relocate-folders');
+}
+
+async function submitRelocateFolders(e) {
+  e.preventDefault();
+  if (!pendingRelocateFolderIds.length) return;
+
+  const targetVal = $('relocate-target-parent-select').value;
+  const targetParentId = targetVal ? parseInt(targetVal) : null;
+  const btn = $('btn-submit-relocate-folder');
+  if (!btn) return;
+
+  btn.disabled = true;
+  const origHtml = btn.innerHTML;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1.5"></i>Memindahkan...';
+
+  try {
+    const { ok, data } = await apiFetch('/api/folders/move', {
+      method: 'POST',
+      body: { folder_ids: pendingRelocateFolderIds, target_parent_id: targetParentId }
+    });
+
+    if (ok) {
+      showToast(data.message || 'Folder berhasil dipindahkan!', 'success');
+      closeModal('modal-relocate-folders');
+      clearFolderSelection();
+      await loadFolders();
+      renderMediaTree();
+    } else {
+      showToast(data.error || 'Gagal memindahkan folder.', 'error');
+    }
+  } catch (err) {
+    showToast('Terjadi kesalahan: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = origHtml;
+  }
 }
 
 function toggleDriveExpand(driveId, event) {
@@ -5429,10 +5800,10 @@ function confirmDeleteFolder() {
 
 function promptDeleteFolder(folderId, event) {
   if (event && event.stopPropagation) event.stopPropagation();
-  const f = (APP.folders || []).find(x => x.id === folderId);
+  const f = (APP.folders || []).find(x => Number(x.id) === Number(folderId));
   if (!f) return;
 
-  const d = (APP.drives || []).find(x => x.id === f.drive_id);
+  const d = (APP.drives || []).find(x => Number(x.id) === Number(f.drive_id));
   const pType = (d?.provider_type || 'gdrive').toLowerCase();
 
   // Find all descendant subfolders recursively to calculate total videos
@@ -5483,8 +5854,8 @@ function updateDeleteFolderNotice(providerType) {
   if (!notice) return;
 
   const fid = parseInt($('delete-folder-id')?.value);
-  const f = (APP.folders || []).find(x => x.id === fid);
-  const d = f ? (APP.drives || []).find(x => x.id === f.drive_id) : null;
+  const f = (APP.folders || []).find(x => Number(x.id) === Number(fid));
+  const d = f ? (APP.drives || []).find(x => Number(x.id) === Number(f.drive_id)) : null;
   const pType = providerType || (d?.provider_type || 'gdrive').toLowerCase();
 
   if (!cb.checked) {

@@ -1404,7 +1404,8 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
   const folderParentUpdates = [];
   for (const f of (refreshedFolders.results || [])) {
     const parentIntId = f.parent_gdrive_folder_id ? (keyToD1Id.get(f.parent_gdrive_folder_id) || null) : null;
-    if (f.parent_id !== parentIntId) {
+    // Only set parent_id if it has not been set yet (preserves user custom moving)
+    if (f.parent_id === null && parentIntId !== null) {
       folderParentUpdates.push(
         env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id)
       );
@@ -2383,39 +2384,46 @@ async function handleDeleteFolder(folderId, request, env, user, ctx) {
     }
 
     // ── Hugging Face: Git Commit delete files ──
-    if (pType === 'huggingface' && folder.hf_repo_id && folder.hf_token) {
-      try {
-        const prefix = `https://huggingface.co/datasets/${folder.hf_repo_id}/resolve/${folder.hf_branch || 'main'}/`;
-        const filePaths = videosToDelete
-          .map(v => v.storage_uri ? decodeURI(v.storage_uri.replace(prefix, '')) : null)
-          .filter(Boolean);
+    if (pType === 'huggingface' && folder.hf_repo_id) {
+      const hfToken = folder.hf_token || env.HF_TOKEN || null;
+      if (!hfToken) {
+        cloudError = 'Token Hugging Face tidak ditemukan. Folder dan video dihapus dari HaruStream, namun file fisik di Hugging Face tidak dapat dihapus tanpa Write Access Token.';
+        console.warn('[HaruStream] HF delete commit skipped: no hf_token or env.HF_TOKEN');
+      } else {
+        try {
+          // Extract exact relative file paths inside repo from drive_file_id (hf:{driveId}:{path})
+          const prefix = `hf:${folder.drive_id}:`;
+          const filePaths = videosToDelete
+            .map(v => v.drive_file_id && v.drive_file_id.startsWith(prefix) ? v.drive_file_id.slice(prefix.length) : null)
+            .filter(Boolean);
 
-        if (filePaths.length > 0) {
-          const ndjson = [
-            JSON.stringify({ key: 'header', value: { summary: `Delete folder "${folder.name}" (${filePaths.length} files) via HaruStream` } }),
-            ...filePaths.map(p => JSON.stringify({ key: 'deletedFile', value: { path: p } }))
-          ].join('\n');
+          if (filePaths.length > 0) {
+            const ndjson = [
+              JSON.stringify({ key: 'header', value: { summary: `Delete folder "${folder.name}" (${filePaths.length} files) via HaruStream` } }),
+              ...filePaths.map(p => JSON.stringify({ key: 'deletedFile', value: { path: p } }))
+            ].join('\n');
 
-          const commitResp = await fetch(
-            `https://huggingface.co/api/datasets/${folder.hf_repo_id}/commit/${folder.hf_branch || 'main'}`,
-            {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${folder.hf_token}`,
-                'Content-Type': 'application/x-ndjson'
-              },
-              body: ndjson
+            const commitResp = await fetch(
+              `https://huggingface.co/api/datasets/${folder.hf_repo_id}/commit/${folder.hf_branch || 'main'}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${hfToken}`,
+                  'Content-Type': 'application/x-ndjson'
+                },
+                body: ndjson
+              }
+            );
+            if (!commitResp.ok) {
+              const errText = await commitResp.text().catch(() => '');
+              cloudError = `Gagal delete di Hugging Face (${commitResp.status}): ${errText.slice(0, 100)}`;
+              console.warn('[HaruStream] HF delete commit failed:', errText);
             }
-          );
-          if (!commitResp.ok) {
-            const errText = await commitResp.text().catch(() => '');
-            cloudError = `Gagal delete di Hugging Face (${commitResp.status}): ${errText.slice(0, 100)}`;
-            console.warn('[HaruStream] HF delete commit failed:', errText);
           }
+        } catch (err) {
+          cloudError = `Error Hugging Face: ${err.message}`;
+          console.warn('[HaruStream] HF delete exception:', err.message);
         }
-      } catch (err) {
-        cloudError = `Error Hugging Face: ${err.message}`;
-        console.warn('[HaruStream] HF delete exception:', err.message);
       }
     }
   }
@@ -2482,6 +2490,71 @@ async function handleMoveVideo(request, env, user, ctx) {
   invalidateUserCaches(user.sub, env, ctx);
 
   return jsonResponse({ success: true, moved: video_ids.length });
+}
+
+async function handleMoveFolders(request, env, user, ctx) {
+  const body = await request.json().catch(() => ({}));
+  const { folder_ids, target_parent_id, drive_id } = body;
+
+  if (!Array.isArray(folder_ids) || folder_ids.length === 0) {
+    return errorResponse('folder_ids array is required.', 400);
+  }
+  if (!drive_id) {
+    return errorResponse('drive_id is required.', 400);
+  }
+
+  // Verify drive belongs to user
+  const drive = await env.DB.prepare('SELECT id, provider_type FROM drives WHERE id = ? AND user_id = ?').bind(drive_id, user.sub).first();
+  if (!drive) return errorResponse('Drive tidak ditemukan atau akses ditolak.', 404);
+
+  // If target_parent_id is specified (not null / root), verify it exists in the same drive
+  let targetFolder = null;
+  if (target_parent_id !== null && target_parent_id !== undefined && target_parent_id !== 'null') {
+    targetFolder = await env.DB.prepare('SELECT id, drive_id, gdrive_folder_id FROM folders WHERE id = ? AND user_id = ? AND drive_id = ?')
+      .bind(target_parent_id, user.sub, drive_id).first();
+    if (!targetFolder) {
+      return errorResponse('Target folder tujuan tidak ditemukan dalam storage yang sama.', 400);
+    }
+  }
+
+  const finalParentId = targetFolder ? targetFolder.id : null;
+
+  // Prevent circular nesting: targetFolder cannot be one of folder_ids or a descendant of any folder_ids
+  if (finalParentId) {
+    for (const fid of folder_ids) {
+      if (fid === finalParentId) {
+        return errorResponse('Tidak bisa memindahkan folder ke dalam dirinya sendiri.', 400);
+      }
+    }
+
+    let currentCheck = [...folder_ids];
+    while (currentCheck.length > 0) {
+      const ph = currentCheck.map(() => '?').join(',');
+      const childRows = await env.DB.prepare(
+        `SELECT id FROM folders WHERE parent_id IN (${ph}) AND user_id = ?`
+      ).bind(...currentCheck, user.sub).all();
+      const childIds = (childRows.results || []).map(r => r.id);
+      if (childIds.includes(finalParentId)) {
+        return errorResponse('Tidak bisa memindahkan folder ke dalam sub-folder miliknya sendiri.', 400);
+      }
+      currentCheck = childIds;
+    }
+  }
+
+  // Update parent_id for each folder in D1
+  const ph = folder_ids.map(() => '?').join(',');
+  await env.DB.prepare(
+    `UPDATE folders SET parent_id = ?, updated_at = datetime('now') WHERE id IN (${ph}) AND drive_id = ? AND user_id = ?`
+  ).bind(finalParentId, ...folder_ids, drive_id, user.sub).run();
+
+  invalidateUserCaches(user.sub, env, ctx);
+
+  return jsonResponse({
+    success: true,
+    moved_count: folder_ids.length,
+    target_parent_id: finalParentId,
+    message: `${folder_ids.length} folder berhasil dipindahkan.`
+  });
 }
 
 async function handleDeleteVideos(request, env, user, ctx) {
@@ -3243,23 +3316,33 @@ async function runAutoSync(env) {
 
     if (!syncCfg.enabled) return;
 
-    const intervalMinutes = syncCfg.intervalMinutes;
-    if (syncCfg.lastSyncAt) {
-      const diffMinutes = (Date.now() - new Date(syncCfg.lastSyncAt).getTime()) / 60000;
-      if (diffMinutes < intervalMinutes) return; // Skip — interval not elapsed
-    }
+    const intervalMinutes = syncCfg.intervalMinutes || 30;
 
-    // 2. Fetch all active drives (only when actually syncing)
-    const drivesRes = await env.DB.prepare('SELECT * FROM drives WHERE is_active = 1').all();
-    const drives = drivesRes.results || [];
-    if (!drives.length) return;
+    // 2. Fetch up to 2 active drives due for syncing (per-drive staggered scheduling)
+    // Priority:
+    // a) New drives with last_synced_at IS NULL get synced FIRST (highest priority, within 60s)!
+    // b) Active drives whose last sync was >= intervalMinutes ago, ordered by oldest sync first
+    const dueDrivesRes = await env.DB.prepare(
+      `SELECT * FROM drives
+       WHERE is_active = 1
+         AND (last_synced_at IS NULL OR (julianday('now') - julianday(last_synced_at)) * 1440 >= ?)
+       ORDER BY CASE WHEN last_synced_at IS NULL THEN 0 ELSE 1 END, last_synced_at ASC
+       LIMIT 2`
+    ).bind(intervalMinutes).all();
 
-    // 3. Incrementally sync each drive
-    for (const drive of drives) {
+    const drivesToSync = dueDrivesRes.results || [];
+    if (!drivesToSync.length) return; // No drives due for sync on this minute tick
+
+    // 3. Incrementally sync each due drive
+    for (const drive of drivesToSync) {
       try {
         await performDriveSync(drive, env, false);
       } catch (e) {
-        console.error(`[AutoSync] Failed to sync drive ${drive.id}:`, e.message);
+        console.error(`[AutoSync] Failed to sync drive ${drive.id} (${drive.drive_name}):`, e.message);
+        // Mark last_synced_at even on failure so a broken token does not trap the cron in an infinite loop
+        await env.DB.prepare(
+          `UPDATE drives SET last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
+        ).bind(drive.id).run().catch(() => {});
       }
     }
 
@@ -3267,8 +3350,7 @@ async function runAutoSync(env) {
     await env.DB.prepare(
       `INSERT INTO app_settings (key, value, updated_at) VALUES ('last_auto_sync_at', datetime('now'), datetime('now'))
        ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at`
-    ).run();
-    // Invalidate KV so next cron tick picks up the new lastSyncAt
+    ).run().catch(() => {});
     try {
       if (env.STREAM_CACHE) await env.STREAM_CACHE.delete(KV_AUTO_SYNC_KEY);
     } catch (_) {}
@@ -4408,6 +4490,9 @@ export default {
     }
 
     // Folders
+    else if (path === '/api/folders/move' && method === 'POST') {
+      res = await handleMoveFolders(request, env, user, ctx);
+    }
     else if (path === '/api/folders' && method === 'POST') {
       res = await handleCreateFolder(request, env, user);
     }
