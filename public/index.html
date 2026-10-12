@@ -2839,26 +2839,41 @@ function buildDonutChart(topVideos) {
 }
 
 // ── SYNC ─────────────────────────────────────────────────────
-async function triggerSync(driveId) {
+async function triggerSync(driveId = null) {
+  // If driveId is not specified, prefer currently selected drive in Media Center
+  const targetDriveId = (driveId !== undefined && driveId !== null && driveId !== 'null') 
+    ? driveId 
+    : (APP.currentView === 'media' && APP.currentDrive ? APP.currentDrive : undefined);
+
+  const driveObj = targetDriveId ? (APP.drives || []).find(d => Number(d.id) === Number(targetDriveId)) : null;
+  const driveLabel = driveObj ? ` "${driveObj.drive_name}"` : '';
+
   $('sync-status')?.classList.remove('hidden');
   $('sync-status')?.classList.add('flex');
+  showToast(`Memulai sinkronisasi${driveLabel}...`, 'info', 2000);
+
   const { ok, data } = await apiFetch('/api/media/sync', {
     method: 'POST',
-    body: { drive_id: driveId || undefined, force_full: true },
+    body: { drive_id: targetDriveId, force_full: true },
   });
   $('sync-status')?.classList.add('hidden');
   $('sync-status')?.classList.remove('flex');
 
   if (ok) {
-    const msg = (data.removed || 0) > 0 
-      ? `✔ Sync complete — ${data.synced} indexed, ${data.removed} cleaned up.`
-      : `✔ Sync complete — ${data.synced} files indexed.`;
-    showToast(msg, 'success', 4000);
+    if (data.errors && data.errors.length > 0) {
+      const errList = data.errors.map(e => `${e.drive_name || 'Drive'}: ${e.error.slice(0, 70)}`).join(' | ');
+      showToast(`⚠️ Sync selesai dengan peringatan: ${errList}`, 'warning', 6000);
+    } else {
+      const msg = (data.removed || 0) > 0 
+        ? `✔ Sync${driveLabel} selesai — ${data.synced} file baru di-index, ${data.removed} dibersihkan.`
+        : `✔ Sync${driveLabel} selesai — ${data.synced} file di-index.`;
+      showToast(msg, 'success', 4000);
+    }
     loadDrives();
     if (APP.currentView === 'media')    loadMedia();
     if (APP.currentView === 'dashboard') loadDashboard();
   } else {
-    showToast(data.error || 'Sync failed.', 'error');
+    showToast(data.error || 'Sync gagal.', 'error', 5000);
   }
 }
 
@@ -6050,10 +6065,18 @@ function updateDeleteFolderNotice(providerType) {
     notice.style.color = '#6ee7b7';
     notice.innerHTML = `<i class="fas fa-check-circle mr-1 text-emerald-400"></i> <strong>Recycle Bin Google Drive:</strong> Folder &amp; seluruh file di dalamnya akan dipindahkan ke <strong>Sampah Google Drive</strong> (dapat dipulihkan dari web Google Drive dalam 30 hari).`;
   } else if (pType === 'huggingface') {
-    notice.style.background = 'rgba(239, 68, 68, 0.12)';
-    notice.style.border = '1px solid rgba(239, 68, 68, 0.35)';
-    notice.style.color = '#fca5a5';
-    notice.innerHTML = `<i class="fas fa-exclamation-triangle mr-1 text-red-400"></i> <strong>PERHATIAN Hugging Face:</strong> File akan dihapus permanen via Git Commit dari dataset repo. Hugging Face <strong>tidak memiliki recycle bin</strong>!`;
+    const hasHfToken = d && d.hf_token && d.hf_token.trim().length > 0;
+    if (!hasHfToken) {
+      notice.style.background = 'rgba(234, 179, 8, 0.12)';
+      notice.style.border = '1px solid rgba(234, 179, 8, 0.35)';
+      notice.style.color = '#fde047';
+      notice.innerHTML = `<i class="fas fa-exclamation-circle mr-1 text-amber-400"></i> <strong>Perhatian Hugging Face:</strong> Storage ini <strong>belum memiliki Write Access Token</strong>. File di repo Hugging Face tidak dapat dihapus otomatis tanpa token Write akun terkait. Silakan pasang Token Write terlebih dahulu via menu <strong>Drive Settings &gt; Re-auth</strong>.`;
+    } else {
+      notice.style.background = 'rgba(239, 68, 68, 0.12)';
+      notice.style.border = '1px solid rgba(239, 68, 68, 0.35)';
+      notice.style.color = '#fca5a5';
+      notice.innerHTML = `<i class="fas fa-exclamation-triangle mr-1 text-red-400"></i> <strong>PERHATIAN Hugging Face:</strong> File akan dihapus permanen via Git Commit dari dataset repo. Hugging Face <strong>tidak memiliki recycle bin</strong>!`;
+    }
   } else {
     notice.style.background = 'rgba(148, 163, 184, 0.1)';
     notice.style.border = '1px solid rgba(148, 163, 184, 0.2)';

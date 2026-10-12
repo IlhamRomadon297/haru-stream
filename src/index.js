@@ -2153,11 +2153,19 @@ async function handleSync(request, env, user) {
     drivesQuery = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ? AND is_active = 1')
       .bind(drive_id, user.sub).all();
   } else {
-    drivesQuery = await env.DB.prepare('SELECT * FROM drives WHERE user_id = ? AND is_active = 1')
-      .bind(user.sub).all();
+    // Process lightweight API providers (Hugging Face & Transfer.it) first
+    // so they never get starved or fail from Cloudflare subrequest limits (50 limit)
+    drivesQuery = await env.DB.prepare(
+      `SELECT * FROM drives WHERE user_id = ? AND is_active = 1
+       ORDER BY CASE 
+         WHEN provider_type = 'huggingface' THEN 0 
+         WHEN provider_type = 'transfer_it' THEN 1 
+         ELSE 2 
+       END, id ASC`
+    ).bind(user.sub).all();
   }
 
-  const drives = drivesQuery.results;
+  const drives = drivesQuery.results || [];
   if (!drives.length) return errorResponse('No active drives found.', 404);
 
   let totalSynced  = 0;
@@ -2449,43 +2457,48 @@ async function handleDeleteFolder(folderId, request, env, user, ctx) {
     if (pType === 'huggingface' && folder.hf_repo_id) {
       const hfToken = folder.hf_token || env.HF_TOKEN || null;
       if (!hfToken) {
-        cloudError = 'Token Hugging Face tidak ditemukan. Folder dan video dihapus dari HaruStream, namun file fisik di Hugging Face tidak dapat dihapus tanpa Write Access Token.';
-        console.warn('[HaruStream] HF delete commit skipped: no hf_token or env.HF_TOKEN');
-      } else {
-        try {
-          // Extract exact relative file paths inside repo from drive_file_id (hf:{driveId}:{path})
-          const prefix = `hf:${folder.drive_id}:`;
-          const filePaths = videosToDelete
-            .map(v => v.drive_file_id && v.drive_file_id.startsWith(prefix) ? v.drive_file_id.slice(prefix.length) : null)
-            .filter(Boolean);
+        return errorResponse(
+          `Gagal menghapus di Hugging Face: Write Access Token belum dipasang untuk storage "${folder.name}". ` +
+          `Silakan masukkan Write Access Token via tombol Re-auth di Drive Settings terlebih dahulu agar file fisik di Hugging Face dapat terhapus.`,
+          400
+        );
+      }
 
-          if (filePaths.length > 0) {
-            const ndjson = [
-              JSON.stringify({ key: 'header', value: { summary: `Delete folder "${folder.name}" (${filePaths.length} files) via HaruStream` } }),
-              ...filePaths.map(p => JSON.stringify({ key: 'deletedFile', value: { path: p } }))
-            ].join('\n');
+      try {
+        // Extract exact relative file paths inside repo from drive_file_id (hf:{driveId}:{path})
+        const prefix = `hf:${folder.drive_id}:`;
+        const filePaths = videosToDelete
+          .map(v => v.drive_file_id && v.drive_file_id.startsWith(prefix) ? v.drive_file_id.slice(prefix.length) : null)
+          .filter(Boolean);
 
-            const commitResp = await fetch(
-              `https://huggingface.co/api/datasets/${folder.hf_repo_id}/commit/${folder.hf_branch || 'main'}`,
-              {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${hfToken}`,
-                  'Content-Type': 'application/x-ndjson'
-                },
-                body: ndjson
-              }
-            );
-            if (!commitResp.ok) {
-              const errText = await commitResp.text().catch(() => '');
-              cloudError = `Gagal delete di Hugging Face (${commitResp.status}): ${errText.slice(0, 100)}`;
-              console.warn('[HaruStream] HF delete commit failed:', errText);
+        if (filePaths.length > 0) {
+          const ndjson = [
+            JSON.stringify({ key: 'header', value: { summary: `Delete folder "${folder.name}" (${filePaths.length} files) via HaruStream` } }),
+            ...filePaths.map(p => JSON.stringify({ key: 'deletedFile', value: { path: p } }))
+          ].join('\n');
+
+          const commitResp = await fetch(
+            `https://huggingface.co/api/datasets/${folder.hf_repo_id}/commit/${folder.hf_branch || 'main'}`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${hfToken}`,
+                'Content-Type': 'application/x-ndjson'
+              },
+              body: ndjson
             }
+          );
+          if (!commitResp.ok) {
+            const errText = await commitResp.text().catch(() => '');
+            return errorResponse(
+              `Gagal menghapus di Hugging Face (${commitResp.status}): ${errText.slice(0, 150)}. ` +
+              `Pastikan Token Hugging Face memiliki permission 'Write' untuk dataset ini.`,
+              400
+            );
           }
-        } catch (err) {
-          cloudError = `Error Hugging Face: ${err.message}`;
-          console.warn('[HaruStream] HF delete exception:', err.message);
         }
+      } catch (err) {
+        return errorResponse(`Gagal menghubungi Hugging Face: ${err.message}`, 500);
       }
     }
   }
@@ -3380,7 +3393,8 @@ async function runAutoSync(env) {
 
     const intervalMinutes = syncCfg.intervalMinutes || 30;
 
-    // 2. Fetch up to 2 active drives due for syncing (per-drive staggered scheduling)
+    // 2. Fetch 1 active drive due for syncing per 1-minute tick (staggered execution)
+    // Running 1 drive per invocation guarantees 100% dedicated Cloudflare subrequest budget (50 limit)
     // Priority:
     // a) New drives with last_synced_at IS NULL get synced FIRST (highest priority, within 60s)!
     // b) Active drives whose last sync was >= intervalMinutes ago, ordered by oldest sync first
@@ -3389,7 +3403,7 @@ async function runAutoSync(env) {
        WHERE is_active = 1
          AND (last_synced_at IS NULL OR (julianday('now') - julianday(last_synced_at)) * 1440 >= ?)
        ORDER BY CASE WHEN last_synced_at IS NULL THEN 0 ELSE 1 END, last_synced_at ASC
-       LIMIT 2`
+       LIMIT 1`
     ).bind(intervalMinutes).all();
 
     const drivesToSync = dueDrivesRes.results || [];
