@@ -1319,8 +1319,14 @@
     <i class="fas fa-times text-[10px] text-indigo-300 ml-0.5 opacity-70"></i>
   </button>
   <div class="bulk-sep" style="width:1px;height:20px;background:#2a2a4a"></div>
-  <button type="button" onclick="openMoveFolderModal()" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)">
-    <i class="fas fa-arrows-alt text-xs"></i><span>Pindah ke Folder Lain</span>
+  <button type="button" onclick="openMoveFolderModal()" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(99,102,241,0.2);color:#a5b4fc;border:1px solid rgba(99,102,241,0.3)" title="Pindahkan folder terpilih ke folder lain">
+    <i class="fas fa-arrows-alt text-xs"></i><span>Pindah</span>
+  </button>
+  <button type="button" id="btn-folder-bulk-rename" onclick="triggerRenameSelectedFolder()" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(245,158,11,0.18);color:#fde047;border:1px solid rgba(245,158,11,0.35)" title="Rename folder terpilih">
+    <i class="fas fa-pen text-xs"></i><span>Rename</span>
+  </button>
+  <button type="button" id="btn-folder-bulk-delete" onclick="triggerDeleteSelectedFolders()" class="bulk-action-btn flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex-shrink-0" style="background:rgba(239,68,68,0.18);color:#fca5a5;border:1px solid rgba(239,68,68,0.35)" title="Hapus folder terpilih beserta isinya">
+    <i class="fas fa-trash-alt text-xs"></i><span>Hapus</span>
   </button>
   <button type="button" onclick="clearFolderSelection()" class="bulk-close-btn w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors" title="Batal Pilih Folder">
     <i class="fas fa-times text-xs"></i>
@@ -3317,20 +3323,11 @@ function renderMediaTree() {
 
         return `
           <div class="folder-tree-item group ${isCurrent ? 'active' : ''} ${isSelected ? 'has-selected' : ''}" id="tree-folder-${f.id}" onclick="selectLibraryNode(${driveId}, ${f.id}, event)" style="padding-left:${paddingLeft}px" title="${escHtml(f.name)}">
-            <input type="checkbox" class="folder-select-cb w-3.5 h-3.5 rounded flex-shrink-0 mr-0.5" ${isSelected ? 'checked' : ''} onclick="toggleSelectFolder(${f.id}, event)" title="Pilih folder untuk dipindahkan" />
+            <input type="checkbox" class="folder-select-cb w-3.5 h-3.5 rounded flex-shrink-0 mr-1" ${isSelected ? 'checked' : ''} onclick="toggleSelectFolder(${f.id}, event)" title="Pilih folder untuk aksi (Pindah / Rename / Hapus)" />
             ${expandBtn}
             <i class="${isCurrent ? 'fas fa-folder-open' : 'fas fa-folder'} text-xs flex-shrink-0" style="color:${isCurrent ? '#818cf8' : '#6366f1'}"></i>
-            <span class="flex-1 truncate min-w-0 font-normal ml-0.5" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
+            <span class="flex-1 truncate min-w-0 font-normal ml-1" title="${escHtml(f.name)}">${escHtml(f.name)}</span>
             ${countBadge}
-            <button type="button" onclick="openMoveFolderModal([${f.id}], event)" class="folder-action-btn p-1 hover:bg-indigo-500/20 rounded text-slate-400 hover:text-indigo-300 transition-all flex-shrink-0 ml-1" title="Pindah ke Folder Lain">
-              <i class="fas fa-arrows-alt text-[9.5px]"></i>
-            </button>
-            <button type="button" onclick="openEditFolderModal(${f.id}, event)" class="folder-action-btn p-1 hover:bg-amber-500/20 rounded text-slate-400 hover:text-amber-300 transition-all flex-shrink-0 ml-0.5" title="Rename Folder">
-              <i class="fas fa-pen text-[9.5px]"></i>
-            </button>
-            <button type="button" onclick="promptDeleteFolder(${f.id}, event)" class="folder-del-btn p-1 hover:bg-red-500/20 rounded text-slate-400 hover:text-red-400 transition-all flex-shrink-0 ml-0.5" title="Hapus Folder &amp; Isinya">
-              <i class="fas fa-trash-alt text-[9.5px]"></i>
-            </button>
           </div>
           ${hasChildren ? `
             <div id="folder-children-${f.id}" class="${isExpanded ? '' : 'hidden'} space-y-0.5">
@@ -3488,17 +3485,92 @@ function clearFolderSelection() {
 function updateFolderBulkBar() {
   const bar = $('folder-bulk-bar');
   const countSpan = $('folder-bulk-count');
+  const renameBtn = $('btn-folder-bulk-rename');
   const count = APP.selectedFolderIds ? APP.selectedFolderIds.size : 0;
 
   if (countSpan) countSpan.textContent = count;
   if (bar) {
     bar.style.display = count > 0 ? 'flex' : 'none';
   }
+  if (renameBtn) {
+    // Tombol rename hanya tampil jika tepat 1 folder dipilih
+    renameBtn.style.display = count === 1 ? 'flex' : 'none';
+  }
   if (count > 0) {
     document.body.classList.add('folder-selection-active');
   } else {
     document.body.classList.remove('folder-selection-active');
   }
+}
+
+function triggerRenameSelectedFolder() {
+  const selected = Array.from(APP.selectedFolderIds || []);
+  if (!selected.length) {
+    showToast('Pilih folder terlebih dahulu.', 'error');
+    return;
+  }
+  if (selected.length > 1) {
+    showToast('Pilih 1 folder saja untuk me-rename.', 'warning');
+    return;
+  }
+  openEditFolderModal(selected[0]);
+}
+
+function triggerDeleteSelectedFolders() {
+  const selected = Array.from(APP.selectedFolderIds || []);
+  if (!selected.length) {
+    showToast('Pilih setidaknya 1 folder untuk dihapus.', 'error');
+    return;
+  }
+  if (selected.length === 1) {
+    promptDeleteFolder(selected[0]);
+  } else {
+    promptDeleteBulkFolders(selected);
+  }
+}
+
+function promptDeleteBulkFolders(folderIds) {
+  const allFolders = APP.folders || [];
+  const selectedObjs = folderIds.map(id => allFolders.find(f => Number(f.id) === Number(id))).filter(Boolean);
+  if (!selectedObjs.length) return;
+
+  const firstDriveId = selectedObjs[0].drive_id;
+  const d = (APP.drives || []).find(x => Number(x.id) === Number(firstDriveId));
+  const pType = (d?.provider_type || 'gdrive').toLowerCase();
+
+  // Find all descendant subfolders recursively to calculate total videos
+  const descendantIds = new Set(folderIds);
+  let currentParents = [...folderIds];
+  while (currentParents.length > 0) {
+    const nextParents = [];
+    for (const item of allFolders) {
+      if (currentParents.includes(item.parent_id) && !descendantIds.has(item.id)) {
+        descendantIds.add(item.id);
+        nextParents.push(item.id);
+      }
+    }
+    currentParents = nextParents;
+  }
+
+  let totalVideos = 0;
+  for (const item of allFolders) {
+    if (descendantIds.has(item.id)) {
+      totalVideos += (item.video_count || 0);
+    }
+  }
+
+  $('delete-folder-id').value = folderIds.join(',');
+  $('delete-folder-name').textContent = `${folderIds.length} Folder Terpilih`;
+  
+  const driveName = d ? d.drive_name : 'Storage';
+  $('delete-folder-drive-badge').innerHTML = `${getProviderIcon(pType, 'text-[10px] mr-1')} ${escHtml(driveName)}`;
+  
+  $('delete-folder-video-count').innerHTML = `${totalVideos} video total di ${descendantIds.size} folder`;
+
+  $('delete-folder-cloud-cb').checked = true;
+  updateDeleteFolderNotice(pType);
+
+  openModal('modal-delete-folder');
 }
 
 // Relocate Folders Modal & Action
@@ -6086,30 +6158,46 @@ function updateDeleteFolderNotice(providerType) {
 }
 
 async function executeDeleteFolder() {
-  const fid = parseInt($('delete-folder-id').value);
+  const idVal = $('delete-folder-id')?.value || '';
+  const fids = idVal.includes(',') 
+    ? idVal.split(',').map(x => parseInt(x.trim())).filter(Boolean) 
+    : [parseInt(idVal)].filter(Boolean);
   const deleteCloud = $('delete-folder-cloud-cb').checked;
   const btn = $('btn-confirm-delete-folder');
-  if (!btn || !fid) return;
+  if (!btn || !fids.length) return;
 
   btn.disabled = true;
   const origHtml = btn.innerHTML;
   btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1.5"></i>Menghapus...';
 
   try {
-    const { ok, data } = await apiFetch(`/api/folders/${fid}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ delete_cloud: deleteCloud })
-    });
+    let successCount = 0;
+    let lastError = null;
 
-    if (ok) {
-      showToast(data.message || 'Folder berhasil dihapus!', 'success');
+    for (const fid of fids) {
+      const { ok, data } = await apiFetch(`/api/folders/${fid}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delete_cloud: deleteCloud })
+      });
+      if (ok) {
+        successCount++;
+        if (APP.currentFolder === fid) APP.currentFolder = null;
+      } else {
+        lastError = data.error || 'Gagal menghapus folder.';
+      }
+    }
+
+    if (successCount > 0) {
+      showToast(`${successCount} folder berhasil dihapus!`, 'success');
       closeModal('modal-delete-folder');
       closeModal('modal-edit-folder');
-      if (APP.currentFolder === fid) APP.currentFolder = null;
+      clearFolderSelection();
+      await loadFolders();
+      renderMediaTree();
       loadMedia();
-    } else {
-      showToast(data.error || 'Gagal menghapus folder.', 'error');
+    } else if (lastError) {
+      showToast(lastError, 'error', 6000);
     }
   } catch (err) {
     showToast('Terjadi kesalahan: ' + err.message, 'error');
