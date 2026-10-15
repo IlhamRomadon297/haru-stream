@@ -473,6 +473,7 @@ async function seedAdminAccount(env) {
     try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN hf_repo_id TEXT`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN hf_token TEXT`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN hf_branch TEXT DEFAULT 'main'`).run(); } catch (_) {}
+    try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN hf_repo_type TEXT DEFAULT 'dataset'`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN transfer_url TEXT`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN transfer_expires_at DATETIME`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE drives ADD COLUMN transfer_download_count INTEGER DEFAULT 0`).run(); } catch (_) {}
@@ -842,10 +843,31 @@ async function handleUpdateProfile(request, env, user) {
 
 // ── DRIVES ──────────────────────────────────────────────────
 
+// ── Hugging Face helpers (dataset repo vs storage bucket) ──────
+// Datasets are git repos: api/datasets/<repo>, tree & resolve carry a branch.
+// Buckets are S3-like object storage: api/buckets/<repo>, NO branch/commit.
+function hfRepoTypeOf(drive) {
+  return drive && drive.hf_repo_type === 'bucket' ? 'bucket' : 'dataset';
+}
+function hfApiBase(repo, repoType) {
+  return repoType === 'bucket'
+    ? `https://huggingface.co/api/buckets/${repo}`
+    : `https://huggingface.co/api/datasets/${repo}`;
+}
+function hfTreeUrl(repo, repoType, branch) {
+  return repoType === 'bucket'
+    ? `https://huggingface.co/api/buckets/${repo}/tree?recursive=true`
+    : `https://huggingface.co/api/datasets/${repo}/tree/${branch || 'main'}?recursive=true`;
+}
+function hfResolveUrl(repo, repoType, branch, filePath) {
+  return repoType === 'bucket'
+    ? `https://huggingface.co/buckets/${repo}/resolve/${encodeURI(filePath)}`
+    : `https://huggingface.co/datasets/${repo}/resolve/${branch || 'main'}/${encodeURI(filePath)}`;
+}
 async function handleListDrives(request, env, user) {
   const drives = await env.DB.prepare(
     `SELECT id, drive_name, provider_type, root_folder_id, quota_used, quota_total, last_synced_at, is_active,
-            hf_repo_id, hf_branch, transfer_sid, transfer_url, transfer_expires_at, transfer_download_count, config_json, created_at
+            hf_repo_id, hf_branch, hf_repo_type, transfer_sid, transfer_url, transfer_expires_at, transfer_download_count, config_json, created_at
      FROM drives WHERE user_id = ? ORDER BY created_at DESC`
   ).bind(user.sub).all();
   return jsonResponse({ success: true, drives: drives.results || [] });
@@ -863,6 +885,7 @@ async function handleAddDrive(request, env, user, ctx) {
     hf_repo_id,
     hf_token,
     hf_branch = 'main',
+    hf_repo_type = 'dataset',
     transfer_sid,
     transfer_url,
     transfer_expires_at,
@@ -879,15 +902,19 @@ async function handleAddDrive(request, env, user, ctx) {
     if (!hf_repo_id || !hf_repo_id.trim()) {
       return errorResponse('Hugging Face Repo ID (e.g. username/dataset-name) is required.');
     }
-    const cleanRepo = hf_repo_id.trim();
-    const branch = (hf_branch || 'main').trim();
+    const cleanRepo = hf_repo_id.trim().replace(/^\/+|\/+$/g, '');
+    const repoType = hf_repo_type === 'bucket' ? 'bucket' : 'dataset';
+    const branch = repoType === 'bucket' ? 'main' : (hf_branch || 'main').trim();
 
     try {
       const testHeaders = { 'User-Agent': 'HaruStream/1.0' };
       if (hf_token && hf_token.trim()) testHeaders['Authorization'] = `Bearer ${hf_token.trim()}`;
-      const testResp = await fetch(`https://huggingface.co/api/datasets/${cleanRepo}`, { headers: testHeaders });
+      const testResp = await fetch(hfApiBase(cleanRepo, repoType), { headers: testHeaders });
       if (!testResp.ok && testResp.status === 404) {
-        return errorResponse(`Hugging Face dataset '${cleanRepo}' tidak ditemukan atau bersifat privat. Jika privat, silakan masukkan User Access Token.`, 422);
+        return errorResponse(`Hugging Face ${repoType} '${cleanRepo}' tidak ditemukan atau bersifat privat. Jika privat, silakan masukkan User Access Token.`, 422);
+      }
+      if (!testResp.ok && testResp.status === 401) {
+        return errorResponse(`Token Hugging Face tidak valid atau tidak punya akses ke ${repoType} '${cleanRepo}'.`, 422);
       }
     } catch (err) {
       return errorResponse(`Gagal menghubungi Hugging Face: ${err.message}`, 502);
@@ -896,9 +923,9 @@ async function handleAddDrive(request, env, user, ctx) {
     try {
       const result = await env.DB.prepare(
         `INSERT INTO drives
-          (user_id, drive_name, provider_type, client_id, client_secret, refresh_token, hf_repo_id, hf_token, hf_branch, is_active, created_at, updated_at)
-         VALUES (?, ?, 'huggingface', '', '', '', ?, ?, ?, 1, datetime('now'), datetime('now'))`
-      ).bind(user.sub, drive_name.trim(), cleanRepo, (hf_token && hf_token.trim()) || null, branch).run();
+          (user_id, drive_name, provider_type, client_id, client_secret, refresh_token, hf_repo_id, hf_token, hf_branch, hf_repo_type, is_active, created_at, updated_at)
+         VALUES (?, ?, 'huggingface', '', '', '', ?, ?, ?, ?, 1, datetime('now'), datetime('now'))`
+      ).bind(user.sub, drive_name.trim(), cleanRepo, (hf_token && hf_token.trim()) || null, branch, repoType).run();
 
       const driveId = result.meta?.last_row_id;
       const newDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
@@ -1089,7 +1116,7 @@ async function handleUpdateDrive(driveId, request, env, user) {
   const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?').bind(driveId, user.sub).first();
   if (!drive) return errorResponse('Drive not found.', 404);
 
-  const { drive_name, transfer_sid, client_id, client_secret, refresh_token, hf_token, hf_repo_id, hf_branch } = body;
+  const { drive_name, transfer_sid, client_id, client_secret, refresh_token, hf_token, hf_repo_id, hf_branch, hf_repo_type } = body;
   const updates = [];
   const params = [];
 
@@ -1192,6 +1219,10 @@ async function handleUpdateDrive(driveId, request, env, user) {
       updates.push('hf_branch = ?');
       params.push(hf_branch.trim());
     }
+    if (hf_repo_type === 'dataset' || hf_repo_type === 'bucket') {
+      updates.push('hf_repo_type = ?');
+      params.push(hf_repo_type);
+    }
   }
 
   if (!updates.length) return errorResponse('No fields to update.');
@@ -1249,12 +1280,13 @@ async function handleCheckDrive(driveId, env, user) {
         'User-Agent': 'HaruStream-Worker/1.0'
       };
       if (drive.hf_token && drive.hf_token.trim()) headers['Authorization'] = `Bearer ${drive.hf_token.trim()}`;
+      const repoType = hfRepoTypeOf(drive);
       const pingResp = await fetch(
-        `https://huggingface.co/api/datasets/${cleanRepoId}`,
+        hfApiBase(cleanRepoId, repoType),
         { headers }
       );
       if (pingResp.status === 401) return jsonResponse({ ok: false, error: 'Token HF tidak valid atau tidak punya akses ke repo ini.' });
-      if (pingResp.status === 404) return jsonResponse({ ok: false, error: `Dataset "${cleanRepoId}" tidak ditemukan di Hugging Face.` });
+      if (pingResp.status === 404) return jsonResponse({ ok: false, error: `${repoType === 'bucket' ? 'Bucket' : 'Dataset'} "${cleanRepoId}" tidak ditemukan di Hugging Face.` });
       if (!pingResp.ok) {
         const errText = await pingResp.text().catch(() => '');
         return jsonResponse({ ok: false, error: `HF API error (${pingResp.status})${errText ? ': ' + errText.slice(0, 80) : ''}` });
@@ -1262,12 +1294,17 @@ async function handleCheckDrive(driveId, env, user) {
       const meta = await pingResp.json();
       const isPrivate = meta.private ? '🔒 Private' : '🌐 Public';
       let storageStr = '';
+      if (repoType === 'bucket' && typeof meta.size === 'number' && meta.size > 0) {
+        storageStr = meta.size >= 1e12
+          ? `  |  Storage: ${(meta.size / 1e12).toFixed(1)} TB`
+          : `  |  Storage: ${(meta.size / 1e9).toFixed(1)} GB`;
+      }
       if (typeof meta.usedStorage === 'number' && meta.usedStorage > 0) {
         storageStr = meta.usedStorage >= 1e12
           ? `  |  Storage: ${(meta.usedStorage / 1e12).toFixed(1)} TB`
           : `  |  Storage: ${(meta.usedStorage / 1e9).toFixed(1)} GB`;
       }
-      return jsonResponse({ ok: true, message: `Koneksi HF OK ✓  |  ${isPrivate}${storageStr} — ${meta.id || cleanRepoId}` });
+      return jsonResponse({ ok: true, message: `Koneksi HF ${repoType === 'bucket' ? 'Bucket' : 'Dataset'} OK ✓  |  ${isPrivate}${storageStr} — ${meta.id || cleanRepoId}` });
     }
 
     if (pType === 'transfer_it') {
@@ -1345,13 +1382,14 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
   let totalRemoved = 0;
 
   const repo = drive.hf_repo_id;
+  const repoType = hfRepoTypeOf(drive);
   const branch = drive.hf_branch || 'main';
   const hfHeaders = { 'User-Agent': 'HaruStream/1.0' };
   if (drive.hf_token) hfHeaders['Authorization'] = `Bearer ${drive.hf_token}`;
 
-  // 1. Fetch entire recursive tree of the repository (with pagination support)
+  // 1. Fetch entire recursive tree of the repository / bucket (with pagination support)
   let treeItems = [];
-  let nextUrl = `https://huggingface.co/api/datasets/${repo}/tree/${branch}?recursive=true`;
+  let nextUrl = hfTreeUrl(repo, repoType, branch);
   let pageCount = 0;
   const MAX_PAGES = 30;
 
@@ -1424,10 +1462,14 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
     keyToD1Id.set(f.gdrive_folder_id, f.id);
   }
 
+  // Folders that already existed before this sync may have been moved
+  // virtually by the user (Media Center > Move) — never rewrite their
+  // parent_id here, including moves to root (parent_id = null).
+  const preExistingFolderIds = new Set((existingFoldersQuery.results || []).map(f => f.id));
   const folderParentUpdates = [];
   for (const f of (refreshedFolders.results || [])) {
+    if (preExistingFolderIds.has(f.id)) continue;
     const parentIntId = f.parent_gdrive_folder_id ? (keyToD1Id.get(f.parent_gdrive_folder_id) || null) : null;
-    // Only set parent_id if it has not been set yet (preserves user custom moving)
     if (f.parent_id === null && parentIntId !== null) {
       folderParentUpdates.push(
         env.DB.prepare(`UPDATE folders SET parent_id = ? WHERE id = ?`).bind(parentIntId, f.id)
@@ -1442,7 +1484,7 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
 
   // 4. Fetch existing video records for this drive in D1
   const d1Query = await env.DB.prepare(
-    `SELECT drive_file_id, title, size, folder_id FROM videos WHERE drive_id = ?`
+    `SELECT drive_file_id, title, size, folder_id, storage_uri FROM videos WHERE drive_id = ?`
   ).bind(drive.id).all();
 
   const d1Map = new Map();
@@ -1468,10 +1510,15 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
     const targetFolderId = folderKey ? (keyToD1Id.get(folderKey) || null) : null;
     const fileName = file.path.split('/').pop();
     const mimeType = getMimeTypeFromFilename(fileName);
-    const storageUri = `https://huggingface.co/datasets/${repo}/resolve/${branch}/${encodeURI(file.path)}`;
+    const storageUri = hfResolveUrl(repo, repoType, branch, file.path);
 
     const existing = d1Map.get(fileId);
-    if (existing && existing.title === fileName && existing.size === size && existing.folder_id === targetFolderId) {
+    // Preserve virtual moves: a video already indexed keeps the folder the
+    // user moved it to in HaruStream. Its physical path is encoded in
+    // drive_file_id, so a real move in the repo/bucket arrives as a new
+    // file id (old id is diff-deleted below) and lands in its physical folder.
+    const effectiveFolderId = existing ? existing.folder_id : targetFolderId;
+    if (existing && existing.title === fileName && existing.size === size && existing.storage_uri === storageUri) {
       continue;
     }
 
@@ -1489,7 +1536,7 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
           provider_type=excluded.provider_type,
           drive_id=excluded.drive_id,
           drive_modified_at=datetime('now')`
-      ).bind(drive.user_id, drive.id, targetFolderId, fileId, fileName, size, mimeType, storageUri)
+      ).bind(drive.user_id, drive.id, effectiveFolderId, fileId, fileName, size, mimeType, storageUri)
     );
   }
 
@@ -1534,10 +1581,12 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
     totalSynced = insertStmts.length;
   }
 
-  // 6. Update quota and last_synced_at (~8.7TB free public dataset limit indicator)
+  // 6. Update quota and last_synced_at
+  // Dataset: ~8.7TB free public dataset limit indicator. Bucket: no fixed
+  // public limit is published the same way, so quota_total = 0 (usage only).
   await env.DB.prepare(
     `UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
-  ).bind(totalBytes, 8.7 * 1024 * 1024 * 1024 * 1024, drive.id).run().catch(() => {});
+  ).bind(totalBytes, repoType === 'bucket' ? 0 : 8.7 * 1024 * 1024 * 1024 * 1024, drive.id).run().catch(() => {});
 
   invalidateUserCaches(drive.user_id, env);
   return { synced: totalSynced, removed: totalRemoved };
@@ -2392,7 +2441,7 @@ async function handleDeleteFolder(folderId, request, env, user, ctx) {
   // 1. Fetch folder with drive details
   const folder = await env.DB.prepare(
     `SELECT f.*, d.provider_type, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
-            d.hf_repo_id, d.hf_token, d.hf_branch
+            d.hf_repo_id, d.hf_token, d.hf_branch, d.hf_repo_type
      FROM folders f
      JOIN drives d ON d.id = f.drive_id
      WHERE f.id = ? AND f.user_id = ?`
@@ -2453,7 +2502,14 @@ async function handleDeleteFolder(folderId, request, env, user, ctx) {
       }
     }
 
-    // ── Hugging Face: Git Commit delete files ──
+    // ── Hugging Face: Git Commit delete files (dataset only) ──
+    if (pType === 'huggingface' && folder.hf_repo_id && hfRepoTypeOf(folder) === 'bucket') {
+      return errorResponse(
+        'Hapus fisik di Hugging Face Bucket belum didukung di HaruStream. ' +
+        'Hapus folder tanpa mencentang hapus file di cloud (file di bucket tetap aman), atau hapus file langsung di bucket-nya.',
+        400
+      );
+    }
     if (pType === 'huggingface' && folder.hf_repo_id) {
       const hfToken = folder.hf_token || env.HF_TOKEN || null;
       if (!hfToken) {
@@ -2900,13 +2956,13 @@ async function getCachedVideoMetadata(fileId, env, ctx) {
   const video = isNum
     ? await env.DB.prepare(
         `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
-                d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch,
+                d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch, d.hf_repo_type,
                 d.transfer_url, d.transfer_expires_at, d.transfer_download_count, d.id as drive_row_id
          FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.id = ?`
       ).bind(parseInt(fileId)).first()
     : await env.DB.prepare(
         `SELECT v.*, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
-                d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch,
+                d.provider_type as drive_provider_type, d.hf_repo_id, d.hf_token, d.hf_branch, d.hf_repo_type,
                 d.transfer_url, d.transfer_expires_at, d.transfer_download_count, d.id as drive_row_id
          FROM videos v JOIN drives d ON d.id = v.drive_id WHERE v.drive_file_id = ?`
       ).bind(fileId).first();
@@ -2990,6 +3046,7 @@ async function handleEmbed(fileId, request, env, ctx) {
     video.hf_repo_id = drive.hf_repo_id;
     video.hf_token = drive.hf_token;
     video.hf_branch = drive.hf_branch;
+    video.hf_repo_type = drive.hf_repo_type;
     video.transfer_url = drive.transfer_url;
   }
 
@@ -3032,6 +3089,7 @@ async function handleStream(fileId, request, env, ctx) {
     video.hf_repo_id = drive.hf_repo_id;
     video.hf_token = drive.hf_token;
     video.hf_branch = drive.hf_branch;
+    video.hf_repo_type = drive.hf_repo_type;
     video.transfer_url = drive.transfer_url;
   }
 
@@ -3086,7 +3144,13 @@ async function handleStream(fileId, request, env, ctx) {
 
   // ── 1. HUGGING FACE DATASETS STREAMING ─────────────────────
   if (provider === 'huggingface') {
-    const storageUri = video.storage_uri || `https://huggingface.co/datasets/${video.hf_repo_id}/resolve/${video.hf_branch || 'main'}/${encodeURI(video.title)}`;
+    const repoType = hfRepoTypeOf(video);
+    let fallbackPath = video.title;
+    const fidPrefix = `hf:${video.drive_id}:`;
+    if (video.drive_file_id && video.drive_file_id.startsWith(fidPrefix)) {
+      fallbackPath = video.drive_file_id.slice(fidPrefix.length);
+    }
+    const storageUri = video.storage_uri || hfResolveUrl(video.hf_repo_id, repoType, video.hf_branch, fallbackPath);
     let rangeHeader = request.headers.get('Range');
 
     const hfHeaders = {

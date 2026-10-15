@@ -1186,7 +1186,7 @@
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div>
             <div class="text-base font-semibold text-white">Cloud Storage Accounts</div>
-            <div class="text-xs mt-0.5" style="color:#64748b">Kelola akun Google Drive, Hugging Face Datasets, dan Transfer.it</div>
+            <div class="text-xs mt-0.5" style="color:#64748b">Kelola akun Google Drive, Hugging Face (Dataset & Bucket), dan Transfer.it</div>
           </div>
           <button onclick="openAddDriveModal()" class="btn-gradient px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold text-white flex items-center gap-2 self-start sm:self-auto flex-shrink-0">
             <i class="fas fa-plus"></i>Add Storage
@@ -1345,7 +1345,7 @@
         </div>
         <div>
           <h3 class="text-base sm:text-lg font-bold text-white leading-tight">Add Cloud Storage</h3>
-          <p class="text-xs text-slate-400 mt-0.5">Google Drive, Hugging Face Datasets, atau Transfer.it</p>
+          <p class="text-xs text-slate-400 mt-0.5">Google Drive, Hugging Face (Dataset / Bucket), atau Transfer.it</p>
         </div>
       </div>
       <button onclick="closeModal('modal-add-drive')" class="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/5 transition-colors">
@@ -1401,19 +1401,26 @@
       <div id="fields-provider-hf" class="space-y-4 hidden">
         <div class="p-3 rounded-xl text-xs flex items-start gap-2.5" style="background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.25);color:#fcd34d">
           <span class="text-base leading-none">🤗</span>
-          <div>
+          <div id="hf-type-info">
             <strong>Hugging Face Datasets:</strong> Gratis storage hingga ~8.7TB per dataset publik. File video otomatis disinkronkan secara rekursif termasuk struktur folder.
           </div>
         </div>
         <div>
-          <label class="block text-xs font-semibold mb-2" style="color:#64748b">DATASET REPO ID</label>
+          <label class="block text-xs font-semibold mb-2" style="color:#64748b">TIPE STORAGE HUGGING FACE</label>
+          <select id="hf-repo-type" class="form-input font-mono text-xs" onchange="onHfRepoTypeChange()">
+            <option value="dataset" selected>Dataset (repo Git)</option>
+            <option value="bucket">Storage Bucket (tanpa branch/git)</option>
+          </select>
+        </div>
+        <div>
+          <label id="hf-repo-label" class="block text-xs font-semibold mb-2" style="color:#64748b">DATASET REPO ID</label>
           <input type="text" id="hf-repo-id" class="form-input font-mono text-xs" placeholder="username/my-anime-dataset" />
         </div>
         <div>
-          <label class="block text-xs font-semibold mb-2" style="color:#64748b">ACCESS TOKEN (hf_... Opsional jika dataset Public)</label>
+          <label id="hf-token-label" class="block text-xs font-semibold mb-2" style="color:#64748b">ACCESS TOKEN (hf_... Opsional jika dataset Public)</label>
           <input type="password" id="hf-token" class="form-input font-mono text-xs" placeholder="hf_xxxxxxxxxxxxxxxxxxxxxx" />
         </div>
-        <div>
+        <div id="hf-branch-wrap">
           <label class="block text-xs font-semibold mb-2" style="color:#64748b">BRANCH (Default: main)</label>
           <input type="text" id="hf-branch" class="form-input font-mono text-xs" value="main" placeholder="main" />
         </div>
@@ -1545,12 +1552,21 @@
       <input type="hidden" id="reauth-hf-drive-id" value="">
 
       <div>
-        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Repo Dataset ID (format: username/repo-name)</label>
+        <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Tipe Storage</label>
+        <select id="reauth-hf-repo-type" onchange="onHfRepoTypeChange('reauth-')"
+          class="w-full px-3 py-2 rounded-xl text-xs font-mono" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
+          <option value="dataset">Dataset (repo Git)</option>
+          <option value="bucket">Storage Bucket (tanpa branch/git)</option>
+        </select>
+      </div>
+
+      <div>
+        <label id="reauth-hf-repo-label" class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Repo Dataset ID (format: username/repo-name)</label>
         <input id="reauth-hf-repo-id" type="text" placeholder="e.g. username/my-dataset" required
           class="w-full px-3 py-2 rounded-xl text-xs font-mono" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
       </div>
 
-      <div>
+      <div id="reauth-hf-branch-wrap">
         <label class="block text-xs font-semibold mb-1.5" style="color:#94a3b8">Branch (default: main)</label>
         <input id="reauth-hf-branch" type="text" placeholder="main" value="main"
           class="w-full px-3 py-2 rounded-xl text-xs font-mono" style="background:#1a1a30;border:1px solid #2a2a4a;color:#e2e8f0">
@@ -2905,6 +2921,28 @@ function getProviderBadge(providerType) {
   return `<span class="badge" style="background:rgba(16,185,129,0.15);color:#34d399;border:1px solid rgba(16,185,129,0.3);font-size:10px;padding:2px 6px"><i class="fab fa-google-drive text-[9px] mr-1"></i>GDrive</span>`;
 }
 
+function onHfRepoTypeChange(prefix = '') {
+  const sel = $(prefix + 'hf-repo-type');
+  if (!sel) return;
+  const isBucket = sel.value === 'bucket';
+  const label = $(prefix + 'hf-repo-label');
+  if (label) label.textContent = isBucket ? 'BUCKET ID' : 'DATASET REPO ID';
+  const repoInput = $(prefix + 'hf-repo-id');
+  if (repoInput) repoInput.placeholder = isBucket ? 'username/my-bucket' : 'username/my-anime-dataset';
+  const tokenLabel = $(prefix + 'hf-token-label');
+  if (tokenLabel) tokenLabel.textContent = isBucket
+    ? 'ACCESS TOKEN (hf_... Opsional jika bucket Public)'
+    : 'ACCESS TOKEN (hf_... Opsional jika dataset Public)';
+  const branchWrap = $(prefix + 'hf-branch-wrap');
+  if (branchWrap) branchWrap.style.display = isBucket ? 'none' : '';
+  const info = $('hf-type-info');
+  if (info && !prefix) {
+    info.innerHTML = isBucket
+      ? '<strong>Hugging Face Storage Bucket:</strong> Object storage ala S3 (bukan repo Git, tanpa branch/commit). File video otomatis disinkronkan secara rekursif termasuk struktur folder, dan bisa dipindah-pindah secara virtual di HaruStream.'
+      : '<strong>Hugging Face Datasets:</strong> Gratis storage hingga ~8.7TB per dataset publik. File video otomatis disinkronkan secara rekursif termasuk struktur folder.';
+  }
+}
+
 function switchAddDriveProvider(provider) {
   $('drive-provider-type').value = provider;
   ['gdrive', 'hf', 'transfer'].forEach(p => {
@@ -2930,6 +2968,7 @@ function switchAddDriveProvider(provider) {
     $('drive-refresh-token').required = false;
     if ($('hf-repo-id')) $('hf-repo-id').required = true;
     if ($('transfer-sid')) $('transfer-sid').required = false;
+    onHfRepoTypeChange();
   } else if (provider === 'transfer_it') {
     $('tab-provider-transfer')?.classList.add('active');
     $('fields-provider-transfer')?.classList.remove('hidden');
@@ -2959,7 +2998,7 @@ function renderDrivesList() {
           <i class="fas fa-cloud-arrow-up text-2xl" style="color:#6366f1"></i>
         </div>
         <div class="text-sm font-semibold text-white mb-2">Belum ada storage terhubung</div>
-        <div class="text-xs mb-5" style="color:#64748b">Hubungkan Google Drive, Hugging Face Datasets, atau Transfer.it untuk mengindeks video.</div>
+        <div class="text-xs mb-5" style="color:#64748b">Hubungkan Google Drive, Hugging Face (Dataset / Bucket), atau Transfer.it untuk mengindeks video.</div>
         <button onclick="openAddDriveModal()" class="btn-gradient px-6 py-2.5 rounded-xl text-sm font-semibold text-white"><i class="fas fa-plus mr-2"></i>Connect Cloud Storage</button>
       </div>`;
     return;
@@ -2975,12 +3014,15 @@ function renderDrivesList() {
     let extraMeta = '';
 
     if (pType === 'huggingface') {
+      const isBucket = d.hf_repo_type === 'bucket';
       iconHtml = `<span style="font-size:22px;line-height:1">🤗</span>`;
-      subInfo = `Hugging Face Dataset: <span class="font-mono text-indigo-300 break-all">${escHtml(d.hf_repo_id || '')}</span> (${escHtml(d.hf_branch || 'main')}) • Last synced: ${synced}`;
+      subInfo = isBucket
+        ? `Hugging Face Bucket: <span class="font-mono text-indigo-300 break-all">${escHtml(d.hf_repo_id || '')}</span> • Last synced: ${synced}`
+        : `Hugging Face Dataset: <span class="font-mono text-indigo-300 break-all">${escHtml(d.hf_repo_id || '')}</span> (${escHtml(d.hf_branch || 'main')}) • Last synced: ${synced}`;
       extraMeta = `
         <div class="mt-3 pt-3 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-400 gap-2">
-          <span class="break-words">Public Dataset Storage: <strong>${formatBytes(d.quota_used)}</strong> used (Batas ~8.7TB)</span>
-          <a href="https://huggingface.co/datasets/${escHtml(d.hf_repo_id || '')}" target="_blank" class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 flex-shrink-0">
+          <span class="break-words">${isBucket ? 'Bucket Storage' : 'Public Dataset Storage'}: <strong>${formatBytes(d.quota_used)}</strong> used${isBucket ? '' : ' (Batas ~8.7TB)'}</span>
+          <a href="https://huggingface.co/${isBucket ? 'buckets' : 'datasets'}/${escHtml(d.hf_repo_id || '')}" target="_blank" class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 flex-shrink-0">
             <i class="fas fa-external-link-alt text-[10px]"></i>Buka di HF
           </a>
         </div>
@@ -3036,10 +3078,10 @@ function renderDrivesList() {
               <i class="fas fa-key text-[10px]"></i><span>Re-auth</span>
             </button>` : ''}
             ${pType === 'huggingface' ? `
-            <button onclick="openReauthorizeHf(${d.id}, '${escHtml(d.drive_name)}', '${escHtml(d.hf_repo_id || '')}', '${escHtml(d.hf_branch || 'main')}')"
+            <button onclick="openReauthorizeHf(${d.id}, '${escHtml(d.drive_name)}', '${escHtml(d.hf_repo_id || '')}', '${escHtml(d.hf_branch || 'main')}', '${escHtml(d.hf_repo_type || 'dataset')}')"
               class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex items-center gap-1"
               style="background:rgba(251,191,36,0.12);color:#fbbf24;border:1px solid rgba(251,191,36,0.25)"
-              title="Perbarui HF Token atau konfigurasi Dataset">
+              title="Perbarui HF Token atau konfigurasi storage">
               <i class="fas fa-key text-[10px]"></i><span>Re-auth</span>
             </button>` : ''}
             <button onclick="triggerSync(${d.id})" class="px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all hover:opacity-80 flex items-center gap-1" style="background:rgba(99,102,241,0.15);color:#a5b4fc;border:1px solid rgba(99,102,241,0.25)">
@@ -3088,8 +3130,9 @@ async function submitAddDrive(e) {
     payload.root_folder_id = $('drive-root-folder').value || undefined;
   } else if (providerType === 'huggingface') {
     payload.hf_repo_id = $('hf-repo-id').value;
-    payload.hf_token   = $('hf-token').value || undefined;
+    payload.hf_token = $('hf-token').value;
     payload.hf_branch  = $('hf-branch').value || 'main';
+    payload.hf_repo_type = $('hf-repo-type')?.value || 'dataset';
   } else if (providerType === 'transfer_it') {
     payload.transfer_sid = $('transfer-sid').value.trim();
   }
@@ -3183,11 +3226,13 @@ async function submitReauthorizeDrive(e) {
   }
 }
 
-function openReauthorizeHf(driveId, driveName, repoId, branch) {
+function openReauthorizeHf(driveId, driveName, repoId, branch, repoType) {
   $('reauth-hf-drive-id').value = driveId;
   $('reauth-hf-drive-name').textContent = driveName;
   $('reauth-hf-repo-id').value = repoId || '';
   $('reauth-hf-branch').value = branch || 'main';
+  if ($('reauth-hf-repo-type')) $('reauth-hf-repo-type').value = repoType === 'bucket' ? 'bucket' : 'dataset';
+  onHfRepoTypeChange('reauth-');
   $('reauth-hf-token').value = '';
   $('modal-reauth-hf').classList.remove('hidden');
 }
@@ -3201,7 +3246,7 @@ async function submitReauthorizeHf(e) {
   const btn = $('reauth-hf-btn');
 
   if (!repoId) {
-    showToast('Repo Dataset ID wajib diisi.', 'error');
+    showToast('Repo / Bucket ID wajib diisi.', 'error');
     return;
   }
 
@@ -3210,6 +3255,7 @@ async function submitReauthorizeHf(e) {
   const payload = {
     hf_repo_id: repoId,
     hf_branch: branch,
+    hf_repo_type: $('reauth-hf-repo-type')?.value || 'dataset',
     hf_token: token || ''
   };
 
@@ -6136,6 +6182,11 @@ function updateDeleteFolderNotice(providerType) {
     notice.style.border = '1px solid rgba(16, 185, 129, 0.3)';
     notice.style.color = '#6ee7b7';
     notice.innerHTML = `<i class="fas fa-check-circle mr-1 text-emerald-400"></i> <strong>Recycle Bin Google Drive:</strong> Folder &amp; seluruh file di dalamnya akan dipindahkan ke <strong>Sampah Google Drive</strong> (dapat dipulihkan dari web Google Drive dalam 30 hari).`;
+  } else if (pType === 'huggingface' && d && d.hf_repo_type === 'bucket') {
+    notice.style.background = 'rgba(234, 179, 8, 0.12)';
+    notice.style.border = '1px solid rgba(234, 179, 8, 0.35)';
+    notice.style.color = '#fde047';
+    notice.innerHTML = `<i class="fas fa-exclamation-circle mr-1 text-amber-400"></i> <strong>Hugging Face Bucket:</strong> Hapus fisik file di bucket <strong>belum didukung</strong> di HaruStream. Pilihan ini akan ditolak server — hapus folder tanpa mencentang hapus file di cloud, atau hapus file langsung di bucket-nya.`;
   } else if (pType === 'huggingface') {
     const hasHfToken = d && d.hf_token && d.hf_token.trim().length > 0;
     if (!hasHfToken) {

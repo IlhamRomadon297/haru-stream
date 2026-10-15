@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS drives (
     hf_repo_id              TEXT     NULL,
     hf_token                TEXT     NULL,
     hf_branch               TEXT     DEFAULT 'main',
+    hf_repo_type            TEXT     DEFAULT 'dataset', -- 'dataset' (git repo) | 'bucket' (storage bucket, no branch)
     transfer_sid            TEXT     NULL,
     transfer_url            TEXT     NULL,
     transfer_expires_at     DATETIME NULL,
