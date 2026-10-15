@@ -864,6 +864,181 @@ function hfResolveUrl(repo, repoType, branch, filePath) {
     ? `https://huggingface.co/buckets/${repo}/resolve/${encodeURI(filePath)}`
     : `https://huggingface.co/datasets/${repo}/resolve/${branch || 'main'}/${encodeURI(filePath)}`;
 }
+function hfEncPath(p) {
+  return String(p || '').split('/').filter(s => s.length > 0).map(encodeURIComponent).join('/');
+}
+function hfParentDir(p) {
+  const i = String(p || '').lastIndexOf('/');
+  return i >= 0 ? p.slice(0, i) : '';
+}
+function hfBaseName(p) {
+  const s = String(p || '');
+  const i = s.lastIndexOf('/');
+  return i >= 0 ? s.slice(i + 1) : s;
+}
+function hfPhysPath(driveFileId, driveId) {
+  const prefix = `hf:${driveId}:`;
+  return typeof driveFileId === 'string' && driveFileId.startsWith(prefix) ? driveFileId.slice(prefix.length) : null;
+}
+function hfWriteTokenOrThrow(drive, env) {
+  const token = (drive && drive.hf_token) || env.HF_TOKEN || null;
+  if (!token) {
+    const err = new Error(`Pindah/hapus fisik di Hugging Face butuh Write Access Token untuk storage "${(drive && (drive.drive_name || drive.hf_repo_id)) || ''}". Isi token dengan akses Write lewat tombol Re-auth di Drive Settings, lalu coba lagi.`);
+    err.httpStatus = 400;
+    throw err;
+  }
+  return token;
+}
+async function hfBucketTreeItems(repoId, token, prefix, recursive) {
+  const url = `https://huggingface.co/api/buckets/${repoId}/tree${prefix ? '/' + hfEncPath(prefix) : ''}?recursive=${recursive ? 'true' : 'false'}`;
+  const resp = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!resp.ok) throw new Error(`Gagal membaca isi bucket Hugging Face (${resp.status}).`);
+  const items = await resp.json().catch(() => []);
+  return Array.isArray(items) ? items : [];
+}
+async function hfDatasetTreeItems(repoId, branch, token, prefix, recursive) {
+  const url = `https://huggingface.co/api/datasets/${repoId}/tree/${encodeURIComponent(branch || 'main')}${prefix ? '/' + hfEncPath(prefix) : ''}?recursive=${recursive ? 'true' : 'false'}`;
+  const resp = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!resp.ok) throw new Error(`Gagal membaca isi dataset Hugging Face (${resp.status}).`);
+  const items = await resp.json().catch(() => []);
+  return Array.isArray(items) ? items : [];
+}
+async function hfBucketBatch(repoId, token, ops) {
+  const CHUNK = 500;
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    const chunk = ops.slice(i, i + CHUNK);
+    const resp = await fetch(`https://huggingface.co/api/buckets/${repoId}/batch`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-ndjson' },
+      body: chunk.map(o => JSON.stringify(o)).join('\n')
+    });
+    const data = await resp.json().catch(() => null);
+    const failed = data && Array.isArray(data.failed) ? data.failed : null;
+    if (failed && failed.length > 0) {
+      const first = failed[0] || {};
+      throw new Error(`Operasi bucket Hugging Face gagal di ${failed.length} file (contoh: ${first.path || ''} ${first.error || first.message || ''}). Pastikan token punya akses Write ke bucket ini.`);
+    }
+    if (!resp.ok) throw new Error(`Operasi bucket Hugging Face gagal (${resp.status}). Pastikan token punya akses Write ke bucket ini.`);
+  }
+}
+// Physically move files inside an HF bucket: server-side copy by xetHash, then delete sources.
+async function hfBucketMoveFiles(repoId, token, moves) {
+  const valid = (moves || []).filter(m => m.oldPath && m.newPath && m.oldPath !== m.newPath);
+  if (valid.length === 0) return 0;
+  // NOTE: no "mtime" field — the batch API rejects the ISO string form (400); omitting it works.
+  await hfBucketBatch(repoId, token, valid.map(m => ({
+    type: 'copyFile', path: m.newPath, xetHash: m.xetHash,
+    sourceRepoType: 'bucket', sourceRepoId: repoId
+  })));
+  await hfBucketBatch(repoId, token, valid.map(m => ({ type: 'deleteFile', path: m.oldPath })));
+  return valid.length;
+}
+async function hfBucketDeletePaths(repoId, token, paths) {
+  if (!paths || paths.length === 0) return 0;
+  await hfBucketBatch(repoId, token, paths.map(p => ({ type: 'deleteFile', path: p })));
+  return paths.length;
+}
+// Physically move files inside an HF dataset repo in ONE commit: LFS files are
+// re-pointed by their sha256 oid at the new path (no re-upload) and old paths deleted.
+async function hfDatasetCommitMove(repoId, branch, token, moves, summary) {
+  const valid = (moves || []).filter(m => m.oldPath && m.newPath && m.oldPath !== m.newPath);
+  if (valid.length === 0) return 0;
+  const lines = [JSON.stringify({ key: 'header', value: { summary: summary || 'Move files via HaruStream' } })];
+  for (const m of valid) {
+    if (m.lfs && m.lfs.oid) {
+      lines.push(JSON.stringify({ key: 'lfsFile', value: { path: m.newPath, algo: 'sha256', oid: m.lfs.oid, size: m.lfs.size || m.size || 0 } }));
+    } else {
+      if ((m.size || 0) > 4500000) throw new Error(`File "${m.oldPath}" bukan file LFS dan terlalu besar untuk dipindah via API.`);
+      const fileResp = await fetch(hfResolveUrl(repoId, 'dataset', branch, m.oldPath), { headers: { Authorization: `Bearer ${token}` } });
+      if (!fileResp.ok) throw new Error(`Gagal membaca file "${m.oldPath}" dari dataset (${fileResp.status}).`);
+      const buf = new Uint8Array(await fileResp.arrayBuffer());
+      let bin = '';
+      const CH = 0x8000;
+      for (let i = 0; i < buf.length; i += CH) bin += String.fromCharCode.apply(null, buf.subarray(i, i + CH));
+      lines.push(JSON.stringify({ key: 'file', value: { content: btoa(bin), path: m.newPath, encoding: 'base64' } }));
+    }
+  }
+  for (const m of valid) lines.push(JSON.stringify({ key: 'deletedFile', value: { path: m.oldPath } }));
+  const resp = await fetch(`https://huggingface.co/api/datasets/${repoId}/commit/${branch || 'main'}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/x-ndjson' },
+    body: lines.join('\n')
+  });
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => '');
+    throw new Error(`Commit pindah file di dataset Hugging Face gagal (${resp.status}): ${t.slice(0, 150)}. Pastikan token punya akses Write.`);
+  }
+  return valid.length;
+}
+// Physical move of individual files on an HF drive; enriches moves with hashes from parent-dir listings.
+async function hfPhysicalMove(drive, env, moves, summary) {
+  const valid = (moves || []).filter(m => m.oldPath && m.newPath && m.oldPath !== m.newPath);
+  if (valid.length === 0) return 0;
+  const token = hfWriteTokenOrThrow(drive, env);
+  const isBucket = hfRepoTypeOf(drive) === 'bucket';
+  const dirCache = new Map();
+  for (const m of valid) {
+    const dir = hfParentDir(m.oldPath);
+    if (!dirCache.has(dir)) {
+      const items = isBucket
+        ? await hfBucketTreeItems(drive.hf_repo_id, token, dir, false)
+        : await hfDatasetTreeItems(drive.hf_repo_id, drive.hf_branch, token, dir, false);
+      dirCache.set(dir, new Map(items.filter(i => i.type === 'file').map(i => [i.path, i])));
+    }
+    const item = dirCache.get(dir).get(m.oldPath);
+    if (!item) throw new Error(`File "${m.oldPath}" tidak ditemukan di ${isBucket ? 'bucket' : 'dataset'} (mungkin sudah dipindah/dihapus di luar HaruStream — coba Sync dulu).`);
+    if (isBucket) {
+      if (!item.xetHash) throw new Error(`File "${m.oldPath}" tidak punya xetHash, tidak bisa dipindah via API.`);
+      m.xetHash = item.xetHash; m.mtime = item.mtime || null;
+    } else {
+      m.lfs = item.lfs || null; m.size = item.size || 0;
+    }
+  }
+  if (isBucket) return hfBucketMoveFiles(drive.hf_repo_id, token, valid);
+  return hfDatasetCommitMove(drive.hf_repo_id, drive.hf_branch, token, valid, summary);
+}
+// Physical move of a whole folder prefix on an HF drive; returns moved file count.
+async function hfPhysicalMovePrefix(drive, env, oldPrefix, newPrefix) {
+  if (!oldPrefix || !newPrefix || oldPrefix === newPrefix) return 0;
+  const token = hfWriteTokenOrThrow(drive, env);
+  if (hfRepoTypeOf(drive) === 'bucket') {
+    const files = (await hfBucketTreeItems(drive.hf_repo_id, token, oldPrefix, true)).filter(i => i.type === 'file');
+    const moves = files.map(f => ({ oldPath: f.path, newPath: newPrefix + f.path.slice(oldPrefix.length), xetHash: f.xetHash, mtime: f.mtime || null }));
+    return hfBucketMoveFiles(drive.hf_repo_id, token, moves);
+  }
+  const files = (await hfDatasetTreeItems(drive.hf_repo_id, drive.hf_branch, token, oldPrefix, true)).filter(i => i.type === 'file');
+  const moves = files.map(f => ({ oldPath: f.path, newPath: newPrefix + f.path.slice(oldPrefix.length), lfs: f.lfs || null, size: f.size || 0 }));
+  return hfDatasetCommitMove(drive.hf_repo_id, drive.hf_branch, token, moves, `Move folder "${oldPrefix}" via HaruStream`);
+}
+// Rewrite stored physical paths in D1 after a physical prefix move (folders + videos of one drive).
+async function hfRewritePrefixInD1(env, userId, drive, oldPrefix, newPrefix) {
+  const full = `hf:${drive.id}:${oldPrefix}`;
+  const fullNew = `hf:${drive.id}:${newPrefix}`;
+  const stmts = [];
+  const fRows = await env.DB.prepare(
+    `SELECT id, gdrive_folder_id, parent_gdrive_folder_id FROM folders WHERE drive_id = ? AND user_id = ? AND (gdrive_folder_id = ? OR gdrive_folder_id LIKE ? OR parent_gdrive_folder_id = ? OR parent_gdrive_folder_id LIKE ?)`
+  ).bind(drive.id, userId, full, full + '/%', full, full + '/%').all();
+  for (const r of (fRows.results || [])) {
+    const nf = r.gdrive_folder_id && r.gdrive_folder_id.startsWith(full) ? fullNew + r.gdrive_folder_id.slice(full.length) : r.gdrive_folder_id;
+    const np = r.parent_gdrive_folder_id && r.parent_gdrive_folder_id.startsWith(full) ? fullNew + r.parent_gdrive_folder_id.slice(full.length) : r.parent_gdrive_folder_id;
+    if (nf !== r.gdrive_folder_id || np !== r.parent_gdrive_folder_id) {
+      stmts.push(env.DB.prepare(`UPDATE folders SET gdrive_folder_id = ?, parent_gdrive_folder_id = ? WHERE id = ?`).bind(nf, np, r.id));
+    }
+  }
+  const vRows = await env.DB.prepare(
+    `SELECT id, drive_file_id FROM videos WHERE drive_id = ? AND user_id = ? AND (drive_file_id = ? OR drive_file_id LIKE ?)`
+  ).bind(drive.id, userId, full, full + '/%').all();
+  const repoType = hfRepoTypeOf(drive);
+  for (const r of (vRows.results || [])) {
+    if (!r.drive_file_id || !r.drive_file_id.startsWith(full)) continue; // LIKE can over-match (%/_ in names)
+    const nfid = fullNew + r.drive_file_id.slice(full.length);
+    const rel = nfid.slice(`hf:${drive.id}:`.length);
+    stmts.push(env.DB.prepare(`UPDATE videos SET drive_file_id = ?, storage_uri = ? WHERE id = ?`).bind(nfid, hfResolveUrl(drive.hf_repo_id, repoType, drive.hf_branch, rel), r.id));
+  }
+  if (stmts.length > 0) await env.DB.batch(stmts);
+  return stmts.length;
+}
+
 async function handleListDrives(request, env, user) {
   const drives = await env.DB.prepare(
     `SELECT id, drive_name, provider_type, root_folder_id, quota_used, quota_total, last_synced_at, is_active,
@@ -2384,7 +2559,8 @@ async function handleUpdateFolder(folderId, request, env, user) {
   const newName = name.trim();
 
   const folder = await env.DB.prepare(
-    `SELECT f.*, d.provider_type, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at
+    `SELECT f.*, d.provider_type, d.client_id, d.client_secret, d.refresh_token, d.access_token, d.token_expires_at,
+            d.hf_repo_id, d.hf_token, d.hf_branch, d.hf_repo_type, d.drive_name
      FROM folders f
      LEFT JOIN drives d ON d.id = f.drive_id
      WHERE f.id = ? AND f.user_id = ?`
@@ -2418,6 +2594,37 @@ async function handleUpdateFolder(folderId, request, env, user) {
     }
   }
 
+  // 1b. Hugging Face: rename/pindah folder juga secara FISIK di bucket/dataset
+  //     (seluruh file di bawah prefix path lama dipindah server-side; path di D1 ditulis ulang)
+  if (folder.provider_type === 'huggingface' && folder.hf_repo_id && folder.gdrive_folder_id) {
+    try {
+      const oldPrefix = hfPhysPath(folder.gdrive_folder_id, folder.drive_id);
+      if (oldPrefix) {
+        let parentPrefix = hfParentDir(oldPrefix);
+        const requestedParent = parent_id ? Number(parent_id) : null;
+        const currentParent = folder.parent_id ? Number(folder.parent_id) : null;
+        if (requestedParent !== currentParent) {
+          if (requestedParent) {
+            const pf = await env.DB.prepare(`SELECT gdrive_folder_id, drive_id FROM folders WHERE id = ? AND user_id = ?`).bind(requestedParent, user.sub).first();
+            parentPrefix = pf ? (hfPhysPath(pf.gdrive_folder_id, pf.drive_id) || '') : '';
+          } else {
+            parentPrefix = '';
+          }
+        }
+        const segment = (newName !== folder.name) ? newName : hfBaseName(oldPrefix);
+        const newPrefix = (parentPrefix ? parentPrefix + '/' : '') + segment;
+        if (newPrefix !== oldPrefix) {
+          const driveObj = { id: folder.drive_id, drive_name: folder.drive_name, hf_repo_id: folder.hf_repo_id, hf_token: folder.hf_token, hf_branch: folder.hf_branch, hf_repo_type: folder.hf_repo_type };
+          await hfPhysicalMovePrefix(driveObj, env, oldPrefix, newPrefix);
+          await hfRewritePrefixInD1(env, user.sub, driveObj, oldPrefix, newPrefix);
+          cloudRenamed = true;
+        }
+      }
+    } catch (err) {
+      return errorResponse(err.message || 'Gagal memindahkan folder fisik di Hugging Face.', err.httpStatus || 500);
+    }
+  }
+
   // 2. Simpan nama baru ke D1
   await env.DB.prepare(
     `UPDATE folders SET name = ?, parent_id = ?, color = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
@@ -2426,8 +2633,10 @@ async function handleUpdateFolder(folderId, request, env, user) {
   invalidateUserCaches(user.sub, env);
   return jsonResponse({
     success: true,
-    message: cloudRenamed 
-      ? 'Folder di HaruStream dan Google Drive berhasil direname!' 
+    message: cloudRenamed
+      ? (folder.provider_type === 'gdrive'
+          ? 'Folder di HaruStream dan Google Drive berhasil direname!'
+          : 'Folder di HaruStream dan Hugging Face berhasil diperbarui (fisik ikut berpindah)!')
       : 'Folder berhasil diperbarui!'
   });
 }
@@ -2502,13 +2711,33 @@ async function handleDeleteFolder(folderId, request, env, user, ctx) {
       }
     }
 
-    // ── Hugging Face: Git Commit delete files (dataset only) ──
+    // ── Hugging Face Bucket: physical delete via batch API (deleteFile) ──
     if (pType === 'huggingface' && folder.hf_repo_id && hfRepoTypeOf(folder) === 'bucket') {
-      return errorResponse(
-        'Hapus fisik di Hugging Face Bucket belum didukung di HaruStream. ' +
-        'Hapus folder tanpa mencentang hapus file di cloud (file di bucket tetap aman), atau hapus file langsung di bucket-nya.',
-        400
-      );
+      const hfToken = folder.hf_token || env.HF_TOKEN || null;
+      if (!hfToken) {
+        return errorResponse(
+          `Gagal menghapus di Hugging Face: Write Access Token belum dipasang untuk storage "${folder.name}". ` +
+          `Silakan masukkan Write Access Token via tombol Re-auth di Drive Settings terlebih dahulu agar file fisik di Hugging Face dapat terhapus.`,
+          400
+        );
+      }
+      try {
+        const prefix = `hf:${folder.drive_id}:`;
+        const filePaths = videosToDelete
+          .map(v => v.drive_file_id && v.drive_file_id.startsWith(prefix) ? v.drive_file_id.slice(prefix.length) : null)
+          .filter(Boolean);
+        // Also catch any other files physically under this folder (non-video files in the bucket)
+        let extraPaths = [];
+        const folderPhys = hfPhysPath(folder.gdrive_folder_id, folder.drive_id);
+        if (folderPhys) {
+          const items = await hfBucketTreeItems(folder.hf_repo_id, hfToken, folderPhys, true);
+          extraPaths = items.filter(i => i.type === 'file').map(i => i.path);
+        }
+        const allPaths = [...new Set([...filePaths, ...extraPaths])];
+        if (allPaths.length > 0) await hfBucketDeletePaths(folder.hf_repo_id, hfToken, allPaths);
+      } catch (err) {
+        return errorResponse(`Gagal menghapus file di bucket Hugging Face: ${err.message}`, 500);
+      }
     }
     if (pType === 'huggingface' && folder.hf_repo_id) {
       const hfToken = folder.hf_token || env.HF_TOKEN || null;
@@ -2594,21 +2823,63 @@ async function handleMoveVideo(request, env, user, ctx) {
   const { video_ids, folder_id } = await request.json().catch(() => ({}));
   if (!video_ids || !Array.isArray(video_ids)) return errorResponse('video_ids array is required.');
 
-  // Fetch drive_file_ids before moving for cache invalidation
-  let fileIdsForCache = [];
+  // Fetch video rows (with drive info) before moving: cache invalidation + HF physical move
+  let videoRows = [];
   try {
     const placeholders = video_ids.map(() => '?').join(',');
     const rows = await env.DB.prepare(
-      `SELECT id, drive_file_id FROM videos WHERE id IN (${placeholders}) AND user_id = ?`
+      `SELECT v.id, v.drive_file_id, v.drive_id, d.provider_type, d.hf_repo_id, d.hf_token, d.hf_branch, d.hf_repo_type, d.drive_name
+       FROM videos v LEFT JOIN drives d ON d.id = v.drive_id
+       WHERE v.id IN (${placeholders}) AND v.user_id = ?`
     ).bind(...video_ids, user.sub).all();
-    fileIdsForCache = rows.results || [];
+    videoRows = rows.results || [];
   } catch (_) {}
+  const fileIdsForCache = videoRows;
 
-  const stmts = video_ids.map(vid =>
-    env.DB.prepare(
+  // HF drives: physically move files in the bucket/dataset FIRST; D1 is updated only on success.
+  const perVideoNewFileId = new Map();
+  let physicalMoved = 0;
+  try {
+    let targetFolderRow = null;
+    if (folder_id) {
+      targetFolderRow = await env.DB.prepare(`SELECT id, drive_id, gdrive_folder_id FROM folders WHERE id = ? AND user_id = ?`).bind(folder_id, user.sub).first();
+    }
+    const byDrive = new Map();
+    for (const v of videoRows) {
+      if ((v.provider_type || '') !== 'huggingface' || !v.drive_file_id) continue;
+      const oldPath = hfPhysPath(v.drive_file_id, v.drive_id);
+      if (oldPath === null) continue;
+      let destDir = '';
+      if (targetFolderRow) {
+        if (Number(targetFolderRow.drive_id) !== Number(v.drive_id)) continue; // cross-drive target: virtual only
+        destDir = hfPhysPath(targetFolderRow.gdrive_folder_id, v.drive_id) || '';
+      }
+      const newPath = (destDir ? destDir + '/' : '') + hfBaseName(oldPath);
+      if (newPath === oldPath) continue;
+      if (!byDrive.has(v.drive_id)) byDrive.set(v.drive_id, { drive: v, moves: [] });
+      byDrive.get(v.drive_id).moves.push({ videoId: v.id, oldPath, newPath });
+    }
+    for (const { drive, moves } of byDrive.values()) {
+      physicalMoved += await hfPhysicalMove(drive, env, moves, 'Move files via HaruStream');
+      for (const m of moves) perVideoNewFileId.set(m.videoId, `hf:${drive.id}:${m.newPath}`);
+    }
+  } catch (err) {
+    return errorResponse(err.message || 'Gagal memindahkan file fisik di Hugging Face.', err.httpStatus || 500);
+  }
+
+  const stmts = video_ids.map(vid => {
+    const newFid = perVideoNewFileId.get(vid);
+    if (newFid) {
+      const v = videoRows.find(r => Number(r.id) === Number(vid));
+      const rel = newFid.slice(`hf:${v.drive_id}:`.length);
+      return env.DB.prepare(
+        `UPDATE videos SET folder_id = ?, drive_file_id = ?, storage_uri = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
+      ).bind(folder_id || null, newFid, hfResolveUrl(v.hf_repo_id, hfRepoTypeOf(v), v.hf_branch, rel), vid, user.sub);
+    }
+    return env.DB.prepare(
       `UPDATE videos SET folder_id = ?, updated_at = datetime('now') WHERE id = ? AND user_id = ?`
-    ).bind(folder_id || null, vid, user.sub)
-  );
+    ).bind(folder_id || null, vid, user.sub);
+  });
 
   await env.DB.batch(stmts);
 
@@ -2620,7 +2891,7 @@ async function handleMoveVideo(request, env, user, ctx) {
 
   invalidateUserCaches(user.sub, env, ctx);
 
-  return jsonResponse({ success: true, moved: video_ids.length });
+  return jsonResponse({ success: true, moved: video_ids.length, physical_moved: physicalMoved });
 }
 
 async function handleMoveFolders(request, env, user, ctx) {
@@ -2635,7 +2906,7 @@ async function handleMoveFolders(request, env, user, ctx) {
   }
 
   // Verify drive belongs to user
-  const drive = await env.DB.prepare('SELECT id, provider_type FROM drives WHERE id = ? AND user_id = ?').bind(drive_id, user.sub).first();
+  const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?').bind(drive_id, user.sub).first();
   if (!drive) return errorResponse('Drive tidak ditemukan atau akses ditolak.', 404);
 
   // If target_parent_id is specified (not null / root), verify it exists in the same drive
@@ -2669,6 +2940,30 @@ async function handleMoveFolders(request, env, user, ctx) {
         return errorResponse('Tidak bisa memindahkan folder ke dalam sub-folder miliknya sendiri.', 400);
       }
       currentCheck = childIds;
+    }
+  }
+
+  // HF drives: physically move each folder prefix in the bucket/dataset FIRST.
+  if ((drive.provider_type || '') === 'huggingface' && drive.hf_repo_id) {
+    try {
+      const targetPhys = targetFolder ? (hfPhysPath(targetFolder.gdrive_folder_id, drive_id) || '') : '';
+      const fph = folder_ids.map(() => '?').join(',');
+      const folderRows = await env.DB.prepare(
+        `SELECT id, name, gdrive_folder_id FROM folders WHERE id IN (${fph}) AND drive_id = ? AND user_id = ?`
+      ).bind(...folder_ids, drive_id, user.sub).all();
+      for (const f of (folderRows.results || [])) {
+        const oldPrefix = hfPhysPath(f.gdrive_folder_id, drive_id);
+        if (!oldPrefix) continue; // virtual folder: nothing physical to move
+        const newPrefix = (targetPhys ? targetPhys + '/' : '') + hfBaseName(oldPrefix);
+        if (newPrefix === oldPrefix) continue;
+        if (newPrefix.startsWith(oldPrefix + '/')) {
+          return errorResponse('Tidak bisa memindahkan folder ke dalam sub-folder miliknya sendiri.', 400);
+        }
+        await hfPhysicalMovePrefix(drive, env, oldPrefix, newPrefix);
+        await hfRewritePrefixInD1(env, user.sub, drive, oldPrefix, newPrefix);
+      }
+    } catch (err) {
+      return errorResponse(err.message || 'Gagal memindahkan folder fisik di Hugging Face.', err.httpStatus || 500);
     }
   }
 

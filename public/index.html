@@ -2938,7 +2938,7 @@ function onHfRepoTypeChange(prefix = '') {
   const info = $('hf-type-info');
   if (info && !prefix) {
     info.innerHTML = isBucket
-      ? '<strong>Hugging Face Storage Bucket:</strong> Object storage ala S3 (bukan repo Git, tanpa branch/commit). File video otomatis disinkronkan secara rekursif termasuk struktur folder, dan bisa dipindah-pindah secara virtual di HaruStream.'
+      ? '<strong>Hugging Face Storage Bucket:</strong> Object storage ala S3 (bukan repo Git, tanpa branch/commit). File video otomatis disinkronkan secara rekursif termasuk struktur folder. Pindah file/folder & rename di HaruStream juga memindahkan file fisiknya di bucket (butuh token akses Write saat menambah drive).'
       : '<strong>Hugging Face Datasets:</strong> Gratis storage hingga ~8.7TB per dataset publik. File video otomatis disinkronkan secara rekursif termasuk struktur folder.';
   }
 }
@@ -6048,7 +6048,9 @@ function openEditFolderModal(folderId, event) {
       noticeEl.innerHTML = `<i class="fab fa-google-drive text-emerald-400 mr-1.5"></i> Nama folder di <strong>Google Drive</strong> juga akan otomatis diperbarui secara real-time via API.`;
       noticeEl.className = 'text-[11px] p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 mt-2';
     } else if (pType === 'huggingface') {
-      noticeEl.innerHTML = `<i class="fas fa-cube text-amber-400 mr-1.5"></i> Folder di <strong>Hugging Face</strong> tersimpan dan direname secara virtual di HaruStream tanpa mengubah struktur repo Git.`;
+      noticeEl.innerHTML = d?.hf_repo_type === 'bucket'
+        ? `<i class="fas fa-cube text-sky-400 mr-1.5"></i> Rename/pindah folder ini juga memindahkan file fisiknya di <strong>Hugging Face Bucket</strong> (butuh token Write di drive-nya).`
+        : `<i class="fas fa-cube text-amber-400 mr-1.5"></i> Rename/pindah folder ini juga memindahkan file fisiknya di <strong>repo dataset Hugging Face</strong> via commit (butuh token Write di drive-nya).`;
       noticeEl.className = 'text-[11px] p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 mt-2';
     } else {
       noticeEl.innerHTML = `<i class="fas fa-bolt text-cyan-400 mr-1.5"></i> Folder di <strong>Transfer.it</strong> tersimpan secara virtual di database HaruStream.`;
@@ -6186,7 +6188,7 @@ function updateDeleteFolderNotice(providerType) {
     notice.style.background = 'rgba(234, 179, 8, 0.12)';
     notice.style.border = '1px solid rgba(234, 179, 8, 0.35)';
     notice.style.color = '#fde047';
-    notice.innerHTML = `<i class="fas fa-exclamation-circle mr-1 text-amber-400"></i> <strong>Hugging Face Bucket:</strong> Hapus fisik file di bucket <strong>belum didukung</strong> di HaruStream. Pilihan ini akan ditolak server — hapus folder tanpa mencentang hapus file di cloud, atau hapus file langsung di bucket-nya.`;
+    notice.innerHTML = `<i class="fas fa-exclamation-circle mr-1 text-red-400"></i> <strong>Hugging Face Bucket:</strong> File fisik di dalam folder ini akan <strong> ikut terhapus permanen dari bucket</strong> (butuh token Write di drive-nya). Bucket tidak punya recycle bin — yang terhapus tidak bisa dikembalikan.`;
   } else if (pType === 'huggingface') {
     const hasHfToken = d && d.hf_token && d.hf_token.trim().length > 0;
     if (!hasHfToken) {
