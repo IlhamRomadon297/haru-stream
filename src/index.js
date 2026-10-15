@@ -1859,7 +1859,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
         const bundleTitle = drive.drive_name || `Transfer ${xh}`;
         const gdriveFolderId = `transfer_it_folder_${xh}`;
         let folder = await env.DB.prepare(
-          `SELECT id FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
+          `SELECT id, name FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
         ).bind(drive.id, gdriveFolderId).first();
 
         let folderId = folder ? folder.id : null;
@@ -1898,10 +1898,18 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
           const storageUri = `https://transfer.it/t/${xh}#${nodeId}`;
 
           const existing = await env.DB.prepare(
-            `SELECT id FROM videos WHERE drive_file_id = ?`
+            `SELECT id, folder_id, title, size, mime_type, storage_uri, expires_at FROM videos WHERE drive_file_id = ?`
           ).bind(childFileId).first();
 
-          if (!existing) {
+          if (existing
+            && Number(existing.folder_id || 0) === Number(folderId || 0)
+            && existing.title === epTitle
+            && Number(existing.size || 0) === epSize
+            && existing.mime_type === mimeType
+            && existing.storage_uri === storageUri
+            && (!drive.transfer_expires_at || (existing.expires_at || '') === expiresAt)) {
+            // Unchanged — skip the UPDATE entirely (D1 write-quota saver)
+          } else if (!existing) {
             stmts.push(
               env.DB.prepare(
                 `INSERT INTO videos
@@ -1941,7 +1949,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
 
     // Default single-file fallback
     const fileId = `transferit:${drive.id}`;
-    const existing = await env.DB.prepare('SELECT id FROM videos WHERE drive_file_id = ?').bind(fileId).first();
+    const existing = await env.DB.prepare('SELECT id, title, storage_uri, expires_at, download_limit, provider_downloads FROM videos WHERE drive_file_id = ?').bind(fileId).first();
     const title = drive.drive_name || 'Transfer.it Media';
     const expiresAt = drive.transfer_expires_at || new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
     const downloadLimit = 100;
@@ -1953,7 +1961,11 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
           (user_id, drive_id, drive_file_id, title, size, mime_type, provider_type, storage_uri, expires_at, download_limit, provider_downloads, drive_modified_at)
          VALUES (?, ?, ?, ?, 0, 'video/mp4', 'transfer_it', ?, ?, ?, ?, datetime('now'))`
       ).bind(drive.user_id, drive.id, fileId, title, drive.transfer_url, expiresAt, downloadLimit, downloads).run();
-    } else {
+    } else if (existing.title !== title
+      || existing.storage_uri !== drive.transfer_url
+      || (drive.transfer_expires_at && (existing.expires_at || '') !== expiresAt)
+      || Number(existing.download_limit || 0) !== downloadLimit
+      || Number(existing.provider_downloads || 0) !== downloads) {
       await env.DB.prepare(
         `UPDATE videos SET
           title = ?,
@@ -1999,7 +2011,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
 
   // 3. Fetch existing videos in D1 for this drive
   const existingVideos = await env.DB.prepare(
-    `SELECT id, drive_file_id, folder_id, title, size, expires_at, provider_downloads FROM videos WHERE drive_id = ?`
+    `SELECT id, drive_file_id, folder_id, title, description, size, mime_type, storage_uri, expires_at, download_limit, provider_downloads FROM videos WHERE drive_id = ?`
   ).bind(drive.id).all();
 
   const d1Map = new Map();
@@ -2035,7 +2047,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
         // Create or get virtual folder for this series bundle
         const gdriveFolderId = `transfer_it_folder_${xh}`;
         let folder = await env.DB.prepare(
-          `SELECT id FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
+          `SELECT id, name FROM folders WHERE drive_id = ? AND gdrive_folder_id = ?`
         ).bind(drive.id, gdriveFolderId).first();
 
         let folderId = folder ? folder.id : null;
@@ -2051,7 +2063,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
             ).bind(drive.id, gdriveFolderId).first();
             folderId = fRow ? fRow.id : null;
           }
-        } else {
+        } else if (folder.name !== bundleTitle) {
           await env.DB.prepare(
             `UPDATE folders SET name = ?, updated_at = datetime('now') WHERE id = ?`
           ).bind(bundleTitle, folderId).run().catch(() => {});
@@ -2083,7 +2095,19 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'transfer_it', ?, ?, ?, ?, datetime('now'))`
               ).bind(drive.user_id, drive.id, folderId, childDriveFileId, epTitle, bundleTitle, epSize, epMime, epStorageUri, expiresAt, downloadLimit, downloadCount)
             );
-          } else {
+          } else if (
+            Number(existing.folder_id || 0) !== Number(folderId || 0)
+            || existing.title !== epTitle
+            || (existing.description || null) !== (bundleTitle || null)
+            || Number(existing.size || 0) !== epSize
+            || existing.mime_type !== epMime
+            || existing.storage_uri !== epStorageUri
+            || (t.e ? (existing.expires_at || '') !== expiresAt : false)
+            || Number(existing.download_limit || 0) !== downloadLimit
+            || Number(existing.provider_downloads || 0) !== downloadCount
+          ) {
+            // Only write when something actually changed (D1 write-quota saver).
+            // Without a real source expiry (t.e), keep the stored expires_at to avoid churn.
             insertStmts.push(
               env.DB.prepare(
                 `UPDATE videos SET
@@ -2098,7 +2122,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
                   provider_downloads = ?,
                   updated_at = datetime('now')
                  WHERE id = ?`
-              ).bind(folderId, epTitle, bundleTitle, epSize, epMime, epStorageUri, expiresAt, downloadLimit, downloadCount, existing.id)
+              ).bind(folderId, epTitle, bundleTitle, epSize, epMime, epStorageUri, t.e ? expiresAt : (existing.expires_at || expiresAt), downloadLimit, downloadCount, existing.id)
             );
           }
         }
@@ -2129,7 +2153,17 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
            VALUES (?, ?, NULL, ?, ?, NULL, ?, ?, 'transfer_it', ?, ?, ?, ?, datetime('now'))`
         ).bind(drive.user_id, drive.id, driveFileId, bundleTitle, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount)
       );
-    } else {
+    } else if (
+      Number(existing.folder_id || 0) !== 0
+      || existing.title !== bundleTitle
+      || (existing.description || null) !== null
+      || Number(existing.size || 0) !== fileSize
+      || existing.mime_type !== mimeType
+      || existing.storage_uri !== storageUri
+      || (t.e ? (existing.expires_at || '') !== expiresAt : false)
+      || Number(existing.download_limit || 0) !== downloadLimit
+      || Number(existing.provider_downloads || 0) !== downloadCount
+    ) {
       insertStmts.push(
         env.DB.prepare(
           `UPDATE videos SET
@@ -2144,7 +2178,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
             provider_downloads = ?,
             updated_at = datetime('now')
            WHERE id = ?`
-        ).bind(bundleTitle, fileSize, mimeType, storageUri, expiresAt, downloadLimit, downloadCount, existing.id)
+        ).bind(bundleTitle, fileSize, mimeType, storageUri, t.e ? expiresAt : (existing.expires_at || expiresAt), downloadLimit, downloadCount, existing.id)
       );
     }
   }
