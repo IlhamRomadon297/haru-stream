@@ -1290,6 +1290,112 @@ async function handleTransferRenew(driveId, env, user) {
   return jsonResponse({ success: true, renewed: renewedCount, message: `Berhasil renew ${renewedCount} transfer ke 90 hari!` });
 }
 
+// ── TRANSFER.IT MANAGEMENT (renew/delete only, no media indexing) ────────
+
+const TRANSFER_MEGA_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36';
+
+async function fetchTransferList(sid) {
+  const resp = await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(sid)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Origin': 'https://transfer.it', 'Referer': 'https://transfer.it/', 'User-Agent': TRANSFER_MEGA_UA },
+    body: JSON.stringify([{ a: 'xl' }])
+  });
+  if (!resp.ok) throw new Error(`Transfer.it API HTTP error: ${resp.status}`);
+  const data = await resp.json();
+  const code = typeof data === 'number' ? data : (Array.isArray(data) && typeof data[0] === 'number' ? data[0] : null);
+  if (code !== null && code < 0) throw new Error(`Transfer.it MEGA error (${code}). Session ID (SID) mungkin kedaluwarsa.`);
+  const transfers = Array.isArray(data) && Array.isArray(data[0]) ? data[0] : (Array.isArray(data) ? data : []);
+  return transfers.filter(t => t && t.xh);
+}
+
+function transferSummary(t) {
+  const b64urlDecode = (s) => {
+    try { return Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); } catch { return String(s); }
+  };
+  const fileCount = (Array.isArray(t.size) && t.size.length > 1 && typeof t.size[1] === 'number' && t.size[1] > 1) ? t.size[1] : 1;
+  const size = (Array.isArray(t.size) && t.size.length > 0) ? t.size[0] : (typeof t.size === 'number' ? t.size : 0);
+  return {
+    xh: t.xh,
+    title: t.t ? (b64urlDecode(t.t) || t.xh) : t.xh,
+    size, fileCount,
+    expiresAt: t.e ? new Date(t.e * 1000).toISOString() : null,
+    downloads: typeof t.ac === 'number' ? t.ac : 0,
+    downloadLimit: typeof t.mc === 'number' ? t.mc : 100
+  };
+}
+
+async function getTransferDrive(driveId, env, user) {
+  const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?').bind(driveId, user.sub).first();
+  if (!drive) throw new Error('Drive not found.');
+  if (drive.provider_type !== 'transfer_it' || !drive.transfer_sid) {
+    throw new Error('Drive ini bukan Transfer.it atau tidak memiliki Session ID (SID).');
+  }
+  return drive;
+}
+
+// Live transfer list + best-effort cleanup of the retired media rows for this
+// drive (media sync is off, so the rows would otherwise linger forever; the
+// cleanup is tolerated — e.g. while the account is over the D1 write quota —
+// and simply retries on the next panel open).
+async function handleListTransfers(driveId, env, user) {
+  try {
+    const drive = await getTransferDrive(driveId, env, user);
+    const transfers = await fetchTransferList(drive.transfer_sid.trim());
+    let cleaned = { videos: 0, folders: 0 };
+    try {
+      const v = await env.DB.prepare(`DELETE FROM videos WHERE drive_id = ? AND provider_type = 'transfer_it'`).bind(drive.id).run();
+      const f = await env.DB.prepare(`DELETE FROM folders WHERE drive_id = ? AND provider_type = 'transfer_it'`).bind(drive.id).run();
+      cleaned = { videos: v.meta?.changes || 0, folders: f.meta?.changes || 0 };
+      invalidateUserCaches(drive.user_id, env);
+    } catch (_) {}
+    return jsonResponse({ success: true, transfers: transfers.map(transferSummary), cleaned });
+  } catch (e) {
+    return errorResponse(e.message || 'Gagal memuat daftar transfer.', 502);
+  }
+}
+
+// Delete ONE transfer. The MEGA delete command for transfers is not
+// documented; candidates are tried in order and the result is VERIFIED by
+// re-listing — success is only reported when the transfer is actually gone.
+// The xh must exist in the pre-delete list (never delete a blind handle).
+async function handleDeleteTransfer(driveId, xh, env, user) {
+  try {
+    if (!/^[A-Za-z0-9_-]+$/.test(xh || '')) return errorResponse('Handle transfer tidak valid.', 400);
+    const drive = await getTransferDrive(driveId, env, user);
+    const sid = drive.transfer_sid.trim();
+    const before = await fetchTransferList(sid);
+    const target = before.find(t => t.xh === xh);
+    if (!target) return errorResponse('Transfer tidak ditemukan di akun ini.', 404);
+    const title = transferSummary(target).title;
+
+    const candidates = [
+      { method: 'xd', body: [{ a: 'xd', xh }] },
+      { method: 'xm-expire-now', body: [{ a: 'xm', xh, e: 0 }] }
+    ];
+    for (const c of candidates) {
+      try {
+        await fetch(`https://bt7.api.mega.co.nz/cs?id=${Math.floor(Math.random() * 900000 + 100000)}&sid=${encodeURIComponent(sid)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Origin': 'https://transfer.it', 'Referer': 'https://transfer.it/', 'User-Agent': TRANSFER_MEGA_UA },
+          body: JSON.stringify(c.body)
+        }).catch(() => null);
+      } catch (_) {}
+      let after = null;
+      try { after = await fetchTransferList(sid); } catch (_) {}
+      if (after && !after.some(t => t.xh === xh)) {
+        try {
+          await env.DB.prepare(`DELETE FROM videos WHERE drive_id = ? AND (drive_file_id = ? OR drive_file_id LIKE ?)`)
+            .bind(drive.id, `transfer_it_${xh}`, `transfer_it_${xh}_%`).run();
+        } catch (_) {}
+        return jsonResponse({ success: true, method: c.method, title, message: `Transfer "${title}" berhasil dihapus (via ${c.method}).` });
+      }
+    }
+    return errorResponse(`Gagal menghapus transfer "${title}": perintah hapus belum terverifikasi (transfer masih ada di daftar).`, 502);
+  } catch (e) {
+    return errorResponse(e.message || 'Gagal menghapus transfer.', 502);
+  }
+}
+
 async function handleUpdateDrive(driveId, request, env, user) {
   const body = await request.json().catch(() => ({}));
   const drive = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ?').bind(driveId, user.sub).first();
@@ -2242,6 +2348,12 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
 
 async function performDriveSync(drive, env, forceFullScan = false) {
   const pType = (drive.provider_type || 'gdrive').toLowerCase();
+  // Transfer.it is management-only (renew/delete) since 2026-10-25: it is no
+  // longer indexed as media, so it never syncs here. performTransferItSync
+  // below is retired and kept only as reference.
+  if (pType === 'transfer_it') {
+    return { synced: 0, removed: 0, skipped: true };
+  }
   if (pType === 'huggingface') {
     return await performHuggingFaceSync(drive, env, forceFullScan);
   }
@@ -2430,20 +2542,23 @@ async function handleSync(request, env, user) {
     drivesQuery = await env.DB.prepare('SELECT * FROM drives WHERE id = ? AND user_id = ? AND is_active = 1')
       .bind(drive_id, user.sub).all();
   } else {
-    // Process lightweight API providers (Hugging Face & Transfer.it) first
-    // so they never get starved or fail from Cloudflare subrequest limits (50 limit)
+    // Transfer.it is management-only (renew/delete) since 2026-10-25: never
+    // synced as media. Hugging Face still goes first so it never gets starved
+    // by Cloudflare's 50-subrequest limit.
     drivesQuery = await env.DB.prepare(
-      `SELECT * FROM drives WHERE user_id = ? AND is_active = 1
-       ORDER BY CASE 
-         WHEN provider_type = 'huggingface' THEN 0 
-         WHEN provider_type = 'transfer_it' THEN 1 
-         ELSE 2 
+      `SELECT * FROM drives WHERE user_id = ? AND is_active = 1 AND provider_type != 'transfer_it'
+       ORDER BY CASE
+         WHEN provider_type = 'huggingface' THEN 0
+         ELSE 1
        END, id ASC`
     ).bind(user.sub).all();
   }
 
   const drives = drivesQuery.results || [];
   if (!drives.length) return errorResponse('No active drives found.', 404);
+  if (drive_id && (drives[0].provider_type || '').toLowerCase() === 'transfer_it') {
+    return errorResponse('Transfer.it tidak lagi di-sync sebagai media. Buka Kelola Transfer di kartu drive untuk renew atau hapus transfer.', 400);
+  }
 
   let totalSynced  = 0;
   let totalRemoved = 0;
@@ -2493,6 +2608,9 @@ async function handleListMedia(request, env, user) {
     const orderCol = validSorts[sortBy] || 'v.title';
 
     let whereClause = 'WHERE v.user_id = ?';
+    // Transfer.it is management-only (renew/delete) since 2026-10-25: its rows
+    // never appear in media listings, search, or counts anymore.
+    whereClause += " AND v.provider_type != 'transfer_it'";
     const bindings = [user.sub];
 
     if (driveId) {
@@ -2553,7 +2671,7 @@ async function handleListMedia(request, env, user) {
                   COUNT(v.id) as video_count
            FROM folders f
            LEFT JOIN videos v ON v.folder_id = f.id
-           WHERE f.user_id = ?
+           WHERE f.user_id = ? AND f.provider_type != 'transfer_it'
            GROUP BY f.id
            ORDER BY f.drive_id, f.name`
         ).bind(user.sub).all();
@@ -2564,7 +2682,7 @@ async function handleListMedia(request, env, user) {
       } catch (_) {
         try {
           const fallback = await env.DB.prepare(
-            `SELECT id, parent_id, drive_id, name, color, icon, sort_order, created_at FROM folders WHERE user_id = ? ORDER BY sort_order, name`
+            `SELECT id, parent_id, drive_id, name, color, icon, sort_order, created_at FROM folders WHERE user_id = ? AND provider_type != 'transfer_it' ORDER BY sort_order, name`
           ).bind(user.sub).all();
           folders = fallback.results || [];
         } catch (_) {
@@ -3812,7 +3930,7 @@ async function runAutoSync(env) {
     // b) Active drives whose last sync was >= intervalMinutes ago, ordered by oldest sync first
     const dueDrivesRes = await env.DB.prepare(
       `SELECT * FROM drives
-       WHERE is_active = 1
+       WHERE is_active = 1 AND provider_type != 'transfer_it'
          AND (last_synced_at IS NULL OR (julianday('now') - julianday(last_synced_at)) * 1440 >= ?)
        ORDER BY CASE WHEN last_synced_at IS NULL THEN 0 ELSE 1 END, last_synced_at ASC
        LIMIT 1`
@@ -3884,16 +4002,16 @@ async function handleStats(env, user) {
       COALESCE(SUM(downloads), 0) as total_downloads,
       COALESCE(SUM(size), 0)      as total_size,
       COUNT(*)                    as total_videos
-    FROM videos WHERE user_id = ?
+    FROM videos WHERE user_id = ? AND provider_type != 'transfer_it'
   `).bind(user.sub).first();
 
   const topVideos = await env.DB.prepare(
     `SELECT id, drive_file_id, title, views, downloads, size, resolution
-     FROM videos WHERE user_id = ? ORDER BY views DESC LIMIT 10`
+     FROM videos WHERE user_id = ? AND provider_type != 'transfer_it' ORDER BY views DESC LIMIT 10`
   ).bind(user.sub).all();
 
   const recentActivity = await env.DB.prepare(
-    `SELECT title, views, created_at FROM videos WHERE user_id = ? ORDER BY created_at DESC LIMIT 7`
+    `SELECT title, views, created_at FROM videos WHERE user_id = ? AND provider_type != 'transfer_it' ORDER BY created_at DESC LIMIT 7`
   ).bind(user.sub).all();
 
   const driveCount = await env.DB.prepare(
@@ -4955,6 +5073,17 @@ export default {
       const parts = path.split('/');
       const driveId = parseInt(parts[4]);
       res = await handleTransferRenew(driveId, env, user);
+    }
+    else if (path.startsWith('/api/settings/drives/') && path.endsWith('/transfers') && method === 'GET') {
+      const parts = path.split('/');
+      const driveId = parseInt(parts[4]);
+      res = await handleListTransfers(driveId, env, user);
+    }
+    else if (path.match(/^\/api\/settings\/drives\/\d+\/transfers\/[^/]+\/delete$/) && method === 'POST') {
+      const parts = path.split('/');
+      const driveId = parseInt(parts[4]);
+      const xh = decodeURIComponent(parts[6]);
+      res = await handleDeleteTransfer(driveId, xh, env, user);
     }
     else if (path.startsWith('/api/settings/drives/') && path.endsWith('/check') && method === 'GET') {
       const parts = path.split('/');
