@@ -485,6 +485,10 @@ async function seedAdminAccount(env) {
     try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN expires_at DATETIME`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN download_limit INTEGER DEFAULT 0`).run(); } catch (_) {}
     try { await env.DB.prepare(`ALTER TABLE videos ADD COLUMN provider_downloads INTEGER DEFAULT 0`).run(); } catch (_) {}
+    // D1 read-quota saver (2026-10-25): live EXPLAIN showed SCAN folders for
+    // per-sync folder lookups (no usable drive_id index on the live DB).
+    try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_folders_drive_gdrive ON folders(drive_id, gdrive_folder_id)`).run(); } catch (_) {}
+    try { await env.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_folders_drive_parent ON folders(drive_id, parent_id)`).run(); } catch (_) {}
 
     const existing = await env.DB.prepare(
       `SELECT id FROM users WHERE username = 'harumisato' LIMIT 1`
@@ -1842,6 +1846,21 @@ async function fetchTransferItNodes(xh, sid = '') {
   }
 }
 
+// D1 write-quota saver (2026-10-25): MEGA's per-transfer access counter (t.ac)
+// moves on nearly every sync — the sync's own node fetch appears to bump it —
+// so comparing it exactly rewrote all ~684 bundle videos every 30 minutes
+// (163,200 rows written / 2 days, ~82% of the whole account's daily writes).
+// Persist it only when the move is material (>= 100) or when it crosses the
+// download limit (the gate in the download handler needs that boundary exact).
+// Real downloads increment the counter immediately in the download handler,
+// so the limit gate stays accurate between syncs.
+function transferDownloadsChanged(existing, downloadCount, downloadLimit) {
+  const prev = Number(existing.provider_downloads || 0);
+  if (Math.abs(downloadCount - prev) >= 100) return true;
+  if (downloadLimit > 0 && prev < downloadLimit && downloadCount >= downloadLimit) return true;
+  return false;
+}
+
 async function performTransferItSync(drive, env, forceFullScan = false) {
   const sid = (drive.transfer_sid || '').trim();
 
@@ -1965,7 +1984,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
       || existing.storage_uri !== drive.transfer_url
       || (drive.transfer_expires_at && (existing.expires_at || '') !== expiresAt)
       || Number(existing.download_limit || 0) !== downloadLimit
-      || Number(existing.provider_downloads || 0) !== downloads) {
+      || transferDownloadsChanged(existing, downloads, downloadLimit)) {
       await env.DB.prepare(
         `UPDATE videos SET
           title = ?,
@@ -2104,7 +2123,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
             || existing.storage_uri !== epStorageUri
             || (t.e ? (existing.expires_at || '') !== expiresAt : false)
             || Number(existing.download_limit || 0) !== downloadLimit
-            || Number(existing.provider_downloads || 0) !== downloadCount
+            || transferDownloadsChanged(existing, downloadCount, downloadLimit)
           ) {
             // Only write when something actually changed (D1 write-quota saver).
             // Without a real source expiry (t.e), keep the stored expires_at to avoid churn.
@@ -2162,7 +2181,7 @@ async function performTransferItSync(drive, env, forceFullScan = false) {
       || existing.storage_uri !== storageUri
       || (t.e ? (existing.expires_at || '') !== expiresAt : false)
       || Number(existing.download_limit || 0) !== downloadLimit
-      || Number(existing.provider_downloads || 0) !== downloadCount
+      || transferDownloadsChanged(existing, downloadCount, downloadLimit)
     ) {
       insertStmts.push(
         env.DB.prepare(
@@ -2540,7 +2559,7 @@ async function handleListMedia(request, env, user) {
         ).bind(user.sub).all();
         folders = foldersRes.results || [];
         if (env.STREAM_CACHE && folders.length > 0) {
-          env.STREAM_CACHE.put(folderCacheKey, JSON.stringify(folders), { expirationTtl: 600 }).catch(() => {});
+          env.STREAM_CACHE.put(folderCacheKey, JSON.stringify(folders), { expirationTtl: 3600 }).catch(() => {});
         }
       } catch (_) {
         try {
@@ -3894,7 +3913,7 @@ async function handleStats(env, user) {
   };
 
   if (env.STREAM_CACHE) {
-    env.STREAM_CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: 300 }).catch(() => {});
+    env.STREAM_CACHE.put(cacheKey, JSON.stringify(payload), { expirationTtl: 1800 }).catch(() => {});
   }
 
   return jsonResponse({

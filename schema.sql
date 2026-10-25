@@ -145,6 +145,8 @@ CREATE INDEX IF NOT EXISTS idx_drives_user_id       ON drives(user_id);
 CREATE INDEX IF NOT EXISTS idx_folders_user_id      ON folders(user_id);
 CREATE INDEX IF NOT EXISTS idx_folders_parent_id    ON folders(parent_id);
 CREATE INDEX IF NOT EXISTS idx_folders_drive_id     ON folders(drive_id);
+CREATE INDEX IF NOT EXISTS idx_folders_drive_gdrive ON folders(drive_id, gdrive_folder_id);
+CREATE INDEX IF NOT EXISTS idx_folders_drive_parent ON folders(drive_id, parent_id);
 CREATE INDEX IF NOT EXISTS idx_videos_user_id       ON videos(user_id);
 CREATE INDEX IF NOT EXISTS idx_videos_drive_id      ON videos(drive_id);
 CREATE INDEX IF NOT EXISTS idx_videos_folder_id     ON videos(folder_id);
