@@ -4828,6 +4828,19 @@ function formatMkvDuration(totalSec) {
   return s + ' s';
 }
 
+// ── Language names ─────────────────────────────────────────────
+// Full ISO 639-1 / 639-2 code → display name table. The old parser
+// map knew only ~17 languages, so tracks tagged with any other code
+// (lt, lv, nb, bg, …) displayed the raw code instead of the name.
+// hsLangDisplay / hsLangName translate ONLY exact bare-code values;
+// real names and free-form titles pass through untouched.
+const HS_LANG_MAP = { ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian', msa: 'Malay', may: 'Malay', ms: 'Malay', eng: 'English', en: 'English', jpn: 'Japanese', ja: 'Japanese', kor: 'Korean', ko: 'Korean', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', tha: 'Thai', th: 'Thai', vie: 'Vietnamese', vi: 'Vietnamese', fil: 'Filipino', tl: 'Tagalog', ara: 'Arabic', ar: 'Arabic', heb: 'Hebrew', he: 'Hebrew', iw: 'Hebrew', fas: 'Persian', per: 'Persian', fa: 'Persian', urd: 'Urdu', ur: 'Urdu', hin: 'Hindi', hi: 'Hindi', ben: 'Bengali', bn: 'Bengali', tam: 'Tamil', ta: 'Tamil', tel: 'Telugu', te: 'Telugu', mal: 'Malayalam', ml: 'Malayalam', kan: 'Kannada', kn: 'Kannada', mar: 'Marathi', mr: 'Marathi', guj: 'Gujarati', gu: 'Gujarati', pan: 'Punjabi', pa: 'Punjabi', nep: 'Nepali', ne: 'Nepali', sin: 'Sinhala', si: 'Sinhala', mya: 'Burmese', bur: 'Burmese', my: 'Burmese', khm: 'Khmer', km: 'Khmer', lao: 'Lao', lo: 'Lao', mon: 'Mongolian', mn: 'Mongolian', kat: 'Georgian', geo: 'Georgian', ka: 'Georgian', hye: 'Armenian', arm: 'Armenian', hy: 'Armenian', aze: 'Azerbaijani', az: 'Azerbaijani', kaz: 'Kazakh', kk: 'Kazakh', uzb: 'Uzbek', uz: 'Uzbek', kir: 'Kyrgyz', ky: 'Kyrgyz', tgk: 'Tajik', tg: 'Tajik', tuk: 'Turkmen', tk: 'Turkmen', uig: 'Uyghur', ug: 'Uyghur', pus: 'Pashto', ps: 'Pashto', kur: 'Kurdish', ku: 'Kurdish', ckb: 'Central Kurdish', snd: 'Sindhi', sd: 'Sindhi', bod: 'Tibetan', tib: 'Tibetan', bo: 'Tibetan', dzo: 'Dzongkha', dz: 'Dzongkha', asm: 'Assamese', as: 'Assamese', ori: 'Odia', or: 'Odia', spa: 'Spanish', es: 'Spanish', por: 'Portuguese', pt: 'Portuguese', fra: 'French', fre: 'French', fr: 'French', deu: 'German', ger: 'German', de: 'German', ita: 'Italian', it: 'Italian', nld: 'Dutch', dut: 'Dutch', nl: 'Dutch', rus: 'Russian', ru: 'Russian', ukr: 'Ukrainian', uk: 'Ukrainian', bel: 'Belarusian', be: 'Belarusian', bul: 'Bulgarian', bg: 'Bulgarian', srp: 'Serbian', sr: 'Serbian', hrv: 'Croatian', hr: 'Croatian', bos: 'Bosnian', bs: 'Bosnian', mkd: 'Macedonian', mac: 'Macedonian', mk: 'Macedonian', sqi: 'Albanian', alb: 'Albanian', sq: 'Albanian', ell: 'Greek', gre: 'Greek', el: 'Greek', ces: 'Czech', cze: 'Czech', cs: 'Czech', slk: 'Slovak', slo: 'Slovak', sk: 'Slovak', slv: 'Slovenian', sl: 'Slovenian', pol: 'Polish', pl: 'Polish', hun: 'Hungarian', hu: 'Hungarian', ron: 'Romanian', rum: 'Romanian', ro: 'Romanian', tur: 'Turkish', tr: 'Turkish', dan: 'Danish', da: 'Danish', swe: 'Swedish', sv: 'Swedish', fin: 'Finnish', fi: 'Finnish', isl: 'Icelandic', ice: 'Icelandic', is: 'Icelandic', nor: 'Norwegian', no: 'Norwegian', nob: 'Norwegian Bokmål', nb: 'Norwegian Bokmål', nno: 'Norwegian Nynorsk', nn: 'Norwegian Nynorsk', est: 'Estonian', et: 'Estonian', lav: 'Latvian', lv: 'Latvian', lit: 'Lithuanian', lt: 'Lithuanian', cat: 'Catalan', ca: 'Catalan', eus: 'Basque', baq: 'Basque', eu: 'Basque', glg: 'Galician', gl: 'Galician', gle: 'Irish', ga: 'Irish', cym: 'Welsh', wel: 'Welsh', cy: 'Welsh', mlt: 'Maltese', mt: 'Maltese', ltz: 'Luxembourgish', lb: 'Luxembourgish', fao: 'Faroese', fo: 'Faroese', kal: 'Kalaallisut', kl: 'Kalaallisut', lat: 'Latin', la: 'Latin', epo: 'Esperanto', eo: 'Esperanto', yid: 'Yiddish', yi: 'Yiddish', tat: 'Tatar', tt: 'Tatar', che: 'Chechen', ce: 'Chechen', bak: 'Bashkir', ba: 'Bashkir', oss: 'Ossetian', os: 'Ossetian', chv: 'Chuvash', cv: 'Chuvash', sah: 'Yakut', udm: 'Udmurt', kom: 'Komi', kv: 'Komi', afr: 'Afrikaans', af: 'Afrikaans', swa: 'Swahili', sw: 'Swahili', hau: 'Hausa', ha: 'Hausa', yor: 'Yoruba', yo: 'Yoruba', ibo: 'Igbo', ig: 'Igbo', amh: 'Amharic', am: 'Amharic', som: 'Somali', so: 'Somali', zul: 'Zulu', zu: 'Zulu', xho: 'Xhosa', xh: 'Xhosa', wol: 'Wolof', wo: 'Wolof', orm: 'Oromo', om: 'Oromo', tir: 'Tigrinya', ti: 'Tigrinya', mlg: 'Malagasy', mg: 'Malagasy', nya: 'Nyanja', ny: 'Nyanja', sna: 'Shona', sn: 'Shona', sot: 'Southern Sotho', st: 'Southern Sotho', tsn: 'Tswana', tn: 'Tswana', tso: 'Tsonga', ts: 'Tsonga', ven: 'Venda', ve: 'Venda', nbl: 'Southern Ndebele', nr: 'Southern Ndebele', ssw: 'Swati', ss: 'Swati', 'pt-br': 'Portuguese (Brazil)', 'es-419': 'Spanish (Latin America)', 'es-es': 'Spanish (Spain)', 'en-us': 'English (US)', 'en-gb': 'English (UK)', 'zh-cn': 'Chinese (Simplified)', 'zh-tw': 'Chinese (Traditional)', 'zh-hk': 'Chinese (Hong Kong)', und: 'Undetermined', mul: 'Multiple Languages', zxx: 'No Linguistic Content' };
+
+function hsLangName(v) {
+  if (!v) return v;
+  return HS_LANG_MAP[String(v).trim().toLowerCase()] || v;
+}
+
 function parseMatroskaEBML(bytes, v) {
   let pos = 0;
   const len = bytes.length;
@@ -4865,7 +4878,7 @@ function parseMatroskaEBML(bytes, v) {
     general: { fileName: v?.title || '', format: 'Matroska', formatVersion: 'Version 4', fileSize: v?.size ? formatBytes(v?.size) : '', writingApp: '', writingLib: '' },
     video: [], audio: [], text: [], attachments: [], menus: []
   };
-  const LANG_MAP = { ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian', jpn: 'Japanese', ja: 'Japanese', eng: 'English', en: 'English', fre: 'French', fra: 'French', fr: 'French', ger: 'German', deu: 'German', de: 'German', ita: 'Italian', it: 'Italian', spa: 'Spanish', es: 'Spanish', por: 'Portuguese', pt: 'Portuguese', rus: 'Russian', ru: 'Russian', ara: 'Arabic', ar: 'Arabic', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', kor: 'Korean', ko: 'Korean', tha: 'Thai', th: 'Thai', vie: 'Vietnamese', vi: 'Vietnamese', und: 'Undetermined' };
+  const LANG_MAP = HS_LANG_MAP;
 
   function parseTracksElement(endPos) {
     while (pos < endPos && pos < len) {
@@ -5107,8 +5120,7 @@ function parseMp4Boxes(bytes, v) {
     const c2 = String.fromCharCode(((langInt >> 5) & 0x1F) + 0x60);
     const c3 = String.fromCharCode((langInt & 0x1F) + 0x60);
     const code = (c1 + c2 + c3).toLowerCase();
-    const map = { ind: 'Indonesian', jpn: 'Japanese', eng: 'English', kor: 'Korean', chi: 'Chinese', zho: 'Chinese', fra: 'French', fre: 'French', deu: 'German', ger: 'German', spa: 'Spanish', ita: 'Italian', por: 'Portuguese', rus: 'Russian', tha: 'Thai', vie: 'Vietnamese', und: 'Undetermined' };
-    return map[code] || code;
+    return HS_LANG_MAP[code] || code;
   }
   function parseTrak(start, size) {
     const end = Math.min(start + size, len);
@@ -5226,7 +5238,7 @@ function buildMediaInfoRawText(data) {
     if (v.streamSize) out += `Stream size                              : ${v.streamSize}\n`;
     if (v.writingLib) out += `Writing library                          : ${v.writingLib}\n`;
     if (v.encodingSettings) out += `Encoding settings                        : ${v.encodingSettings}\n`;
-    if (v.language) out += `Language                                 : ${v.language}\n`;
+    if (v.language) out += `Language                                 : ${hsLangName(v.language)}\n`;
     out += `Default                                  : ${v.isDefault ? 'Yes' : 'No'}\n`;
     out += `Forced                                   : ${v.isForced ? 'Yes' : 'No'}\n`;
   });
@@ -5243,8 +5255,8 @@ function buildMediaInfoRawText(data) {
     if (a.channelLayout) out += `Channel layout                           : ${a.channelLayout}\n`;
     if (a.samplingRate) out += `Sampling rate                            : ${a.samplingRate}\n`;
     if (a.streamSize) out += `Stream size                              : ${a.streamSize}\n`;
-    if (a.title) out += `Title                                    : ${a.title}\n`;
-    if (a.language) out += `Language                                 : ${a.language}\n`;
+    if (a.title) out += `Title                                    : ${hsLangName(a.title)}\n`;
+    if (a.language) out += `Language                                 : ${hsLangName(a.language)}\n`;
     out += `Default                                  : ${a.isDefault ? 'Yes' : 'No'}\n`;
     out += `Forced                                   : ${a.isForced ? 'Yes' : 'No'}\n`;
   });
@@ -5254,8 +5266,8 @@ function buildMediaInfoRawText(data) {
     out += `ID                                       : ${t.id || (data.audio?.length || 1) + i + 2}\n`;
     out += `Format                                   : ${t.format || 'ASS'}\n`;
     if (t.codecId) out += `Codec ID                                 : ${t.codecId}\n`;
-    if (t.title) out += `Title                                    : ${t.title}\n`;
-    if (t.language) out += `Language                                 : ${t.language}\n`;
+    if (t.title) out += `Title                                    : ${hsLangName(t.title)}\n`;
+    if (t.language) out += `Language                                 : ${hsLangName(t.language)}\n`;
     if (t.elementCount) out += `Count of elements                        : ${t.elementCount}\n`;
     out += `Default                                  : ${t.isDefault ? 'Yes' : 'No'}\n`;
     out += `Forced                                   : ${t.isForced ? 'Yes' : 'No'}\n`;

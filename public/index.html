@@ -2402,23 +2402,6 @@ async function hsStreamUrl(id) {
   _streamUrlCache[id] = { url: data.url, exp: data.expires_at };
   return data.url;
 }
-async function hsDownloadUrl(id) {
-  return (await hsStreamUrl(id)) + '?download=1';
-}
-async function openDownloadLink(evt, id) {
-  if (evt) evt.preventDefault();
-  // Open the tab synchronously inside the click gesture — opening it
-  // after the awaited mint call gets the popup blocked by the browser.
-  const win = window.open('about:blank', '_blank');
-  try {
-    const u = await hsDownloadUrl(id);
-    if (win) win.location.href = BASE_URL + u;
-    else window.location.href = BASE_URL + u;
-  } catch (e) {
-    if (win) win.close();
-    alert('Gagal membuat link download: ' + e.message);
-  }
-}
 
 function setButtonLoading(id, loading, label = '') {
   const btn = $(id);
@@ -4227,7 +4210,7 @@ function parseMatroskaEBML(bytes, v) {
     general: { fileName: v?.title || '', format: 'Matroska', formatVersion: 'Version 4', fileSize: v?.size ? formatBytes(v?.size) : '', writingApp: '', writingLib: '' },
     video: [], audio: [], text: [], attachments: [], menus: []
   };
-  const LANG_MAP = { ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian', jpn: 'Japanese', ja: 'Japanese', eng: 'English', en: 'English', fre: 'French', fra: 'French', fr: 'French', ger: 'German', deu: 'German', de: 'German', ita: 'Italian', it: 'Italian', spa: 'Spanish', es: 'Spanish', por: 'Portuguese', pt: 'Portuguese', rus: 'Russian', ru: 'Russian', ara: 'Arabic', ar: 'Arabic', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', kor: 'Korean', ko: 'Korean', tha: 'Thai', th: 'Thai', vie: 'Vietnamese', vi: 'Vietnamese', und: 'Undetermined' };
+  const LANG_MAP = HS_LANG_MAP;
 
   function parseTracksElement(endPos) {
     while (pos < endPos && pos < len) {
@@ -4492,7 +4475,7 @@ function buildMediaInfoRawText(data) {
     if (v.streamSize) out += `Stream size                              : ${v.streamSize}\n`;
     if (v.writingLib) out += `Writing library                          : ${v.writingLib}\n`;
     if (v.encodingSettings) out += `Encoding settings                        : ${v.encodingSettings}\n`;
-    if (v.language) out += `Language                                 : ${v.language}\n`;
+    if (v.language) out += `Language                                 : ${hsLangDisplay(v.language)}\n`;
     out += `Default                                  : ${v.isDefault ? 'Yes' : 'No'}\n`;
     out += `Forced                                   : ${v.isForced ? 'Yes' : 'No'}\n`;
   });
@@ -4509,8 +4492,8 @@ function buildMediaInfoRawText(data) {
     if (a.channelLayout) out += `Channel layout                           : ${a.channelLayout}\n`;
     if (a.samplingRate) out += `Sampling rate                            : ${a.samplingRate}\n`;
     if (a.streamSize) out += `Stream size                              : ${a.streamSize}\n`;
-    if (a.title) out += `Title                                    : ${a.title}\n`;
-    if (a.language) out += `Language                                 : ${a.language}\n`;
+    if (a.title) out += `Title                                    : ${hsLangDisplay(a.title)}\n`;
+    if (a.language) out += `Language                                 : ${hsLangDisplay(a.language)}\n`;
     out += `Default                                  : ${a.isDefault ? 'Yes' : 'No'}\n`;
     out += `Forced                                   : ${a.isForced ? 'Yes' : 'No'}\n`;
   });
@@ -4520,8 +4503,8 @@ function buildMediaInfoRawText(data) {
     out += `ID                                       : ${t.id || (data.audio?.length || 1) + i + 2}\n`;
     out += `Format                                   : ${t.format || 'ASS'}\n`;
     if (t.codecId) out += `Codec ID                                 : ${t.codecId}\n`;
-    if (t.title) out += `Title                                    : ${t.title}\n`;
-    if (t.language) out += `Language                                 : ${t.language}\n`;
+    if (t.title) out += `Title                                    : ${hsLangDisplay(t.title)}\n`;
+    if (t.language) out += `Language                                 : ${hsLangDisplay(t.language)}\n`;
     if (t.elementCount) out += `Count of elements                        : ${t.elementCount}\n`;
     out += `Default                                  : ${t.isDefault ? 'Yes' : 'No'}\n`;
     out += `Forced                                   : ${t.isForced ? 'Yes' : 'No'}\n`;
@@ -4602,7 +4585,7 @@ function renderMediaInfoCards(data) {
             </div>
             <div>
               <div class="text-xs font-bold text-white flex items-center gap-2">
-                <span>Audio #${i + 1}: ${escHtml(a.title || a.language || 'Main Audio')}</span>
+                <span>Audio #${i + 1}: ${escHtml(hsLangDisplay(a.title || a.language || 'Main Audio'))}</span>
                 ${a.isDefault ? '<span class="badge badge-green text-[9px] py-0 px-1.5">DEFAULT</span>' : ''}
               </div>
               <div class="text-[11px] text-slate-400 font-mono mt-0.5">
@@ -4632,11 +4615,11 @@ function renderMediaInfoCards(data) {
             </div>
             <div>
               <div class="text-xs font-bold text-white flex items-center gap-1.5">
-                <span>Text #${i + 1}: ${escHtml(t.title || t.language || 'Subtitles')}</span>
+                <span>Text #${i + 1}: ${escHtml(hsLangDisplay(t.title || t.language || 'Subtitles'))}</span>
                 ${t.isDefault ? '<span class="badge badge-green text-[9px] py-0 px-1.5">DEFAULT</span>' : ''}
               </div>
               <div class="text-[10px] text-slate-400 font-mono">
-                Format: ${escHtml(t.format || 'ASS')} ${t.codecId ? `(${escHtml(t.codecId)})` : ''} · Language: ${escHtml(t.language || 'Indonesian')}
+                Format: ${escHtml(t.format || 'ASS')} ${t.codecId ? `(${escHtml(t.codecId)})` : ''} · Language: ${escHtml(hsLangDisplay(t.language || 'Indonesian'))}
               </div>
             </div>
           </div>
@@ -4804,8 +4787,7 @@ function parseMp4Boxes(bytes, v) {
     const c2 = String.fromCharCode(((langInt >> 5) & 0x1F) + 0x60);
     const c3 = String.fromCharCode((langInt & 0x1F) + 0x60);
     const code = (c1 + c2 + c3).toLowerCase();
-    const map = { ind: 'Indonesian', jpn: 'Japanese', eng: 'English', kor: 'Korean', chi: 'Chinese', zho: 'Chinese', fra: 'French', fre: 'French', deu: 'German', ger: 'German', spa: 'Spanish', ita: 'Italian', por: 'Portuguese', rus: 'Russian', tha: 'Thai', vie: 'Vietnamese', und: 'Undetermined' };
-    return map[code] || code;
+    return HS_LANG_MAP[code] || code;
   }
   function parseTrak(start, size) {
     const end = Math.min(start + size, len);
@@ -4981,14 +4963,8 @@ async function openMediaInfoModal(videoId) {
   activeMediaInfoVideoId = videoId;
   currentMediaInfoVideo = v;
   const embedUrl    = `${BASE_URL}/embed/${v.id}`;
-  let streamUrl     = embedUrl;
-  let downloadUrl   = embedUrl;
-  hsStreamUrl(v.id).then(u => {
-    streamUrl   = BASE_URL + u;
-    downloadUrl = streamUrl + '?download=1';
-    if ($('mi-stream-url'))   $('mi-stream-url').textContent   = streamUrl;
-    if ($('mi-download-url')) $('mi-download-url').textContent = downloadUrl;
-  }).catch(() => {});
+  const streamUrl   = `${BASE_URL}/stream/${v.id}`;
+  const downloadUrl = streamUrl + '?download=1';
 
   const info = getMediaInfoDetails(v);
 
@@ -5141,7 +5117,7 @@ function renderMediaTable() {
           </div>
 
           <!-- Action buttons with clear touch targets -->
-          <div class="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mt-2.5 pt-2.5 border-t border-white/5">
+          <div class="grid grid-cols-4 sm:grid-cols-8 gap-1.5 mt-2.5 pt-2.5 border-t border-white/5">
             <a href="#" onclick="openVideoDetail(${v.id}); return false;" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-indigo-300 text-[10px] font-medium transition-all" title="Play">
               <i class="fas fa-play text-xs mb-0.5"></i>Play
             </a>
@@ -5151,9 +5127,12 @@ function renderMediaTable() {
             <button type="button" onclick="copyEmbedCode(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-medium transition-all" title="Embed Code">
               <i class="fas fa-code text-xs mb-0.5"></i>iFrame
             </button>
-            <a ${isTransfer ? `href="${streamLink}" target="_blank"` : `href="#" onclick="openDownloadLink(event, ${v.id})"`} class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="${isTransfer ? 'Buka di Transfer.it' : 'Download'}">
+            <a ${isTransfer ? `href="${streamLink}" target="_blank"` : `href="${BASE_URL}/stream/${v.id}?download=1" target="_blank"`} class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="${isTransfer ? 'Buka di Transfer.it' : 'Download'}">
               <i class="fas fa-download text-xs mb-0.5"></i>DL
             </a>
+            <button type="button" onclick="copyDownloadLink(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="Salin Link Download">
+              <i class="fas fa-copy text-xs mb-0.5"></i>Salin
+            </button>
             <button type="button" onclick="openMediaInfoModal(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-amber-300 text-[10px] font-medium transition-all" title="MediaInfo">
               <i class="fas fa-file-waveform text-xs mb-0.5"></i>Info
             </button>
@@ -5231,9 +5210,12 @@ function renderMediaTable() {
                 <button type="button" onclick="copyEmbedCode(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy iFrame HTML Code">
                   <i class="fas fa-code text-[10px]"></i> Embed Code
                 </button>
-                <a ${isTransfer ? `href="${streamLink}" target="_blank"` : `href="#" onclick="openDownloadLink(event, ${v.id})"`} class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="${isTransfer ? 'Buka di Transfer.it' : 'Direct Download / Stream Link'}">
+                <a ${isTransfer ? `href="${streamLink}" target="_blank"` : `href="${BASE_URL}/stream/${v.id}?download=1" target="_blank"`} class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="${isTransfer ? 'Buka di Transfer.it' : 'Direct Download / Stream Link'}">
                   <i class="fas fa-download text-[10px]"></i> Download
                 </a>
+                <button type="button" onclick="copyDownloadLink(${v.id})" class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="Salin Link Download">
+                  <i class="fas fa-copy text-[10px]"></i> Salin Link
+                </button>
                 <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
                   <i class="fas fa-trash text-[10px]"></i> Delete
                 </button>
@@ -5741,17 +5723,9 @@ function _populateVideoDetailModal(v) {
   const base        = BASE_URL;
   const isTransfer  = (v.provider_type || v.drive_provider_type) === 'transfer_it';
   const embedLink   = `${base}/embed/${v.id}`;
-  const streamLink  = embedLink;
-  const dlLink      = isTransfer && v.storage_uri ? v.storage_uri : embedLink;
+  const streamLink  = isTransfer ? embedLink : `${base}/stream/${v.id}`;
+  const dlLink      = isTransfer && v.storage_uri ? v.storage_uri : `${base}/stream/${v.id}?download=1`;
   window._vdCurrentId = v.id;
-  if (!isTransfer) {
-    hsStreamUrl(v.id).then(u => {
-      if (window._vdCurrentId !== v.id) return;
-      if ($('vd-link-stream'))        $('vd-link-stream').textContent        = base + u;
-      if ($('vd-link-download'))      $('vd-link-download').textContent      = base + u + '?download=1';
-      if ($('vd-link-download-open')) $('vd-link-download-open').href        = base + u + '?download=1';
-    }).catch(() => {});
-  }
   const embedCode   = `<iframe src="${embedLink}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
 
   // Header
@@ -6353,18 +6327,28 @@ function copyEmbedLink(id) {
   copyToClipboard(link, 'Embed Link copied!');
 }
 
+// ── Language names ─────────────────────────────────────────────
+// Full ISO 639-1 / 639-2 code → display name table. The old parser
+// map knew only ~17 languages, so tracks tagged with any other code
+// (lt, lv, nb, bg, …) displayed the raw code instead of the name.
+// hsLangDisplay / hsLangName translate ONLY exact bare-code values;
+// real names and free-form titles pass through untouched.
+const HS_LANG_MAP = { ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian', msa: 'Malay', may: 'Malay', ms: 'Malay', eng: 'English', en: 'English', jpn: 'Japanese', ja: 'Japanese', kor: 'Korean', ko: 'Korean', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', tha: 'Thai', th: 'Thai', vie: 'Vietnamese', vi: 'Vietnamese', fil: 'Filipino', tl: 'Tagalog', ara: 'Arabic', ar: 'Arabic', heb: 'Hebrew', he: 'Hebrew', iw: 'Hebrew', fas: 'Persian', per: 'Persian', fa: 'Persian', urd: 'Urdu', ur: 'Urdu', hin: 'Hindi', hi: 'Hindi', ben: 'Bengali', bn: 'Bengali', tam: 'Tamil', ta: 'Tamil', tel: 'Telugu', te: 'Telugu', mal: 'Malayalam', ml: 'Malayalam', kan: 'Kannada', kn: 'Kannada', mar: 'Marathi', mr: 'Marathi', guj: 'Gujarati', gu: 'Gujarati', pan: 'Punjabi', pa: 'Punjabi', nep: 'Nepali', ne: 'Nepali', sin: 'Sinhala', si: 'Sinhala', mya: 'Burmese', bur: 'Burmese', my: 'Burmese', khm: 'Khmer', km: 'Khmer', lao: 'Lao', lo: 'Lao', mon: 'Mongolian', mn: 'Mongolian', kat: 'Georgian', geo: 'Georgian', ka: 'Georgian', hye: 'Armenian', arm: 'Armenian', hy: 'Armenian', aze: 'Azerbaijani', az: 'Azerbaijani', kaz: 'Kazakh', kk: 'Kazakh', uzb: 'Uzbek', uz: 'Uzbek', kir: 'Kyrgyz', ky: 'Kyrgyz', tgk: 'Tajik', tg: 'Tajik', tuk: 'Turkmen', tk: 'Turkmen', uig: 'Uyghur', ug: 'Uyghur', pus: 'Pashto', ps: 'Pashto', kur: 'Kurdish', ku: 'Kurdish', ckb: 'Central Kurdish', snd: 'Sindhi', sd: 'Sindhi', bod: 'Tibetan', tib: 'Tibetan', bo: 'Tibetan', dzo: 'Dzongkha', dz: 'Dzongkha', asm: 'Assamese', as: 'Assamese', ori: 'Odia', or: 'Odia', spa: 'Spanish', es: 'Spanish', por: 'Portuguese', pt: 'Portuguese', fra: 'French', fre: 'French', fr: 'French', deu: 'German', ger: 'German', de: 'German', ita: 'Italian', it: 'Italian', nld: 'Dutch', dut: 'Dutch', nl: 'Dutch', rus: 'Russian', ru: 'Russian', ukr: 'Ukrainian', uk: 'Ukrainian', bel: 'Belarusian', be: 'Belarusian', bul: 'Bulgarian', bg: 'Bulgarian', srp: 'Serbian', sr: 'Serbian', hrv: 'Croatian', hr: 'Croatian', bos: 'Bosnian', bs: 'Bosnian', mkd: 'Macedonian', mac: 'Macedonian', mk: 'Macedonian', sqi: 'Albanian', alb: 'Albanian', sq: 'Albanian', ell: 'Greek', gre: 'Greek', el: 'Greek', ces: 'Czech', cze: 'Czech', cs: 'Czech', slk: 'Slovak', slo: 'Slovak', sk: 'Slovak', slv: 'Slovenian', sl: 'Slovenian', pol: 'Polish', pl: 'Polish', hun: 'Hungarian', hu: 'Hungarian', ron: 'Romanian', rum: 'Romanian', ro: 'Romanian', tur: 'Turkish', tr: 'Turkish', dan: 'Danish', da: 'Danish', swe: 'Swedish', sv: 'Swedish', fin: 'Finnish', fi: 'Finnish', isl: 'Icelandic', ice: 'Icelandic', is: 'Icelandic', nor: 'Norwegian', no: 'Norwegian', nob: 'Norwegian Bokmål', nb: 'Norwegian Bokmål', nno: 'Norwegian Nynorsk', nn: 'Norwegian Nynorsk', est: 'Estonian', et: 'Estonian', lav: 'Latvian', lv: 'Latvian', lit: 'Lithuanian', lt: 'Lithuanian', cat: 'Catalan', ca: 'Catalan', eus: 'Basque', baq: 'Basque', eu: 'Basque', glg: 'Galician', gl: 'Galician', gle: 'Irish', ga: 'Irish', cym: 'Welsh', wel: 'Welsh', cy: 'Welsh', mlt: 'Maltese', mt: 'Maltese', ltz: 'Luxembourgish', lb: 'Luxembourgish', fao: 'Faroese', fo: 'Faroese', kal: 'Kalaallisut', kl: 'Kalaallisut', lat: 'Latin', la: 'Latin', epo: 'Esperanto', eo: 'Esperanto', yid: 'Yiddish', yi: 'Yiddish', tat: 'Tatar', tt: 'Tatar', che: 'Chechen', ce: 'Chechen', bak: 'Bashkir', ba: 'Bashkir', oss: 'Ossetian', os: 'Ossetian', chv: 'Chuvash', cv: 'Chuvash', sah: 'Yakut', udm: 'Udmurt', kom: 'Komi', kv: 'Komi', afr: 'Afrikaans', af: 'Afrikaans', swa: 'Swahili', sw: 'Swahili', hau: 'Hausa', ha: 'Hausa', yor: 'Yoruba', yo: 'Yoruba', ibo: 'Igbo', ig: 'Igbo', amh: 'Amharic', am: 'Amharic', som: 'Somali', so: 'Somali', zul: 'Zulu', zu: 'Zulu', xho: 'Xhosa', xh: 'Xhosa', wol: 'Wolof', wo: 'Wolof', orm: 'Oromo', om: 'Oromo', tir: 'Tigrinya', ti: 'Tigrinya', mlg: 'Malagasy', mg: 'Malagasy', nya: 'Nyanja', ny: 'Nyanja', sna: 'Shona', sn: 'Shona', sot: 'Southern Sotho', st: 'Southern Sotho', tsn: 'Tswana', tn: 'Tswana', tso: 'Tsonga', ts: 'Tsonga', ven: 'Venda', ve: 'Venda', nbl: 'Southern Ndebele', nr: 'Southern Ndebele', ssw: 'Swati', ss: 'Swati', 'pt-br': 'Portuguese (Brazil)', 'es-419': 'Spanish (Latin America)', 'es-es': 'Spanish (Spain)', 'en-us': 'English (US)', 'en-gb': 'English (UK)', 'zh-cn': 'Chinese (Simplified)', 'zh-tw': 'Chinese (Traditional)', 'zh-hk': 'Chinese (Hong Kong)', und: 'Undetermined', mul: 'Multiple Languages', zxx: 'No Linguistic Content' };
+
+function hsLangDisplay(v) {
+  if (!v) return v;
+  return HS_LANG_MAP[String(v).trim().toLowerCase()] || v;
+}
+
 function copyEmbedCode(id) {
   const code = `<iframe src="${BASE_URL}/embed/${id}" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`;
   copyToClipboard(code, 'Embed Code HTML copied!');
 }
 
-async function copyDownloadLink(id) {
-  try {
-    const u = await hsDownloadUrl(id);
-    copyToClipboard(BASE_URL + u, 'Download Link copied! (berlaku 1 jam)');
-  } catch (e) {
-    alert('Gagal membuat link download: ' + e.message);
-  }
+function copyDownloadLink(id) {
+  // Download links are permanent and tokenless by design (HaruFilm
+  // posts store them) — copy the bare URL, exactly as it works.
+  copyToClipboard(`${BASE_URL}/stream/${id}?download=1`, 'Download Link copied!');
 }
 
 function escHtml(str) {
