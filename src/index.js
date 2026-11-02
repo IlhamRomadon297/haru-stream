@@ -4207,11 +4207,11 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 </html>`;
   }
 
-  // ── Movi-only embed (Paket A) ────────────────────────────────────
-  // No Plyr, no upfront player-picker sheet: movi-player 0.4.1 starts
-  // immediately with HaruDrive's stability machinery (stall watchdog,
-  // backoff retry, position restore). External players and MediaInfo
-  // live behind top-bar buttons.
+  // ── Movi-only embed v2 ───────────────────────────────────────────
+  // No top bar (it ate vertical space and duplicated movi's own title
+  // overlay). Actions float over the player's top-right corner:
+  // MediaInfo (only when data exists — an autoscan fills it in the
+  // background on first play) and External Streaming as a small popup.
   let miText = '';
   if (video.mediainfo_raw && String(video.mediainfo_raw).trim()) {
     miText = String(video.mediainfo_raw);
@@ -4232,6 +4232,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     mediainfo: miText
   };
   const embedJson = JSON.stringify(embedData).replace(/</g, '\\u003c');
+  const miBtnDisplay = miText ? '' : ' style="display:none"';
 
   return `<!DOCTYPE html>
 <html lang="id">
@@ -4248,61 +4249,65 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body {
-      margin: 0; padding: 0; background: #06060c; color: #fff;
+      margin: 0; padding: 0; background: #000; color: #fff;
       font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+      height: 100dvh; overflow: hidden;
     }
-    #topbar {
-      display: flex; align-items: center; justify-content: space-between; gap: 12px;
-      padding: 10px 14px; background: #0f0f1a; border-bottom: 1px solid #2a2a4a; flex-shrink: 0;
-    }
-    .tb-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
-    .tb-logo {
-      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
-      background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.35);
-      display: flex; align-items: center; justify-content: center; color: #a5b4fc; font-size: 12px;
-    }
-    #tb-title-text { font-size: 13.5px; font-weight: 700; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .tb-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-    .tb-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 13px; border-radius: 9px; cursor: pointer;
-      background: rgba(99,102,241,0.16); color: #a5b4fc;
-      border: 1px solid rgba(99,102,241,0.35);
-      font-family: inherit; font-size: 12px; font-weight: 700;
-      transition: background 0.15s, transform 0.15s;
-    }
-    .tb-btn:hover { background: rgba(99,102,241,0.3); transform: translateY(-1px); }
-    #player-wrap { flex: 1; min-height: 0; background: #000; position: relative; }
+    #player-wrap { position: fixed; inset: 0; background: #000; }
     #player-wrap movi-player { width: 100%; height: 100%; display: block; font-family: 'Plus Jakarta Sans', sans-serif; }
     movi-player::part(subtitle) { font-family: 'Netflix Sans', 'Plus Jakarta Sans', sans-serif; font-weight: 500; }
+
+    /* Floating action buttons over the player's top-right corner */
+    #hs-actions {
+      position: fixed; top: 12px; right: 12px; z-index: 40;
+      display: flex; gap: 8px;
+    }
+    .hs-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 12px; border-radius: 999px; cursor: pointer;
+      background: rgba(10,10,20,0.62); color: #e2e8f0;
+      border: 1px solid rgba(255,255,255,0.22);
+      backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+      font-family: inherit; font-size: 12px; font-weight: 700;
+      opacity: 0.88; transition: opacity 0.15s, background 0.15s;
+    }
+    .hs-btn:hover { opacity: 1; background: rgba(99,102,241,0.45); }
+
+    /* External Streaming: small popup card under the buttons */
+    #ext-popup {
+      display: none; position: fixed; top: 54px; right: 12px; z-index: 41;
+      width: 272px; max-width: calc(100vw - 24px);
+      background: rgba(16,16,30,0.97); border: 1px solid #2a2a4a; border-radius: 14px;
+      box-shadow: 0 24px 48px rgba(0,0,0,0.75); padding: 10px;
+    }
+    #ext-popup.open { display: block; }
+    .ext-pop-title { font-size: 11px; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: #94a3b8; padding: 2px 8px 8px; }
+    .ext-row {
+      display: flex; align-items: center; gap: 9px; width: 100%;
+      padding: 10px; border-radius: 10px; text-decoration: none; cursor: pointer;
+      background: transparent; border: none; color: #e2e8f0;
+      font-size: 13px; font-weight: 600; font-family: inherit; text-align: left;
+      transition: background 0.13s;
+    }
+    .ext-row:hover { background: rgba(99,102,241,0.22); }
+    .ext-row .ext-ico { width: 18px; text-align: center; flex-shrink: 0; }
+    .ext-note { padding: 8px 8px 2px; font-size: 10.5px; color: #64748b; line-height: 1.5; border-top: 1px solid #2a2a4a; margin-top: 6px; }
+
     #movi-retry {
-      display: none; margin: 10px 14px 0; padding: 12px 14px; border-radius: 12px;
-      background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.4);
-      color: #fecaca; font-size: 12.5px; line-height: 1.5; text-align: center; flex-shrink: 0;
+      display: none; position: fixed; left: 50%; bottom: 86px; transform: translateX(-50%);
+      width: 440px; max-width: 92vw; z-index: 42;
+      padding: 13px 15px; border-radius: 12px;
+      background: rgba(30,12,16,0.94); border: 1px solid rgba(248,113,113,0.45);
+      color: #fecaca; font-size: 12.5px; line-height: 1.5; text-align: center;
+      box-shadow: 0 20px 44px rgba(0,0,0,0.8);
     }
     #movi-retry button {
-      margin-top: 8px; padding: 8px 16px; border: none; border-radius: 10px; cursor: pointer;
+      margin-top: 9px; padding: 8px 16px; border: none; border-radius: 10px; cursor: pointer;
       background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
       font-family: inherit; font-weight: 700; font-size: 12.5px;
     }
-    #external-panel {
-      display: none; flex-shrink: 0; padding: 12px 14px 14px;
-      background: #0f0f1a; border-top: 1px solid #2a2a4a;
-    }
-    #external-panel.open { display: block; }
-    .ext-grid { display: flex; flex-wrap: wrap; gap: 8px; }
-    .ext-btn {
-      display: inline-flex; align-items: center; gap: 7px;
-      padding: 9px 14px; border-radius: 10px; text-decoration: none; cursor: pointer;
-      background: rgba(255,255,255,0.05); color: #e2e8f0; border: 1px solid #2a2a4a;
-      font-size: 12px; font-weight: 600; font-family: inherit;
-      transition: background 0.15s, transform 0.15s;
-    }
-    .ext-btn:hover { background: rgba(99,102,241,0.2); transform: translateY(-1px); }
-    .ext-btn.copy { background: rgba(56,189,248,0.14); color: #38bdf8; border-color: rgba(56,189,248,0.35); }
-    .ext-btn.dl { background: rgba(16,185,129,0.14); color: #10b981; border-color: rgba(16,185,129,0.32); margin-left: auto; }
-    .ext-note { margin-top: 10px; font-size: 11px; color: #64748b; line-height: 1.5; }
+
+    /* MediaInfo overlay */
     #mi-overlay {
       display: none; position: fixed; inset: 0; z-index: 50;
       background: rgba(0,0,0,0.78); backdrop-filter: blur(6px);
@@ -4328,32 +4333,23 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; line-height: 1.65;
       color: #c7d2fe; white-space: pre-wrap; word-break: break-word;
     }
-    @media (max-width: 640px) {
-      #tb-title-text { font-size: 12.5px; }
-      .tb-btn { padding: 7px 10px; font-size: 11.5px; }
-      .ext-btn.dl { margin-left: 0; }
-    }
   </style>
 </head>
 <body>
-  <header id="topbar">
-    <div class="tb-title">
-      <div class="tb-logo">▶</div>
-      <div id="tb-title-text"></div>
-    </div>
-    <div class="tb-actions">
-      <button class="tb-btn" id="btn-mediainfo" type="button">ⓘ MediaInfo</button>
-      <button class="tb-btn" id="btn-external" type="button">External Streaming ▾</button>
-    </div>
-  </header>
-
   <div id="player-wrap"></div>
-  <div id="movi-retry"></div>
 
-  <div id="external-panel">
-    <div class="ext-grid" id="ext-grid"></div>
-    <div class="ext-note">Link streaming berlaku 1 jam. Kalau sudah kedaluwarsa, muat ulang halaman ini untuk mendapatkan link baru.</div>
+  <div id="hs-actions">
+    <button class="hs-btn" id="btn-mediainfo" type="button"${miBtnDisplay}>ⓘ MediaInfo</button>
+    <button class="hs-btn" id="btn-external" type="button">External Streaming ▾</button>
   </div>
+
+  <div id="ext-popup">
+    <div class="ext-pop-title">Putar di aplikasi lain</div>
+    <div id="ext-list"></div>
+    <div class="ext-note">Link streaming berlaku 1 jam. Kalau sudah kedaluwarsa, muat ulang halaman ini.</div>
+  </div>
+
+  <div id="movi-retry"></div>
 
   <div id="mi-overlay">
     <div class="mi-card">
@@ -4366,7 +4362,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <script>
     var DATA = JSON.parse(document.getElementById('embed-data').textContent);
     var ABS = window.location.origin + DATA.streamUrl;
-    document.getElementById('tb-title-text').textContent = DATA.title;
     document.title = DATA.title + ' — HaruStream';
 
     // ── View tracking beacon (same as the old embed) ──────────────
@@ -4380,6 +4375,31 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           id: DATA.videoId,
           event: 'view'
         }));
+      } catch (e) {}
+    }
+
+    // ── MediaInfo autoscan ────────────────────────────────────────
+    // If this video has no MediaInfo yet, ask the worker to scan the
+    // file head once (token-gated, first writer wins) in the
+    // background; the MediaInfo button appears when data lands.
+    var scanStarted = false;
+    function maybeAutoScan() {
+      if (scanStarted) return;
+      if (DATA.mediainfo && DATA.mediainfo.length) return;
+      scanStarted = true;
+      try {
+        var parts = DATA.streamUrl.split('/').filter(Boolean);
+        fetch('/api/media/' + DATA.videoId + '/autoscan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: parts[2], exp: parts[3] })
+        }).then(function (r) { return r.json(); }).then(function (res) {
+          if (res && res.success && res.mediainfo_raw) {
+            DATA.mediainfo = res.mediainfo_raw;
+            document.getElementById('mi-pre').textContent = res.mediainfo_raw;
+            document.getElementById('btn-mediainfo').style.display = '';
+          }
+        }).catch(function () {});
       } catch (e) {}
     }
 
@@ -4437,6 +4457,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         moviState.started = true;
         moviState.attempts = 0;
         trackVideoView();
+        maybeAutoScan();
         hideMoviRetry();
       });
       el.addEventListener('timeupdate', function () {
@@ -4476,7 +4497,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       if (kind === 'decode') { msg = 'File tidak bisa dibaca (format atau file rusak).'; }
       else { msg = 'Koneksi terputus atau lambat sehingga video berhenti memuat.'; }
       if (moviState.attempts > 3) {
-        showMoviRetry(msg + ' Sudah 3x dicoba — silakan pakai External Streaming di atas, atau muat ulang halaman.', false);
+        showMoviRetry(msg + ' Sudah 3x dicoba — silakan pakai External Streaming, atau muat ulang halaman.', false);
         return;
       }
       var delay = moviState.attempts === 1 ? 2000 : (moviState.attempts === 2 ? 5000 : 10000);
@@ -4507,42 +4528,53 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       if (box) box.style.display = 'none';
     }
 
-    // ── External streaming panel ──────────────────────────────────
+    // ── External Streaming popup ──────────────────────────────────
+    var extPopup = document.getElementById('ext-popup');
     function buildExternal() {
-      var grid = document.getElementById('ext-grid');
-      if (!grid || grid.childNodes.length) return;
+      var list = document.getElementById('ext-list');
+      if (!list || list.childNodes.length) return;
       var ua = (navigator.userAgent || '').toLowerCase();
       var isAndroid = ua.indexOf('android') >= 0;
       var isIOS = /ipad|iphone|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       var rawNoProto = ABS.indexOf('://') >= 0 ? ABS.split('://')[1] : ABS;
       var encTitle = encodeURIComponent(DATA.title || 'video');
       var mime = DATA.mime || 'video/*';
-      function addBtn(label, href, cls) {
+      function addRow(icon, label, href) {
         var a = document.createElement('a');
-        a.className = 'ext-btn' + (cls ? ' ' + cls : '');
+        a.className = 'ext-row';
         a.href = href;
-        a.textContent = label;
-        grid.appendChild(a);
+        var ico = document.createElement('span');
+        ico.className = 'ext-ico';
+        ico.textContent = icon;
+        a.appendChild(ico);
+        a.appendChild(document.createTextNode(label));
+        list.appendChild(a);
         return a;
       }
-      if (!isIOS) addBtn('PotPlayer', 'potplayer://' + ABS);
+      if (!isIOS) addRow('▶', 'PotPlayer', 'potplayer://' + ABS);
       if (isAndroid) {
-        addBtn('VLC Mobile', 'intent://' + rawNoProto + '#Intent;scheme=https;package=org.videolan.vlc;S.title=' + encTitle + ';type=video/*;end');
-        addBtn('MX Player', 'intent://' + rawNoProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mime + ';S.title=' + encTitle + ';i.decode_mode=2;b.decode_mode=2;end');
+        addRow('▶', 'VLC Mobile', 'intent://' + rawNoProto + '#Intent;scheme=https;package=org.videolan.vlc;S.title=' + encTitle + ';type=video/*;end');
+        addRow('▶', 'MX Player', 'intent://' + rawNoProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mime + ';S.title=' + encTitle + ';i.decode_mode=2;b.decode_mode=2;end');
       } else if (isIOS) {
-        addBtn('VLC iOS', 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(ABS));
-        addBtn('Outplayer', 'outplayer://' + ABS);
+        addRow('▶', 'VLC iOS', 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(ABS));
+        addRow('▶', 'Outplayer', 'outplayer://' + ABS);
       } else {
-        addBtn('VLC Desktop', 'vlc://' + ABS);
-        addBtn('MX Player', 'intent://' + rawNoProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mime + ';S.title=' + encTitle + ';end');
-        addBtn('Outplayer', 'outplayer://' + ABS);
+        addRow('▶', 'VLC Desktop', 'vlc://' + ABS);
+        addRow('▶', 'MX Player', 'intent://' + rawNoProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mime + ';S.title=' + encTitle + ';end');
+        addRow('▶', 'Outplayer', 'outplayer://' + ABS);
       }
-      var copyBtn = document.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.className = 'ext-btn copy';
-      copyBtn.textContent = 'Salin Link Streaming';
-      copyBtn.addEventListener('click', function () {
-        function done() { copyBtn.textContent = 'Tersalin ✓'; setTimeout(function () { copyBtn.textContent = 'Salin Link Streaming'; }, 1600); }
+      var copyRow = document.createElement('button');
+      copyRow.type = 'button';
+      copyRow.className = 'ext-row';
+      var cIco = document.createElement('span');
+      cIco.className = 'ext-ico';
+      cIco.textContent = '⧉';
+      copyRow.appendChild(cIco);
+      var cLabel = document.createElement('span');
+      cLabel.textContent = 'Salin Link Streaming';
+      copyRow.appendChild(cLabel);
+      copyRow.addEventListener('click', function () {
+        function done() { cLabel.textContent = 'Tersalin ✓'; setTimeout(function () { cLabel.textContent = 'Salin Link Streaming'; }, 1600); }
         if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ABS).then(done).catch(done); }
         else {
           var ta = document.createElement('textarea');
@@ -4551,16 +4583,20 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
           document.body.removeChild(ta); done();
         }
       });
-      grid.appendChild(copyBtn);
+      list.appendChild(copyRow);
     }
-    document.getElementById('btn-external').addEventListener('click', function () {
+    document.getElementById('btn-external').addEventListener('click', function (e) {
+      e.stopPropagation();
       buildExternal();
-      document.getElementById('external-panel').classList.toggle('open');
+      extPopup.classList.toggle('open');
     });
+    extPopup.addEventListener('click', function (e) { e.stopPropagation(); });
+    document.addEventListener('click', function () { extPopup.classList.remove('open'); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') extPopup.classList.remove('open'); });
 
     // ── MediaInfo overlay ─────────────────────────────────────────
     var miOverlay = document.getElementById('mi-overlay');
-    document.getElementById('mi-pre').textContent = DATA.mediainfo || 'MediaInfo belum tersedia untuk video ini. Pindai dulu dari dashboard HaruStream (detail video → Scan MediaInfo).';
+    document.getElementById('mi-pre').textContent = DATA.mediainfo || '';
     document.getElementById('btn-mediainfo').addEventListener('click', function () { miOverlay.classList.add('open'); });
     document.getElementById('mi-close').addEventListener('click', function () { miOverlay.classList.remove('open'); });
     miOverlay.addEventListener('click', function (e) { if (e.target === miOverlay) miOverlay.classList.remove('open'); });
@@ -4732,6 +4768,513 @@ async function handleExportTelegraph(request, env) {
   }
 }
 
+function formatMkvDuration(totalSec) {
+  var s = Math.round(totalSec);
+  if (s >= 3600) { var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); return h + ' h ' + m + ' min'; }
+  if (s >= 60) { var mm = Math.floor(s / 60); var ss = s % 60; return mm + ' min ' + ss + ' s'; }
+  return s + ' s';
+}
+
+function parseMatroskaEBML(bytes, v) {
+  let pos = 0;
+  const len = bytes.length;
+  function readId() {
+    if (pos >= len) return null;
+    const b = bytes[pos];
+    let vlen = 0;
+    for (let i = 0; i < 8; i++) { if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; } }
+    if (vlen === 0 || pos + vlen > len) return null;
+    let val = 0;
+    for (let i = 0; i < vlen; i++) val = (val * 256) + bytes[pos + i];
+    pos += vlen;
+    return val;
+  }
+  function readSize() {
+    if (pos >= len) return null;
+    const b = bytes[pos];
+    let vlen = 0;
+    for (let i = 0; i < 8; i++) { if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; } }
+    if (vlen === 0 || pos + vlen > len) return null;
+    let val = b & ((1 << (8 - vlen)) - 1);
+    for (let i = 1; i < vlen; i++) val = (val * 256) + bytes[pos + i];
+    pos += vlen;
+    return val;
+  }
+  function readUint(vlen) { let val = 0; for (let i = 0; i < vlen; i++) val = (val * 256) + bytes[pos + i]; pos += vlen; return val; }
+  function readFloat(vlen) {
+    try { const view = new DataView(bytes.buffer, bytes.byteOffset + pos, vlen); pos += vlen; if (vlen === 4) return view.getFloat32(0, false); if (vlen === 8) return view.getFloat64(0, false); } catch(e) { pos += vlen; }
+    return 0;
+  }
+  function readUtf8(vlen) {
+    try { const s = new TextDecoder('utf-8').decode(bytes.slice(pos, pos + vlen)).replace(/\0/g, ''); pos += vlen; return s; } catch(e) { pos += vlen; return ''; }
+  }
+  const result = {
+    general: { fileName: v?.title || '', format: 'Matroska', formatVersion: 'Version 4', fileSize: v?.size ? formatBytes(v?.size) : '', writingApp: '', writingLib: '' },
+    video: [], audio: [], text: [], attachments: [], menus: []
+  };
+  const LANG_MAP = { ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian', jpn: 'Japanese', ja: 'Japanese', eng: 'English', en: 'English', fre: 'French', fra: 'French', fr: 'French', ger: 'German', deu: 'German', de: 'German', ita: 'Italian', it: 'Italian', spa: 'Spanish', es: 'Spanish', por: 'Portuguese', pt: 'Portuguese', rus: 'Russian', ru: 'Russian', ara: 'Arabic', ar: 'Arabic', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', kor: 'Korean', ko: 'Korean', tha: 'Thai', th: 'Thai', vie: 'Vietnamese', vi: 'Vietnamese', und: 'Undetermined' };
+
+  function parseTracksElement(endPos) {
+    while (pos < endPos && pos < len) {
+      const id = readId(); const size = readSize();
+      if (id === null || size === null) break;
+      const elEnd = pos + size;
+      if (id === 0xAE) {
+        let track = { isDefault: null, isForced: false, width: 1920, height: 1080 };
+        while (pos < elEnd && pos < len) {
+          const subId = readId(); const subSize = readSize();
+          if (subId === null || subSize === null) break;
+          const subEnd = pos + subSize;
+          if (subId === 0xD7) track.id = readUint(subSize);
+          else if (subId === 0x83) track.type = readUint(subSize);
+          else if (subId === 0x88) track.isDefault = readUint(subSize) !== 0;
+          else if (subId === 0x55AA) track.isForced = readUint(subSize) !== 0;
+          else if (subId === 0x86) track.codecId = readUtf8(subSize);
+          else if (subId === 0x536E) track.title = readUtf8(subSize);
+          else if (subId === 0x22B59C || subId === 0x22B59D) { const rawLang = readUtf8(subSize).toLowerCase(); track.language = LANG_MAP[rawLang] || rawLang; }
+          else if (subId === 0x23E383) { const durNs = readUint(subSize); if (durNs > 0) track.frameRate = (1000000000 / durNs).toFixed(3) + ' FPS'; }
+          else if (subId === 0x63A2) { track.codecPrivate = bytes.slice(pos, subEnd); pos = subEnd; }
+          else if (subId === 0xE0) {
+            while (pos < subEnd && pos < len) {
+              const vid = readId(); const vsize = readSize();
+              if (vid === null || vsize === null) break;
+              const vEnd = pos + vsize;
+              if (vid === 0xB0) track.width = readUint(vsize);
+              else if (vid === 0xBA) track.height = readUint(vsize);
+              else if (vid === 0x54B0) track.displayWidth = readUint(vsize);
+              else if (vid === 0x54BA) track.displayHeight = readUint(vsize);
+              else if (vid === 0x55B0) {
+                while (pos < vEnd && pos < len) {
+                  const cid = readId(); const csize = readSize();
+                  if (cid === null || csize === null) break;
+                  const cEnd = pos + csize;
+                  if (cid === 0x55B2) track.bitDepth = readUint(csize) + ' bits';
+                  else pos = cEnd;
+                }
+              }
+              pos = vEnd;
+            }
+            pos = subEnd;
+          } else if (subId === 0xE1) {
+            while (pos < subEnd && pos < len) {
+              const aid = readId(); const asize = readSize();
+              if (aid === null || asize === null) break;
+              const aEnd = pos + asize;
+              if (aid === 0xB5) track.samplingRate = (readFloat(asize) / 1000).toFixed(1) + ' kHz';
+              else if (aid === 0x9F) { const ch = readUint(asize); track.channels = ch === 1 ? '1 channel (Mono)' : ch === 2 ? '2 channels (Stereo)' : ch === 6 ? '6 channels (5.1 Surround)' : ch + ' channels'; }
+              else if (aid === 0x6264) track.bitDepth = readUint(asize) + ' bits';
+              pos = aEnd;
+            }
+            pos = subEnd;
+          } else { pos = subEnd; }
+        }
+        const cId = track.codecId || '';
+        if (track.type === 1) {
+          let fmt = 'AVC', profile = 'High@L4.1';
+          if (cId.includes('HEVC') || cId.includes('H265')) {
+            fmt = 'HEVC'; profile = 'Main 10@L5@Main';
+            if (track.codecPrivate && track.codecPrivate.length >= 2) {
+              const cp = track.codecPrivate;
+              const profIdc = cp[1] & 0x1F;
+              if (profIdc === 2) { profile = 'Main 10@L5@Main'; track.bitDepth = '10 bits'; }
+              else if (profIdc === 1) { profile = 'Main@L5@Main'; track.bitDepth = '8 bits'; }
+              if (cp.length > 13) {
+                const bd = (cp[13] & 0x07) + 8;
+                if (bd === 10 || bd === 12 || bd === 8) {
+                  track.bitDepth = bd + ' bits';
+                  if (bd === 10 && !profile.includes('10')) profile = 'Main 10@L5@Main';
+                }
+              }
+            }
+          } else if (cId.includes('AV1')) {
+            fmt = 'AV1'; profile = 'Main@L4.0';
+            if (track.codecPrivate && track.codecPrivate.length >= 3) {
+              const cp = track.codecPrivate;
+              const profId = (cp[1] >> 5) & 7;
+              const profName = profId === 0 ? 'Main' : profId === 1 ? 'High' : profId === 2 ? 'Professional' : 'Main';
+              const lvlIdx = cp[1] & 0x1F;
+              const majorLvl = (lvlIdx >> 2) + 2;
+              const minorLvl = lvlIdx & 3;
+              profile = profName + '@L' + majorLvl + '.' + minorLvl;
+              const highBd = (cp[2] >> 6) & 1;
+              const twelveBit = (cp[2] >> 5) & 1;
+              track.bitDepth = twelveBit ? '12 bits' : (highBd ? '10 bits' : '8 bits');
+            }
+          } else if (cId.includes('VP9')) { fmt = 'VP9'; profile = 'Profile 0'; }
+          else if (cId.includes('MPEG4') || cId.includes('AVC')) {
+            fmt = 'AVC'; profile = 'High@L4.1';
+            if (track.codecPrivate && track.codecPrivate.length >= 4) {
+              const cp = track.codecPrivate;
+              if (cp[1] === 110) { profile = 'High 10@L4.1'; track.bitDepth = '10 bits'; }
+              else if (cp[1] === 100) { profile = 'High@L4.1'; track.bitDepth = '8 bits'; }
+            }
+          }
+          let vBitDepth = track.bitDepth;
+          if (!vBitDepth) {
+            const rawName = ((v?.title || '') + ' ' + (result.general.title || '')).toLowerCase();
+            if (rawName.includes('10bit') || rawName.includes('10-bit') || rawName.includes('hi10p') || rawName.includes('main10') || rawName.includes('main 10')) {
+              vBitDepth = '10 bits';
+            } else if (fmt === 'HEVC' && profile.includes('10')) {
+              vBitDepth = '10 bits';
+            } else if (fmt === 'AV1') {
+              vBitDepth = rawName.includes('8bit') ? '8 bits' : '10 bits';
+            } else {
+              vBitDepth = '8 bits';
+            }
+          }
+          result.video.push({
+            id: track.id || (result.video.length + 1), format: fmt, profile: profile, codecId: cId,
+            width: track.width || 1920, height: track.height || 1080,
+            aspect: (track.displayWidth && track.displayHeight) ? (track.displayWidth/track.displayHeight).toFixed(2) + ':1' : '16:9',
+            frameRate: track.frameRate || '23.976 FPS', colorSpace: 'YUV', chroma: '4:2:0', bitDepth: vBitDepth,
+            language: track.language || 'Japanese', rawIsDefault: track.isDefault, isDefault: false, isForced: track.isForced
+          });
+        } else if (track.type === 2) {
+          let fmt = 'AAC LC';
+          if (cId.includes('FLAC')) fmt = 'FLAC';
+          else if (cId.includes('OPUS')) fmt = 'Opus';
+          else if (cId.includes('EAC3') || cId.includes('DDP')) fmt = 'E-AC-3';
+          else if (cId.includes('AC3')) fmt = 'AC-3';
+          else if (cId.includes('DTS')) fmt = 'DTS';
+          else if (cId.includes('TRUEHD')) fmt = 'TrueHD';
+          result.audio.push({
+            id: track.id || (result.audio.length + 1), format: fmt, codecId: cId,
+            channels: track.channels || '2 channels (Stereo)', samplingRate: track.samplingRate || '48.0 kHz',
+            title: track.title || track.language || 'Audio #' + (result.audio.length + 1),
+            language: track.language || 'Indonesian', rawIsDefault: track.isDefault, isDefault: false, isForced: track.isForced
+          });
+        } else if (track.type === 17) {
+          let fmt = 'ASS';
+          if (cId.includes('UTF8')) fmt = 'SubRip (SRT)';
+          else if (cId.includes('PGS') || cId.includes('HDMV')) fmt = 'PGS';
+          else if (cId.includes('VOBSUB')) fmt = 'VobSub';
+          result.text.push({
+            id: track.id || (result.text.length + 1), format: fmt, codecId: cId,
+            title: track.title || track.language || 'Subtitle #' + (result.text.length + 1),
+            language: track.language || 'Indonesian', rawIsDefault: track.isDefault, isDefault: false, isForced: track.isForced
+          });
+        }
+      } else { pos = elEnd; }
+    }
+  }
+
+  while (pos < len) {
+    const id = readId(); const size = readSize();
+    if (id === null || size === null) break;
+    const elEnd = pos + size;
+    if (id === 0x1A45DFA3) { pos = elEnd; }
+    else if (id === 0x18538067) {
+      while (pos < len) {
+        const segId = readId(); const segSize = readSize();
+        if (segId === null || segSize === null) break;
+        const subEnd = pos + segSize;
+        if (segId === 0x1549A966) {
+          let tsScale = 1000000, segDur = 0;
+          while (pos < subEnd && pos < len) {
+            const infoId = readId(); const infoSize = readSize();
+            if (infoId === null || infoSize === null) break;
+            if (infoId === 0x4D80) result.general.writingApp = readUtf8(infoSize);
+            else if (infoId === 0x5741) result.general.writingLib = readUtf8(infoSize);
+            else if (infoId === 0x7BA9) result.general.title = readUtf8(infoSize);
+            else if (infoId === 0x2AD7B1) tsScale = readUint(infoSize) || 1000000;
+            else if (infoId === 0x4489) segDur = readFloat(infoSize);
+            else pos += infoSize;
+          }
+          if (segDur > 0) result.general.duration = formatMkvDuration(segDur * tsScale / 1000000000);
+        } else if (segId === 0x1654AE6B) { parseTracksElement(subEnd); break; }
+        else { pos = subEnd; }
+      }
+      break;
+    } else { pos = elEnd; }
+  }
+
+  // Resolve Video Default
+  if (result.video.length > 0) {
+    const defV = result.video.find(v => v.rawIsDefault === true);
+    if (defV) {
+      result.video.forEach(v => { v.isDefault = (v === defV); });
+    } else {
+      result.video[0].isDefault = true;
+    }
+  }
+
+  // Resolve Audio Default
+  if (result.audio.length > 0) {
+    const defA = result.audio.find(a => a.rawIsDefault === true);
+    if (defA) {
+      result.audio.forEach(a => { a.isDefault = (a === defA); });
+    } else {
+      const nullA = result.audio.filter(a => a.rawIsDefault === null);
+      if (nullA.length === 1 && result.audio.some(a => a.rawIsDefault === false)) {
+        result.audio.forEach(a => { a.isDefault = (a === nullA[0]); });
+      } else {
+        result.audio[0].isDefault = true;
+      }
+    }
+  }
+
+  // Resolve Text / Subtitle Default
+  if (result.text.length > 0) {
+    const defT = result.text.find(t => t.rawIsDefault === true);
+    if (defT) {
+      result.text.forEach(t => { t.isDefault = (t === defT); });
+    } else {
+      const nullT = result.text.filter(t => t.rawIsDefault === null);
+      const falseT = result.text.filter(t => t.rawIsDefault === false);
+      if (nullT.length === 1 && falseT.length > 0) {
+        result.text.forEach(t => { t.isDefault = (t === nullT[0]); });
+      } else {
+        const indoT = result.text.find(t => t.rawIsDefault !== false && (
+          (t.language && t.language.toLowerCase().includes('ind')) ||
+          (t.title && (t.title.toLowerCase().includes('indonesia') || t.title.toLowerCase().includes('bahasa')))
+        ));
+        if (indoT) {
+          result.text.forEach(t => { t.isDefault = (t === indoT); });
+        } else if (result.text.length === 1 && result.text[0].rawIsDefault !== false) {
+          result.text[0].isDefault = true;
+        } else {
+          result.text.forEach(t => { t.isDefault = false; });
+        }
+      }
+    }
+  }
+
+  result._v = 3;
+  return result;
+}
+
+function parseMp4Boxes(bytes, v) {
+  let pos = 0; const len = bytes.length; if (len < 16) return null;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const result = { general: { fileName: v?.title || '', format: 'MPEG-4', formatVersion: 'Base Media / Version 2', fileSize: v?.size ? formatBytes(v?.size) : '', writingApp: 'Lavf / ISOM' }, video: [], audio: [], text: [], menus: [] };
+  function readFourCC(offset) { if (offset + 4 > len) return ''; return String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]); }
+  function parseLanguage(langInt) {
+    if (!langInt) return 'Undetermined';
+    const c1 = String.fromCharCode(((langInt >> 10) & 0x1F) + 0x60);
+    const c2 = String.fromCharCode(((langInt >> 5) & 0x1F) + 0x60);
+    const c3 = String.fromCharCode((langInt & 0x1F) + 0x60);
+    const code = (c1 + c2 + c3).toLowerCase();
+    const map = { ind: 'Indonesian', jpn: 'Japanese', eng: 'English', kor: 'Korean', chi: 'Chinese', zho: 'Chinese', fra: 'French', fre: 'French', deu: 'German', ger: 'German', spa: 'Spanish', ita: 'Italian', por: 'Portuguese', rus: 'Russian', tha: 'Thai', vie: 'Vietnamese', und: 'Undetermined' };
+    return map[code] || code;
+  }
+  function parseTrak(start, size) {
+    const end = Math.min(start + size, len);
+    let p = start + 8; let track = { width: 1920, height: 1080, type: 'video', isDefault: true };
+    while (p < end && p < len - 8) {
+      const bSize = view.getUint32(p); const bType = readFourCC(p + 4);
+      if (bSize < 8 || p + bSize > end) break;
+      if (bType === 'tkhd') {
+        const version = bytes[p + 8]; const widthOffset = version === 1 ? p + 96 : p + 84; const heightOffset = widthOffset + 4;
+        if (heightOffset + 4 <= end) { const w = view.getUint32(widthOffset) >> 16; const h = view.getUint32(heightOffset) >> 16; if (w > 0 && h > 0) { track.width = w; track.height = h; } }
+      } else if (bType === 'mdia') {
+        let mp = p + 8; const mEnd = Math.min(p + bSize, end);
+        while (mp < mEnd && mp < len - 8) {
+          const mSize = view.getUint32(mp); const mType = readFourCC(mp + 4);
+          if (mSize < 8 || mp + mSize > mEnd) break;
+          if (mType === 'mdhd') {
+            const vnum = bytes[mp + 8]; const langOffset = vnum === 1 ? mp + 28 : mp + 20;
+            if (langOffset + 2 <= mEnd) { const langInt = view.getUint16(langOffset); track.language = parseLanguage(langInt); }
+          } else if (mType === 'hdlr' && mp + 20 <= mEnd) {
+            const hType = readFourCC(mp + 16);
+            if (hType === 'vide') track.type = 'video'; else if (hType === 'soun') track.type = 'audio'; else if (hType === 'sbtl' || hType === 'text' || hType === 'subt' || hType === 'clcp') track.type = 'text';
+          } else if (mType === 'minf') {
+            let stp = mp + 8; const sEnd = Math.min(mp + mSize, mEnd);
+            while (stp < sEnd && stp < len - 8) {
+              const stSize = view.getUint32(stp); const stType = readFourCC(stp + 4);
+              if (stSize < 8 || stp + stSize > sEnd) break;
+              if (stType === 'stbl') {
+                let sdp = stp + 8; const sdEnd = Math.min(stp + stSize, sEnd);
+                while (sdp < sdEnd && sdp < len - 8) {
+                  const sdSize = view.getUint32(sdp); const sdType = readFourCC(sdp + 4);
+                  if (sdSize < 8 || sdp + sdSize > sdEnd) break;
+                  if (sdType === 'stsd' && sdp + 20 <= sdEnd) {
+                    track.codecFourCC = readFourCC(sdp + 16);
+                    if (track.type === 'audio' && sdp + 44 <= sdEnd) {
+                      const channels = view.getUint16(sdp + 32); const sampleRate = view.getUint32(sdp + 40) >> 16;
+                      if (channels > 0) track.channels = channels === 1 ? '1 channel (Mono)' : channels === 2 ? '2 channels (Stereo)' : channels + ' channels';
+                      if (sampleRate > 0) track.samplingRate = (sampleRate/1000).toFixed(1) + ' kHz';
+                    }
+                  }
+                  sdp += sdSize;
+                }
+              }
+              stp += stSize;
+            }
+          }
+          mp += mSize;
+        }
+      }
+      p += bSize;
+    }
+    if (track.type === 'video') {
+      const c = track.codecFourCC || 'avc1';
+      let fmt = 'AVC', prof = 'High@L4.1';
+      if (c === 'hvc1' || c === 'hev1') { fmt = 'HEVC'; prof = 'Main 10@L5@Main'; } else if (c === 'av01') { fmt = 'AV1'; prof = 'Main@L5.0'; } else if (c === 'vp09') { fmt = 'VP9'; prof = 'Profile 0'; }
+      result.video.push({ id: result.video.length + 1, format: fmt, profile: prof, codecId: c, width: track.width || 1920, height: track.height || 1080, aspect: (track.width / (track.height || 1)).toFixed(2) + ':1', frameRate: '23.976 FPS', colorSpace: 'YUV', chroma: '4:2:0', bitDepth: fmt === 'HEVC' ? '10 bits' : '8 bits', language: track.language || 'Japanese', isDefault: true, isForced: false });
+    } else if (track.type === 'audio') {
+      const c = track.codecFourCC || 'mp4a';
+      let fmt = 'AAC LC';
+      if (c === 'ec-3') fmt = 'E-AC-3'; else if (c === 'ac-3') fmt = 'AC-3'; else if (c === 'Opus') fmt = 'Opus'; else if (c === 'fLaC') fmt = 'FLAC';
+      result.audio.push({ id: result.audio.length + 2, format: fmt, codecId: c, channels: track.channels || '2 channels (Stereo)', samplingRate: track.samplingRate || '48.0 kHz', title: track.language !== 'Undetermined' ? track.language : 'Audio #' + (result.audio.length + 1), language: track.language !== 'Undetermined' ? track.language : 'Indonesian', isDefault: result.audio.length === 0, isForced: false });
+    } else if (track.type === 'text') {
+      result.text.push({ id: result.text.length + 3, format: 'Timed Text', codecId: track.codecFourCC || 'tx3g', title: track.language || 'Subtitle #' + (result.text.length + 1), language: track.language || 'Indonesian', isDefault: result.text.length === 0, isForced: false });
+    }
+  }
+  while (pos < len - 8) {
+    const boxSize = view.getUint32(pos); const boxType = readFourCC(pos + 4);
+    if (boxSize < 8 || pos + boxSize > len) break;
+    if (boxType === 'moov') {
+      let mp = pos + 8; const mEnd = pos + boxSize;
+      while (mp < mEnd && mp < len - 8) {
+        const subSize = view.getUint32(mp); const subType = readFourCC(mp + 4);
+        if (subSize < 8 || mp + subSize > mEnd) break;
+        if (subType === 'trak') { parseTrak(mp, subSize); }
+        mp += subSize;
+      }
+      break;
+    }
+    pos += boxSize;
+  }
+  if (result.video.length || result.audio.length) { result._v = 3; return result; }
+  return null;
+}
+
+function buildMediaInfoRawText(data) {
+  const g = data.general || {};
+  let out = `General\n`;
+  out += `Complete name                            : ${g.fileName || '—'}\n`;
+  out += `Format                                   : ${g.format || 'Matroska'}\n`;
+  if (g.formatVersion) out += `Format version                           : ${g.formatVersion}\n`;
+  out += `File size                                : ${g.fileSize || '—'}\n`;
+  if (g.duration) out += `Duration                                 : ${g.duration}\n`;
+  if (g.overallBitRate) out += `Overall bit rate                         : ${g.overallBitRate}\n`;
+  if (g.frameRate) out += `Frame rate                               : ${g.frameRate}\n`;
+  if (g.writingApp) out += `Writing application                      : ${g.writingApp}\n`;
+  if (g.writingLib) out += `Writing library                          : ${g.writingLib}\n`;
+
+  (data.video || []).forEach((v, i) => {
+    out += `\nVideo${data.video.length > 1 ? ' #' + (i + 1) : ''}\n`;
+    out += `ID                                       : ${v.id || 1}\n`;
+    out += `Format                                   : ${v.format || 'HEVC'}\n`;
+    if (v.formatInfo) out += `Format/Info                              : ${v.formatInfo}\n`;
+    if (v.profile) out += `Format profile                           : ${v.profile}\n`;
+    if (v.codecId) out += `Codec ID                                 : ${v.codecId}\n`;
+    if (v.duration) out += `Duration                                 : ${v.duration}\n`;
+    if (v.bitRate) out += `Bit rate                                 : ${v.bitRate}\n`;
+    if (v.width && v.height) {
+      out += `Width                                    : ${v.width} pixels\n`;
+      out += `Height                                   : ${v.height} pixels\n`;
+    }
+    if (v.aspect) out += `Display aspect ratio                     : ${v.aspect}\n`;
+    if (v.frameRate) out += `Frame rate                               : ${v.frameRate}\n`;
+    if (v.colorSpace) out += `Color space                              : ${v.colorSpace}\n`;
+    if (v.chroma) out += `Chroma subsampling                       : ${v.chroma}\n`;
+    if (v.bitDepth) out += `Bit depth                                : ${v.bitDepth}\n`;
+    if (v.streamSize) out += `Stream size                              : ${v.streamSize}\n`;
+    if (v.writingLib) out += `Writing library                          : ${v.writingLib}\n`;
+    if (v.encodingSettings) out += `Encoding settings                        : ${v.encodingSettings}\n`;
+    if (v.language) out += `Language                                 : ${v.language}\n`;
+    out += `Default                                  : ${v.isDefault ? 'Yes' : 'No'}\n`;
+    out += `Forced                                   : ${v.isForced ? 'Yes' : 'No'}\n`;
+  });
+
+  (data.audio || []).forEach((a, i) => {
+    out += `\nAudio #${i + 1}\n`;
+    out += `ID                                       : ${a.id || (i + 2)}\n`;
+    out += `Format                                   : ${a.format || 'AAC LC'}\n`;
+    if (a.formatInfo) out += `Format/Info                              : ${a.formatInfo}\n`;
+    if (a.codecId) out += `Codec ID                                 : ${a.codecId}\n`;
+    if (a.duration) out += `Duration                                 : ${a.duration}\n`;
+    if (a.bitRate) out += `Bit rate                                 : ${a.bitRate}\n`;
+    if (a.channels) out += `Channel(s)                               : ${a.channels}\n`;
+    if (a.channelLayout) out += `Channel layout                           : ${a.channelLayout}\n`;
+    if (a.samplingRate) out += `Sampling rate                            : ${a.samplingRate}\n`;
+    if (a.streamSize) out += `Stream size                              : ${a.streamSize}\n`;
+    if (a.title) out += `Title                                    : ${a.title}\n`;
+    if (a.language) out += `Language                                 : ${a.language}\n`;
+    out += `Default                                  : ${a.isDefault ? 'Yes' : 'No'}\n`;
+    out += `Forced                                   : ${a.isForced ? 'Yes' : 'No'}\n`;
+  });
+
+  (data.text || []).forEach((t, i) => {
+    out += `\nText #${i + 1}\n`;
+    out += `ID                                       : ${t.id || (data.audio?.length || 1) + i + 2}\n`;
+    out += `Format                                   : ${t.format || 'ASS'}\n`;
+    if (t.codecId) out += `Codec ID                                 : ${t.codecId}\n`;
+    if (t.title) out += `Title                                    : ${t.title}\n`;
+    if (t.language) out += `Language                                 : ${t.language}\n`;
+    if (t.elementCount) out += `Count of elements                        : ${t.elementCount}\n`;
+    out += `Default                                  : ${t.isDefault ? 'Yes' : 'No'}\n`;
+    out += `Forced                                   : ${t.isForced ? 'Yes' : 'No'}\n`;
+  });
+
+  if (data.menus && data.menus.length > 0) {
+    out += `\nMenu\n`;
+    data.menus.forEach(m => {
+      out += `${(m.time || '00:00:00.000').padEnd(41, ' ')}: ${m.title || 'Chapter'}\n`;
+    });
+  }
+
+  return out;
+}
+async function handleAutoScanMediaInfo(videoId, request, env, ctx) {
+  const body = await request.json().catch(() => ({}));
+  const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+  const tokenOk = await verifyStreamToken(videoId, body.token, body.exp, secret).catch(() => false);
+  if (!tokenOk) return errorResponse('Token tidak valid atau sudah kedaluwarsa.', 403);
+
+  const row = await env.DB.prepare('SELECT * FROM videos WHERE id = ?').bind(videoId).first();
+  if (!row) return errorResponse('Video not found.', 404);
+  if (row.mediainfo_raw && String(row.mediainfo_raw).trim()) {
+    return jsonResponse({ success: true, status: 'exists', mediainfo_raw: row.mediainfo_raw });
+  }
+  if (row.provider_type === 'transfer_it') {
+    return jsonResponse({ success: true, status: 'unsupported' });
+  }
+
+  // Read the file head through our own stream pipeline so every
+  // provider (GDrive / HF dataset / HF bucket / direct) just works.
+  const cleanTitle = (row.title || 'video.mkv').replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
+  const selfUrl = new URL(`/stream/${row.id}/${body.token}/${body.exp}/${encodeURIComponent(cleanTitle)}`, request.url);
+  let headResp;
+  try {
+    const fakeReq = new Request(selfUrl.toString(), { headers: { Range: 'bytes=0-2097151' } });
+    headResp = await handleStream(String(row.id), fakeReq, env, ctx);
+    // A provider branch that answers with a redirect: follow it the
+    // way a browser would.
+    if (headResp.status >= 300 && headResp.status < 400 && headResp.headers.get('location')) {
+      headResp = await fetch(headResp.headers.get('location'), { headers: { Range: 'bytes=0-2097151' } });
+    }
+  } catch (e) {
+    return errorResponse('Gagal membaca file untuk scan.', 502);
+  }
+  if (!headResp.ok && headResp.status !== 206) {
+    return errorResponse(`Gagal membaca file untuk scan (HTTP ${headResp.status}).`, 502);
+  }
+  const bytes = new Uint8Array(await headResp.arrayBuffer());
+  let parsed = null;
+  if (bytes.length > 4 && bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) {
+    parsed = parseMatroskaEBML(bytes, row);
+  } else {
+    parsed = parseMp4Boxes(bytes, row);
+  }
+  if (!parsed || (!parsed.video?.length && !parsed.audio?.length)) {
+    return jsonResponse({ success: true, status: 'unparsed' });
+  }
+
+  const rawText = buildMediaInfoRawText(parsed);
+  const jsonStr = JSON.stringify(parsed);
+  // First writer wins: never overwrite an existing MediaInfo (admin
+  // rescans go through the authenticated save endpoint as before).
+  const upd = await env.DB.prepare('UPDATE videos SET mediainfo_raw = ?, mediainfo_json = ?, updated_at = datetime("now") WHERE id = ? AND (mediainfo_raw IS NULL OR mediainfo_raw = "")')
+    .bind(rawText, jsonStr, videoId).run();
+  const changed = (upd && upd.meta && upd.meta.changes) || 0;
+  if (changed) {
+    await purgeVideoCacheNow(env, [{ id: row.id, drive_file_id: row.drive_file_id }]);
+  }
+  return jsonResponse({ success: true, status: changed ? 'saved' : 'exists', mediainfo_raw: rawText });
+}
+
 async function handleGetMediaInfo(videoId, env, user) {
   const row = await env.DB.prepare('SELECT id, title, mediainfo_raw, mediainfo_json FROM videos WHERE id = ?').bind(videoId).first();
   if (!row) return errorResponse('Video not found.', 404);
@@ -4809,6 +5352,13 @@ export default {
     // ── Beacon (no auth) ────────────────────────────────────
     if (method === 'POST' && path === '/api/media/track') {
       return await handleTrack(request, env, ctx);
+    }
+
+    // ── MediaInfo autoscan from the public embed (stream-token gated,
+    // fills only videos whose mediainfo is still empty) ──────────────
+    if (method === 'POST' && path.match(/^\/api\/media\/\d+\/autoscan$/)) {
+      const videoId = parseInt(path.split('/')[3]);
+      return await handleAutoScanMediaInfo(videoId, request, env, ctx);
     }
 
     // ── Auth endpoints (no auth required) ───────────────────
