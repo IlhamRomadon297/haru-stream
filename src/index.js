@@ -4257,25 +4257,45 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     #player-wrap movi-player { width: 100%; height: 100%; display: block; font-family: 'Plus Jakarta Sans', sans-serif; }
     movi-player::part(subtitle) { font-family: 'Netflix Sans', 'Plus Jakarta Sans', sans-serif; font-weight: 500; }
 
-    /* Floating action buttons over the player's top-right corner */
+    /* Floating icon rail over the player's right edge: icon-only
+       buttons stacked downward so they never cover the filename */
     #hs-actions {
       position: fixed; top: 12px; right: 12px; z-index: 40;
-      display: flex; gap: 8px;
+      display: flex; flex-direction: column; gap: 8px;
     }
     .hs-btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 7px 12px; border-radius: 999px; cursor: pointer;
+      width: 38px; height: 38px; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 12px; cursor: pointer;
       background: rgba(10,10,20,0.62); color: #e2e8f0;
       border: 1px solid rgba(255,255,255,0.22);
       backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-      font-family: inherit; font-size: 12px; font-weight: 700;
       opacity: 0.88; transition: opacity 0.15s, background 0.15s;
     }
+    .hs-btn svg { width: 19px; height: 19px; display: block; }
     .hs-btn:hover { opacity: 1; background: rgba(99,102,241,0.45); }
 
-    /* External Streaming: small popup card under the buttons */
+    /* Filename overlay: running text (marquee) when the name is
+       longer than the available width */
+    #hs-title {
+      position: fixed; top: 16px; left: 14px; right: 62px; z-index: 39;
+      overflow: hidden; pointer-events: none; white-space: nowrap;
+      font-size: 13.5px; font-weight: 700; color: #fff;
+      text-shadow: 0 1px 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9);
+      -webkit-mask-image: linear-gradient(90deg, #000 94%, transparent);
+      mask-image: linear-gradient(90deg, #000 94%, transparent);
+      opacity: 1; transition: opacity 0.6s;
+    }
+    #hs-title.dim { opacity: 0.3; }
+    #hs-title-text { display: inline-block; will-change: transform; }
+    @keyframes hs-marquee {
+      from { transform: translateX(0); }
+      to { transform: translateX(var(--shift, 0)); }
+    }
+
+    /* External Streaming: small popup card beside the icon rail */
     #ext-popup {
-      display: none; position: fixed; top: 54px; right: 12px; z-index: 41;
+      display: none; position: fixed; top: 12px; right: 60px; z-index: 41;
       width: 272px; max-width: calc(100vw - 24px);
       background: rgba(16,16,30,0.97); border: 1px solid #2a2a4a; border-radius: 14px;
       box-shadow: 0 24px 48px rgba(0,0,0,0.75); padding: 10px;
@@ -4338,9 +4358,11 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 <body>
   <div id="player-wrap"></div>
 
+  <div id="hs-title"><span id="hs-title-text"></span></div>
+
   <div id="hs-actions">
-    <button class="hs-btn" id="btn-mediainfo" type="button"${miBtnDisplay}>ⓘ MediaInfo</button>
-    <button class="hs-btn" id="btn-external" type="button">External Streaming ▾</button>
+    <button class="hs-btn" id="btn-mediainfo" type="button" title="MediaInfo"${miBtnDisplay}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><line x1="12" y1="11" x2="12" y2="16"/><line x1="12" y1="7.6" x2="12" y2="7.7"/></svg></button>
+    <button class="hs-btn" id="btn-external" type="button" title="External Streaming"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4L10.5 13.5"/><path d="M20 14.5V19a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 19V6a1.5 1.5 0 0 1 5.5 4.5H10"/></svg></button>
   </div>
 
   <div id="ext-popup">
@@ -4363,6 +4385,37 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
     var DATA = JSON.parse(document.getElementById('embed-data').textContent);
     var ABS = window.location.origin + DATA.streamUrl;
     document.title = DATA.title + ' — HaruStream';
+
+    // ── Filename overlay: running text when the name overflows ────
+    (function () {
+      var box = document.getElementById('hs-title');
+      var span = document.getElementById('hs-title-text');
+      span.textContent = DATA.title;
+      function setup() {
+        span.style.animation = 'none';
+        var overflow = span.scrollWidth - box.clientWidth;
+        if (overflow > 8) {
+          span.style.setProperty('--shift', '-' + overflow + 'px');
+          var dur = Math.max(5, Math.round(overflow / 30));
+          span.style.animation = 'hs-marquee ' + dur + 's ease-in-out 0.6s infinite alternate';
+        }
+      }
+      requestAnimationFrame(setup);
+      var rzT = null;
+      window.addEventListener('resize', function () {
+        if (rzT) clearTimeout(rzT);
+        rzT = setTimeout(setup, 200);
+      });
+      var dimT = null;
+      function arm() {
+        box.classList.remove('dim');
+        if (dimT) clearTimeout(dimT);
+        dimT = setTimeout(function () { box.classList.add('dim'); }, 5000);
+      }
+      document.addEventListener('mousemove', arm);
+      document.addEventListener('touchstart', arm, { passive: true });
+      arm();
+    })();
 
     // ── View tracking beacon (same as the old embed) ──────────────
     var viewTracked = false;
@@ -4431,8 +4484,8 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       el.setAttribute('src', moviState.url);
       el.setAttribute('controls', '');
       el.setAttribute('title', moviState.fileName || 'Video');
-      el.setAttribute('showtitle', '');
-      el.setAttribute('titlemode', 'both');
+      // No showtitle: the filename is rendered by the #hs-title
+      // overlay above (with marquee), clear of the icon rail.
       el.setAttribute('theme', 'dark');
       el.setAttribute('themecolor', '#6366f1 #ec4899');
       el.setAttribute('persist', 'volume muted speed audiolang subtitlelang');
