@@ -1040,6 +1040,8 @@ async function hfRewritePrefixInD1(env, userId, drive, oldPrefix, newPrefix) {
     stmts.push(env.DB.prepare(`UPDATE videos SET drive_file_id = ?, storage_uri = ? WHERE id = ?`).bind(nfid, hfResolveUrl(drive.hf_repo_id, repoType, drive.hf_branch, rel), r.id));
   }
   if (stmts.length > 0) await env.DB.batch(stmts);
+  // Paths changed: purge stream caches keyed by the OLD drive_file_id.
+  await purgeVideoCacheNow(env, (vRows.results || []).map(r => ({ id: r.id, drive_file_id: r.drive_file_id })));
   return stmts.length;
 }
 
@@ -1522,6 +1524,14 @@ async function handleUpdateDrive(driveId, request, env, user) {
     await env.STREAM_CACHE.delete(`drv:${driveId}`).catch(() => {});
   }
 
+  // If the HF target changed (repo id / repo type / branch), every video on
+  // this drive may now resolve to a different URL — purge their stream
+  // caches too, or they keep streaming from the old repo for up to 7 days.
+  if (updates.some(u => u.startsWith('hf_repo_id') || u.startsWith('hf_repo_type') || u.startsWith('hf_branch'))) {
+    const vids = await env.DB.prepare('SELECT id, drive_file_id FROM videos WHERE drive_id = ?').bind(driveId).all().catch(() => ({ results: [] }));
+    await purgeVideoCacheNow(env, vids.results || []);
+  }
+
   // If SID was updated, trigger sync to update files without modifying existing video IDs
   if (transfer_sid) {
     const updatedDrive = await env.DB.prepare('SELECT * FROM drives WHERE id = ?').bind(driveId).first();
@@ -1769,7 +1779,7 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
 
   // 4. Fetch existing video records for this drive in D1
   const d1Query = await env.DB.prepare(
-    `SELECT drive_file_id, title, size, folder_id, storage_uri FROM videos WHERE drive_id = ?`
+    `SELECT id, drive_file_id, title, size, folder_id, storage_uri FROM videos WHERE drive_id = ?`
   ).bind(drive.id).all();
 
   const d1Map = new Map();
@@ -1778,6 +1788,7 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
       d1Map.set(row.drive_file_id, row);
     }
   }
+  const staleCache = [];
 
   const hfMap = new Map();
   const insertStmts = [];
@@ -1806,6 +1817,11 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
     if (existing && existing.title === fileName && existing.size === size && existing.storage_uri === storageUri) {
       continue;
     }
+    if (existing && existing.storage_uri !== storageUri) {
+      // The file's physical location changed (repo/bucket move): the 7-day
+      // KV stream cache still holds the old URI — purge after the upsert.
+      staleCache.push({ id: existing.id, drive_file_id: fileId });
+    }
 
     insertStmts.push(
       env.DB.prepare(
@@ -1827,9 +1843,10 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
 
   // 5. Diff: remove deleted files
   const deleteStmts = [];
-  for (const [d1FileId] of d1Map.entries()) {
+  for (const [d1FileId, d1Row] of d1Map.entries()) {
     if (!hfMap.has(d1FileId)) {
       deleteStmts.push(env.DB.prepare(`DELETE FROM videos WHERE drive_file_id = ? AND drive_id = ?`).bind(d1FileId, drive.id));
+      staleCache.push({ id: d1Row.id, drive_file_id: d1FileId });
     }
   }
 
@@ -1873,6 +1890,7 @@ async function performHuggingFaceSync(drive, env, forceFullScan = false) {
     `UPDATE drives SET quota_used = ?, quota_total = ?, last_synced_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`
   ).bind(totalBytes, repoType === 'bucket' ? 0 : 8.7 * 1024 * 1024 * 1024 * 1024, drive.id).run().catch(() => {});
 
+  await purgeVideoCacheNow(env, staleCache);
   invalidateUserCaches(drive.user_id, env);
   return { synced: totalSynced, removed: totalRemoved };
 }
@@ -3401,6 +3419,21 @@ async function getCachedDrive(driveId, env) {
  * Jika cache miss atau KV error, fallback ke D1 query dan
  * otomatis simpan ke KV untuk penonton berikutnya.
  */
+// Awaited video-cache purge for code paths without a request ctx (sync
+// jobs, drive updates, physical-move rewrites). Deleting a KV entry is
+// always safe: the next stream/embed re-reads D1 and repopulates it.
+async function purgeVideoCacheNow(env, entries) {
+  if (!env.STREAM_CACHE || !entries || !entries.length) return;
+  const keys = [];
+  for (const e of entries) {
+    if (!e) continue;
+    if (e.id) keys.push(`vid:id:${e.id}`);
+    if (e.drive_file_id) keys.push(`vid:file:${e.drive_file_id}`);
+  }
+  if (!keys.length) return;
+  await Promise.all(keys.map(k => env.STREAM_CACHE.delete(k).catch(() => {})));
+}
+
 async function getCachedVideoMetadata(fileId, env, ctx) {
   const isNumericId = /^\d+$/.test(String(fileId));
   const primaryCacheKey = isNumericId ? `vid:id:${fileId}` : `vid:file:${fileId}`;
