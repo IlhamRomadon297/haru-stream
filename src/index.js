@@ -3549,9 +3549,9 @@ async function handleEmbed(fileId, request, env, ctx) {
     video.transfer_url = drive.transfer_url;
   }
 
-  // Build clean relative stream URL with signed expiring token (valid 4 hours)
+  // Build clean relative stream URL with signed expiring token (valid 1 hour)
   const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
-  const expiresAt = Math.floor(Date.now() / 1000) + 14400;
+  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
   const token = await generateStreamToken(video.id, expiresAt, secret);
   const cleanTitle = (video.title || 'video.mkv').replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
   const encodedTitle = encodeURIComponent(cleanTitle);
@@ -3614,6 +3614,14 @@ async function handleStream(fileId, request, env, ctx) {
         return new Response('Link streaming telah kedaluwarsa (expired). Silakan refresh halaman pemutar.', { status: 403 });
       }
       return new Response('Token streaming tidak valid.', { status: 403 });
+    }
+  } else {
+    // Paket C: a stream token is REQUIRED — bare /stream/<id> URLs no
+    // longer play. Only exception: a logged-in dashboard session (its
+    // fetches carry the user JWT), so the app's own tooling keeps working.
+    const sessionUser = await authenticate(request, env).catch(() => null);
+    if (!sessionUser) {
+      return new Response('Link streaming memerlukan token yang valid. Buka video ini dari dashboard atau halaman embed HaruStream.', { status: 403 });
     }
   }
 
@@ -4199,628 +4207,370 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
 </html>`;
   }
 
-  const mime     = (video.mime_type || '').toLowerCase();
-  const titleLow = (video.title    || '').toLowerCase();
-  const isMp4    = (mime === 'video/mp4' || mime === 'video/m4v') && !titleLow.includes('.mkv');
-  const isHeavy  = !isMp4 ||
-                   mime.includes('matroska') || mime.includes('mkv') || mime.includes('octet-stream') ||
-                   titleLow.includes('mkv') || titleLow.includes('hevc') || titleLow.includes('x265') ||
-                   titleLow.includes('h.265') || titleLow.includes('10bit') || titleLow.includes('av1');
+  // ── Movi-only embed (Paket A) ────────────────────────────────────
+  // No Plyr, no upfront player-picker sheet: movi-player 0.4.1 starts
+  // immediately with HaruDrive's stability machinery (stall watchdog,
+  // backoff retry, position restore). External players and MediaInfo
+  // live behind top-bar buttons.
+  let miText = '';
+  if (video.mediainfo_raw && String(video.mediainfo_raw).trim()) {
+    miText = String(video.mediainfo_raw);
+  } else if (video.mediainfo_json) {
+    try {
+      const parsed = typeof video.mediainfo_json === 'string' ? JSON.parse(video.mediainfo_json) : video.mediainfo_json;
+      miText = JSON.stringify(parsed, null, 2);
+    } catch (_) {
+      miText = String(video.mediainfo_json);
+    }
+  }
+  const embedData = {
+    title: video.title || 'Video',
+    streamUrl: streamUrl,
+    driveFileId: driveFileId || '',
+    videoId: video.id || null,
+    mime: video.mime_type || '',
+    mediainfo: miText
+  };
+  const embedJson = JSON.stringify(embedData).replace(/</g, '\\u003c');
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(video.title)} — HaruStream</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <meta name="robots" content="noindex">
-  <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.4.1/dist/element.js"></script>
   <style>
-    :root {
-      --plyr-color-main: #6366f1;
-      --plyr-video-background: #000;
-      --plyr-font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      --plyr-control-radius: 10px;
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; padding: 0; background: #06060c; color: #fff;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
     }
-    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    html,body{width:100vw;height:100vh;background:#06060c;overflow:hidden;margin:0;padding:0;font-family:'Plus Jakarta Sans',sans-serif;}
-    #player-container{position:absolute;top:0;left:0;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;background:#000;}
-    .plyr{width:100%;height:100%;max-height:100vh;}
-    .plyr__video-wrapper{height:100% !important;background:#000;}
-    video{object-fit:contain !important;width:100% !important;height:100% !important;}
-    
-    video::cue {
-      font-family: 'Plus Jakarta Sans', 'Outfit', sans-serif !important;
-      font-size: 1.15rem;
-      font-weight: 600;
-      background: rgba(10, 10, 20, 0.85);
-      color: #ffffff;
-      border-radius: 6px;
-      padding: 2px 8px;
-      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+    #topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 10px 14px; background: #0f0f1a; border-bottom: 1px solid #2a2a4a; flex-shrink: 0;
     }
-
-    /* ── Floating Mobile/Compact Player Options Pill ────── */
-    #mobile-opt-btn {
-      position: absolute; top: 10px; right: 10px; z-index: 999;
+    .tb-title { display: flex; align-items: center; gap: 9px; min-width: 0; }
+    .tb-logo {
+      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+      background: rgba(99,102,241,0.2); border: 1px solid rgba(99,102,241,0.35);
+      display: flex; align-items: center; justify-content: center; color: #a5b4fc; font-size: 12px;
+    }
+    #tb-title-text { font-size: 13.5px; font-weight: 700; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tb-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .tb-btn {
       display: inline-flex; align-items: center; gap: 6px;
-      padding: 5px 12px; border-radius: 20px;
-      background: rgba(15, 15, 30, 0.85);
-      border: 1px solid rgba(99, 102, 241, 0.45);
-      color: #e0e7ff; font-size: 11px; font-weight: 600;
-      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
-      cursor: pointer; transition: all .2s ease;
-      font-family: 'Plus Jakarta Sans', sans-serif;
+      padding: 7px 13px; border-radius: 9px; cursor: pointer;
+      background: rgba(99,102,241,0.16); color: #a5b4fc;
+      border: 1px solid rgba(99,102,241,0.35);
+      font-family: inherit; font-size: 12px; font-weight: 700;
+      transition: background 0.15s, transform 0.15s;
     }
-    #mobile-opt-btn:hover {
-      background: rgba(99, 102, 241, 0.3);
-      border-color: rgba(99, 102, 241, 0.7);
-      color: #fff;
+    .tb-btn:hover { background: rgba(99,102,241,0.3); transform: translateY(-1px); }
+    #player-wrap { flex: 1; min-height: 0; background: #000; position: relative; }
+    #player-wrap movi-player { width: 100%; height: 100%; display: block; font-family: 'Plus Jakarta Sans', sans-serif; }
+    movi-player::part(subtitle) { font-family: 'Netflix Sans', 'Plus Jakarta Sans', sans-serif; font-weight: 500; }
+    #movi-retry {
+      display: none; margin: 10px 14px 0; padding: 12px 14px; border-radius: 12px;
+      background: rgba(248,113,113,0.12); border: 1px solid rgba(248,113,113,0.4);
+      color: #fecaca; font-size: 12.5px; line-height: 1.5; text-align: center; flex-shrink: 0;
     }
-    #mobile-opt-btn svg { width: 13px; height: 13px; flex-shrink: 0; color: #a5b4fc; }
-
-    /* ── Compact Player Options Sheet ───────────────────── */
-    #opts-sheet {
-      position: fixed; inset: 0; z-index: 10000;
-      background: rgba(4, 4, 10, 0.85);
-      backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-      display: none; align-items: center; justify-content: center;
-      padding: 8px;
+    #movi-retry button {
+      margin-top: 8px; padding: 8px 16px; border: none; border-radius: 10px; cursor: pointer;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff;
+      font-family: inherit; font-weight: 700; font-size: 12.5px;
     }
-    .sheet-card {
-      background: linear-gradient(135deg, rgba(22, 22, 44, 0.98), rgba(16, 16, 34, 0.98));
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      border-radius: 14px; padding: 10px 14px;
-      max-width: 330px; width: 95%; text-align: center;
-      box-shadow: 0 16px 40px rgba(0,0,0,0.9);
-      animation: popIn .2s ease;
-      max-height: 94vh; overflow-y: auto;
+    #external-panel {
+      display: none; flex-shrink: 0; padding: 12px 14px 14px;
+      background: #0f0f1a; border-top: 1px solid #2a2a4a;
     }
-    .sheet-header {
+    #external-panel.open { display: block; }
+    .ext-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+    .ext-btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 9px 14px; border-radius: 10px; text-decoration: none; cursor: pointer;
+      background: rgba(255,255,255,0.05); color: #e2e8f0; border: 1px solid #2a2a4a;
+      font-size: 12px; font-weight: 600; font-family: inherit;
+      transition: background 0.15s, transform 0.15s;
+    }
+    .ext-btn:hover { background: rgba(99,102,241,0.2); transform: translateY(-1px); }
+    .ext-btn.copy { background: rgba(56,189,248,0.14); color: #38bdf8; border-color: rgba(56,189,248,0.35); }
+    .ext-btn.dl { background: rgba(16,185,129,0.14); color: #10b981; border-color: rgba(16,185,129,0.32); margin-left: auto; }
+    .ext-note { margin-top: 10px; font-size: 11px; color: #64748b; line-height: 1.5; }
+    #mi-overlay {
+      display: none; position: fixed; inset: 0; z-index: 50;
+      background: rgba(0,0,0,0.78); backdrop-filter: blur(6px);
+      align-items: center; justify-content: center; padding: 16px;
+    }
+    #mi-overlay.open { display: flex; }
+    .mi-card {
+      background: #141428; border: 1px solid #2a2a4a; border-radius: 16px;
+      width: 860px; max-width: 96vw; max-height: 86dvh; display: flex; flex-direction: column;
+      box-shadow: 0 32px 64px rgba(0,0,0,0.8); overflow: hidden;
+    }
+    .mi-head {
       display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 6px; padding-bottom: 5px; border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding: 13px 18px; border-bottom: 1px solid #2a2a4a; background: #1a1a30;
+      font-size: 13px; font-weight: 700; color: #f1f5f9;
     }
-    .sheet-header span {
-      font-family: 'Outfit', sans-serif; font-size: 12px; font-weight: 700; color: #c7d2fe;
+    .mi-head button {
+      width: 30px; height: 30px; border-radius: 8px; cursor: pointer;
+      background: rgba(255,255,255,0.05); border: 1px solid #2a2a4a; color: #94a3b8; font-size: 13px;
     }
-    .sheet-close {
-      background: transparent; border: none; color: #94a3b8; cursor: pointer;
-      font-size: 15px; line-height: 1; padding: 1px 5px;
+    #mi-pre {
+      margin: 0; padding: 16px 18px; overflow: auto;
+      font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 11.5px; line-height: 1.65;
+      color: #c7d2fe; white-space: pre-wrap; word-break: break-word;
     }
-    .sheet-close:hover { color: #fff; }
-
-    /* ── Modern Sleek Format Modal (Desktop Iframe & Spacious View) ─ */
-    #warn-modal {
-      position:fixed;inset:0;z-index:9999;
-      background:rgba(4, 4, 10, 0.85);
-      backdrop-filter:blur(14px);
-      -webkit-backdrop-filter:blur(14px);
-      display:flex;align-items:center;justify-content:center;
-      padding:10px;
-      overflow-y:auto;
-      -webkit-overflow-scrolling:touch;
-    }
-    .warn-box {
-      position:relative;
-      background:linear-gradient(135deg, rgba(20, 20, 42, 0.96), rgba(26, 26, 54, 0.96));
-      border:1px solid rgba(99,102,241,0.35);
-      border-radius:16px;padding:14px 18px;
-      max-width:480px;width:95%;text-align:center;margin:auto;
-      box-shadow:0 20px 60px rgba(0,0,0,0.85), 0 0 30px rgba(99,102,241,0.18);
-      animation:warnIn .25s cubic-bezier(0.16, 1, 0.3, 1);
-      box-sizing:border-box;
-      max-height:94vh;
-      overflow-y:auto;
-    }
-    @keyframes warnIn{from{opacity:0;transform:scale(.95) translateY(10px)}to{opacity:1;transform:scale(1) translateY(0)}}
-    
-    .warn-badge {
-      display:inline-flex;align-items:center;gap:5px;
-      background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);
-      padding:3px 10px;border-radius:16px;
-      font-size:10.5px;font-weight:700;letter-spacing:0.5px;
-      color:#a5b4fc;text-transform:uppercase;margin-bottom:8px;
-      font-family:'Outfit',sans-serif;
-    }
-    
-    .warn-title{
-      font-size:13.5px;font-weight:700;color:#fff;margin-bottom:4px;
-      font-family:'Outfit',sans-serif;letter-spacing:-0.2px;
-      line-height:1.3;word-break:break-word;
-    }
-    .warn-body{
-      font-size:11.5px;line-height:1.4;color:#94a3b8;margin-bottom:12px;
-    }
-    .warn-ext-group{display:flex;flex-direction:column;gap:7px}
-    
-    .warn-section-title {
-      text-align:left;font-size:11px;font-weight:700;color:#c7d2fe;
-      text-transform:uppercase;letter-spacing:0.5px;margin-bottom:1px;
-      font-family:'Outfit',sans-serif;display:flex;align-items:center;gap:5px;
-    }
-    
-    .warn-ext-btn{
-      display:flex;align-items:center;gap:8px;
-      padding:8px 12px;border-radius:10px;border:1px solid rgba(99,102,241,0.25);
-      background:rgba(99,102,241,0.1);color:#e0e7ff;
-      font-size:11.5px;font-weight:600;cursor:pointer;
-      text-align:left;transition:all .15s ease;
-      font-family:'Plus Jakarta Sans',sans-serif;
-    }
-    .warn-ext-btn:hover{
-      background:rgba(99,102,241,0.22);color:#fff;
-      border-color:rgba(99,102,241,0.45);transform:translateY(-1px);
-    }
-    .warn-ext-btn svg{width:15px;height:15px;flex-shrink:0;opacity:.9}
-    
-    .warn-app-btn {
-      flex:1;justify-content:center;padding:7px 4px;font-size:11px;
-      font-weight:600;border-radius:9px;border:1px solid rgba(255,255,255,0.1);
-      background:rgba(255,255,255,0.05);color:#cbd5e1;cursor:pointer;
-      transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
-    }
-    .warn-app-btn:hover {
-      background:rgba(99,102,241,0.2);border-color:rgba(99,102,241,0.4);
-      color:#fff;transform:translateY(-1px);
-    }
-    
-    .warn-primary-btn{
-      width:100%;padding:9px 14px;border-radius:10px;
-      background:linear-gradient(135deg, #6366f1, #8b5cf6);border:none;
-      color:#fff;font-size:12px;font-weight:700;cursor:pointer;
-      transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
-      display:flex;align-items:center;justify-content:center;gap:6px;
-      box-shadow:0 3px 12px rgba(99,102,241,0.3);
-    }
-    .warn-primary-btn:hover{
-      background:linear-gradient(135deg, #4f46e5, #7c3aed);
-      transform:translateY(-1px);box-shadow:0 5px 18px rgba(99,102,241,0.45);
-    }
-    
-    .warn-secondary-btn{
-      width:100%;padding:8px 12px;border-radius:10px;
-      background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
-      color:#cbd5e1;font-size:11px;font-weight:600;cursor:pointer;
-      transition:all .15s ease;font-family:'Plus Jakarta Sans',sans-serif;
-      display:flex;align-items:center;justify-content:center;gap:5px;
-    }
-    .warn-secondary-btn:hover{
-      background:rgba(255,255,255,0.1);color:#fff;border-color:rgba(255,255,255,0.25);
-    }
-
-    #mobile-opt-btn { display: inline-flex; }
-
-    @media (max-height: 240px) {
-      #warn-modal { display: none !important; }
+    @media (max-width: 640px) {
+      #tb-title-text { font-size: 12.5px; }
+      .tb-btn { padding: 7px 10px; font-size: 11.5px; }
+      .ext-btn.dl { margin-left: 0; }
     }
   </style>
-  <script>
-    window.videoTitle  = ${JSON.stringify(video.title)};
-    window.streamUrl   = ${JSON.stringify(streamUrl)};
-    window.driveFileId = ${JSON.stringify(driveFileId)};
-    window.videoId     = ${JSON.stringify(video.id)};
-    window.isHeavy     = ${isHeavy ? 'true' : 'false'};
-
-    function copyStreamLink(e) {
-      if (e && e.preventDefault) e.preventDefault();
-      const u = new URL(window.streamUrl, window.location.origin);
-      if (window.videoTitle) {
-        const cleanTitle = window.videoTitle.replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
-        const encodedTitle = encodeURIComponent(cleanTitle);
-        if (!u.pathname.endsWith('/' + encodedTitle)) {
-          u.pathname += '/' + encodedTitle;
-        }
-      }
-      const absoluteUrl = u.href;
-      const doSuccess = () => {
-        ['copy-txt', 'sheet-copy-txt'].forEach(id => {
-          const el = document.getElementById(id);
-          if (el) {
-            const old = el.getAttribute('data-orig') || el.innerText;
-            el.setAttribute('data-orig', old);
-            el.innerText = '✔ Link Tersalin!';
-            setTimeout(() => {
-              el.innerText = el.getAttribute('data-orig') || old;
-            }, 2500);
-          }
-        });
-      };
-
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(absoluteUrl).then(doSuccess).catch(() => fallbackCopy(absoluteUrl));
-      } else {
-        fallbackCopy(absoluteUrl);
-      }
-
-      function fallbackCopy(text) {
-        let ok = false;
-        try {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.setAttribute('readonly', '');
-          ta.style.position = 'fixed';
-          ta.style.left = '-9999px';
-          ta.style.top = '0';
-          ta.style.fontSize = '16px';
-          document.body.appendChild(ta);
-          ta.focus();
-          ta.select();
-          ta.setSelectionRange(0, text.length);
-          ok = document.execCommand('copy');
-          document.body.removeChild(ta);
-        } catch (_) {
-          ok = false;
-        }
-
-        if (ok) {
-          doSuccess();
-        } else {
-          showManualCopyBox(text);
-        }
-      }
-
-      function showManualCopyBox(text) {
-        let box = document.getElementById('manual-copy-box');
-        if (!box) {
-          box = document.createElement('div');
-          box.id = 'manual-copy-box';
-          box.style.cssText = 'position:fixed;inset:0;z-index:999999;background:rgba(0,0,0,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:16px;';
-          box.innerHTML =
-            '<div style="background:#16162a;border:1px solid #6366f1;border-radius:14px;padding:16px;max-width:380px;width:100%;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,0.8);">' +
-              '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:8px;font-family:Outfit,sans-serif;">Link Streaming (Cadangan)</div>' +
-              '<input id="manual-copy-inp" type="text" readonly value="' + text.replace(/"/g, '&quot;') + '" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:#a5b4fc;font-size:11px;font-family:monospace;box-sizing:border-box;margin-bottom:12px;" />' +
-              '<div style="display:flex;gap:8px;">' +
-                '<button id="manual-copy-action-btn" style="flex:1;padding:10px;border-radius:8px;border:none;background:#6366f1;color:#fff;font-size:12px;font-weight:700;cursor:pointer;font-family:Plus Jakarta Sans,sans-serif;">Salin Otomatis</button>' +
-                '<button onclick="document.getElementById(\\'manual-copy-box\\').remove()" style="padding:10px 14px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:#94a3b8;font-size:12px;cursor:pointer;font-family:Plus Jakarta Sans,sans-serif;">Tutup</button>' +
-              '</div>' +
-            '</div>';
-          document.body.appendChild(box);
-
-          const inp = document.getElementById('manual-copy-inp');
-          const btn = document.getElementById('manual-copy-action-btn');
-          inp.onclick = () => { inp.focus(); inp.select(); inp.setSelectionRange(0, text.length); };
-          btn.onclick = () => {
-            inp.focus(); inp.select(); inp.setSelectionRange(0, text.length);
-            try {
-              document.execCommand('copy');
-              btn.innerText = '✔ Berhasil Disalin!';
-              doSuccess();
-              setTimeout(() => { document.getElementById('manual-copy-box')?.remove(); }, 900);
-            } catch(_) {}
-          };
-        }
-        const inp = document.getElementById('manual-copy-inp');
-        if (inp) {
-          inp.focus(); inp.select(); inp.setSelectionRange(0, text.length);
-        }
-      }
-    }
-
-    function openExternal(player) {
-      const u = new URL(window.streamUrl, window.location.origin);
-      const cleanTitle = (window.videoTitle || 'video.mkv').replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
-      const encodedTitle = encodeURIComponent(cleanTitle);
-
-      if (!u.pathname.endsWith('/' + encodedTitle)) {
-        u.pathname += '/' + encodedTitle;
-      }
-
-      const absoluteUrl = u.href;
-      let urlWithoutProto = absoluteUrl.split('://')[1] || absoluteUrl;
-      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      const isAndroid = /android/i.test(navigator.userAgent);
-      const isMkv = cleanTitle.toLowerCase().endsWith('.mkv') || absoluteUrl.toLowerCase().includes('.mkv');
-      const mimeType = isMkv ? 'video/x-matroska' : 'video/*';
-
-      if (player === 'potplayer') {
-        window.location.href = 'potplayer://' + absoluteUrl;
-      } else if (player === 'vlc') {
-        if (isIOS) {
-          window.location.href = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(absoluteUrl);
-        } else if (isAndroid) {
-          window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=org.videolan.vlc;S.title=' + encodedTitle + ';type=video/*;end';
-        } else {
-          window.location.href = 'vlc://' + absoluteUrl;
-        }
-      } else if (player === 'mx') {
-        window.location.href = 'intent://' + urlWithoutProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mimeType + ';S.title=' + encodedTitle + ';i.decode_mode=2;b.decode_mode=2;end';
-      } else if (player === 'outplayer') {
-        window.location.href = 'outplayer://' + absoluteUrl;
-      }
-    }
-
-    function initSmartDeviceUI() {
-      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-      const isAndroid = /android/i.test(navigator.userAgent);
-
-      if (isIOS) {
-        const d1 = document.getElementById('ios-apps'); if (d1) d1.style.display = 'flex';
-        const s1 = document.getElementById('sheet-ios-apps'); if (s1) s1.style.display = 'flex';
-        const c1 = document.getElementById('copy-txt'); if (c1) c1.innerText = 'Salin Link Streaming (Cadangan)';
-        const c2 = document.getElementById('sheet-copy-txt'); if (c2) c2.innerText = 'Salin Link Streaming (Cadangan)';
-      } else if (isAndroid) {
-        const d2 = document.getElementById('android-apps'); if (d2) d2.style.display = 'flex';
-        const s2 = document.getElementById('sheet-android-apps'); if (s2) s2.style.display = 'flex';
-        const c1 = document.getElementById('copy-txt'); if (c1) c1.innerText = 'Salin Link Streaming (Cadangan)';
-        const c2 = document.getElementById('sheet-copy-txt'); if (c2) c2.innerText = 'Salin Link Streaming (Cadangan)';
-      } else {
-        // Desktop Laptop / PC
-        const d3 = document.getElementById('desktop-apps'); if (d3) d3.style.display = 'flex';
-        const s3 = document.getElementById('sheet-desktop-apps'); if (s3) s3.style.display = 'flex';
-        const c1 = document.getElementById('copy-txt'); if (c1) c1.innerText = 'Copy Link Streaming (VLC Desktop CTRL+N)';
-        const c2 = document.getElementById('sheet-copy-txt'); if (c2) c2.innerText = 'Copy Link Streaming (VLC Desktop CTRL+N)';
-      }
-    }
-
-    function dismissWarningAndPlay(mode) {
-      const modal = document.getElementById('warn-modal');
-      if (modal) modal.style.display = 'none';
-      const sheet = document.getElementById('opts-sheet');
-      if (sheet) sheet.style.display = 'none';
-      const container = document.getElementById('player-container');
-      if (container) container.style.display = 'flex';
-      if (typeof window.initPlayer === 'function') {
-        window.initPlayer(mode);
-      }
-    }
-
-    function toggleOptsSheet(show) {
-      const sheet = document.getElementById('opts-sheet');
-      if (sheet) {
-        sheet.style.display = (show !== undefined ? (show ? 'flex' : 'none') : (sheet.style.display === 'flex' ? 'none' : 'flex'));
-      }
-    }
-
-    function retryPlyr() {
-      const b = document.getElementById('retry-btn');
-      if (b) b.remove();
-      dismissWarningAndPlay('plyr');
-    }
-
-    function retryVlc() {
-      const b = document.getElementById('retry-btn');
-      if (b) b.remove();
-      openExternal('vlc');
-    }
-  </script>
 </head>
 <body>
-
-  <!-- ── Format Mode Selection Modal (Desktop Spacious) ─── -->
-  ${isHeavy ? `
-  <div id="warn-modal">
-    <div class="warn-box">
-      <button class="sheet-close" style="position:absolute;top:10px;right:14px;font-size:18px;" onclick="dismissWarningAndPlay('plyr')" title="Tutup dan Putar">✕</button>
-      <div class="warn-badge">
-        <span>🎬 Multi-Track Media</span>
-      </div>
-      <div class="warn-title">${escapeHtml(video.title)}</div>
-      <div class="warn-body">
-        Format MKV/Multi-track terdeteksi. Silakan pilih mode pemutaran:
-      </div>
-
-      <div class="warn-ext-group">
-        <!-- Option 1: Fast HTML5 Player (Recommended) -->
-        <button class="warn-primary-btn" onclick="dismissWarningAndPlay('plyr')">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-          <span>Putar via Plyr.io (Instant HTML5)</span>
-        </button>
-
-        <!-- Option 2: External Media Players -->
-        <div class="warn-section-title" style="margin-top:8px;">
-          <span>🚀 Aplikasi Eksternal (100% Lancar)</span>
-        </div>
-        <div id="desktop-apps" style="display:none; gap:6px;">
-          <button class="warn-app-btn" style="flex:1;" onclick="openExternal('potplayer')">PotPlayer (1-Klik Windows)</button>
-        </div>
-        <div id="android-apps" style="display:none; gap:6px;">
-          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC Mobile</button>
-          <button class="warn-app-btn" onclick="openExternal('mx')">MX Player</button>
-        </div>
-        <div id="ios-apps" style="display:none; gap:6px;">
-          <button class="warn-app-btn" onclick="openExternal('vlc')">VLC iOS</button>
-          <button class="warn-app-btn" onclick="openExternal('outplayer')">Outplayer</button>
-        </div>
-        <button type="button" class="warn-ext-btn" onclick="copyStreamLink(event)">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-          <span id="copy-txt">Copy Link Streaming (VLC Desktop CTRL+N)</span>
-        </button>
-
-        <!-- Option 3: Movi-Player -->
-        <div class="warn-section-title" style="margin-top:8px;">
-          <span>🎛️ Multi-Audio & Subtitle Native</span>
-        </div>
-        <button class="warn-secondary-btn" onclick="dismissWarningAndPlay('movi')">
-          <span>Putar via Movi-Player (WebAssembly)</span>
-        </button>
-      </div>
+  <header id="topbar">
+    <div class="tb-title">
+      <div class="tb-logo">▶</div>
+      <div id="tb-title-text"></div>
     </div>
-  </div>` : ''}
-
-  <!-- ── Floating Compact Options Pill ─────────────────── -->
-  ${isHeavy ? `
-  <button id="mobile-opt-btn" onclick="toggleOptsSheet(true)" title="Opsi Pemutar / Eksternal">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 2L1 21h22L12 2zm0 3.84L20.13 19H3.87L12 5.84zM11 10h2v4h-2zm0 6h2v2h-2z"/></svg>
-    <span>Eksternal / Audio</span>
-  </button>
-
-  <!-- ── Compact Options Sheet ────────────────────────── -->
-  <div id="opts-sheet" onclick="if(event.target===this)toggleOptsSheet(false)">
-    <div class="sheet-card">
-      <div class="sheet-header">
-        <span>🚀 Mode Pemutaran Alternatif</span>
-        <button class="sheet-close" onclick="toggleOptsSheet(false)">✕</button>
-      </div>
-      <div style="display:flex; flex-direction:column; gap:7px;">
-        <div id="sheet-desktop-apps" style="display:none; gap:6px;">
-          <button class="warn-app-btn" style="flex:1; padding:8px 4px; font-size:11.5px;" onclick="openExternal('potplayer')">PotPlayer (1-Klik Windows)</button>
-        </div>
-        <div id="sheet-android-apps" style="display:none; gap:6px;">
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC Mobile</button>
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('mx')">MX Player</button>
-        </div>
-        <div id="sheet-ios-apps" style="display:none; gap:6px;">
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('vlc')">VLC iOS</button>
-          <button class="warn-app-btn" style="padding:8px 4px; font-size:11.5px;" onclick="openExternal('outplayer')">Outplayer</button>
-        </div>
-        <button type="button" class="warn-ext-btn" style="padding:8px 12px; font-size:11.5px;" onclick="copyStreamLink(event)">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="#a5b4fc"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
-          <span id="sheet-copy-txt">Salin Link Streaming</span>
-        </button>
-        <button class="warn-secondary-btn" style="padding:8px 12px; font-size:11px;" onclick="toggleOptsSheet(false);dismissWarningAndPlay('movi');">
-          <span>🎛️ Movi-Player (Multi-Audio WebAssembly)</span>
-        </button>
-        <button class="warn-primary-btn" style="padding:8px 12px; font-size:11.5px; background:rgba(255,255,255,0.08); box-shadow:none;" onclick="toggleOptsSheet(false)">
-          <span>Tutup</span>
-        </button>
-      </div>
+    <div class="tb-actions">
+      <button class="tb-btn" id="btn-mediainfo" type="button">ⓘ MediaInfo</button>
+      <button class="tb-btn" id="btn-external" type="button">External Streaming ▾</button>
     </div>
-  </div>` : ''}
+  </header>
 
-  <div id="player-container" style="${isHeavy ? 'display:none;' : ''}">
-    <video id="player" playsinline controls controlsList="nodownload" oncontextmenu="return false;" preload="none" style="width:100%;height:100%;object-fit:contain;">
-      ${!isHeavy ? `<source src="${streamUrl}" type="${video.mime_type || 'video/mp4'}">` : ''}
-    </video>
+  <div id="player-wrap"></div>
+  <div id="movi-retry"></div>
+
+  <div id="external-panel">
+    <div class="ext-grid" id="ext-grid"></div>
+    <div class="ext-note">Link streaming berlaku 1 jam. Kalau sudah kedaluwarsa, muat ulang halaman ini untuk mendapatkan link baru.</div>
   </div>
 
-  <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
-  ${isHeavy ? `
-  <script type="module" src="https://cdn.jsdelivr.net/npm/movi-player@0.3.5/dist/element.js"></script>
-  ` : ''}
+  <div id="mi-overlay">
+    <div class="mi-card">
+      <div class="mi-head"><span>MediaInfo</span><button type="button" id="mi-close">✕</button></div>
+      <pre id="mi-pre"></pre>
+    </div>
+  </div>
 
+  <script type="application/json" id="embed-data">${embedJson}</script>
   <script>
-    let plyrInstance = null;
+    var DATA = JSON.parse(document.getElementById('embed-data').textContent);
+    var ABS = window.location.origin + DATA.streamUrl;
+    document.getElementById('tb-title-text').textContent = DATA.title;
+    document.title = DATA.title + ' — HaruStream';
 
-    // Send view tracking beacon
+    // ── View tracking beacon (same as the old embed) ──────────────
+    var viewTracked = false;
     function trackVideoView() {
+      if (viewTracked) return;
+      viewTracked = true;
       try {
         navigator.sendBeacon('/api/media/track', JSON.stringify({
-          drive_file_id: window.driveFileId,
-          id: window.videoId,
+          drive_file_id: DATA.driveFileId,
+          id: DATA.videoId,
           event: 'view'
         }));
-      } catch(_) {}
+      } catch (e) {}
     }
 
-    window.initPlayer = function(mode) {
-      trackVideoView();
+    // ── Movi player + stability machinery (ported from HaruDrive) ─
+    var moviState = { url: ABS, fileName: DATA.title || 'Video', el: null, attempts: 0, savedTime: 0, failed: false, started: false, startTime: 0, lastTime: -1, lastAdvance: 0, retryTimer: null, stallTimer: null };
 
-      if (mode === 'movi') {
-        const container = document.getElementById('player-container');
-        container.innerHTML = '<movi-player src="' + window.streamUrl + '" style="width:100%;height:100%;display:block;font-family:Plus Jakarta Sans,sans-serif;" controls></movi-player>';
-        const playerEl = container.querySelector('movi-player');
-        
-        function showRetry(errMsg) {
-            if (document.getElementById('retry-btn')) return;
-            const errDiv = document.createElement('div');
-            errDiv.id = 'retry-btn';
-            errDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:999999;background:rgba(20,20,40,0.95);border:1px solid rgba(99,102,241,0.5);border-radius:16px;padding:18px 22px;max-width:440px;width:90%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.9);color:#fff;font-family:Plus Jakarta Sans,sans-serif;backdrop-filter:blur(12px);';
-            errDiv.innerHTML =
-              '<div style="font-size:15px;font-weight:700;margin-bottom:6px;color:#f87171;font-family:Outfit,sans-serif;">⚠️ Gagal Memuat MKV WebAssembly</div>' +
-              '<div style="font-size:12px;color:#94a3b8;margin-bottom:14px;line-height:1.45;">' + (errMsg || 'Format MKV berat/multi-track membutuhkan koneksi stabil.') + ' Silakan pilih solusi alternatif:</div>' +
-              '<div style="display:flex;flex-direction:column;gap:8px;">' +
-                '<button onclick="retryPlyr()" style="padding:10px 12px;background:linear-gradient(135deg,#6366f1,#8b5cf6);border:none;color:#fff;border-radius:10px;font-weight:700;cursor:pointer;font-size:12.5px;">🎬 Putar via Plyr (Instant HTML5)</button>' +
-                '<button onclick="retryVlc()" style="padding:10px 12px;background:rgba(34,197,94,0.15);border:1px solid rgba(34,197,94,0.35);color:#86efac;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px;">🚀 Buka di PotPlayer / VLC (100% Smooth)</button>' +
-                '<button onclick="location.reload()" style="padding:8px 12px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#cbd5e1;border-radius:8px;font-weight:500;cursor:pointer;font-size:11.5px;">🔄 Muat Ulang Halaman</button>' +
-              '</div>';
-            container.appendChild(errDiv);
-        }
-        
-        let errorPoll = setInterval(() => {
-            if (playerEl && playerEl.shadowRoot) {
-                const html = playerEl.shadowRoot.innerHTML || '';
-                if (html.includes('Failed to open media') || html.includes('Timeout') || html.includes('Initialization Failed') || html.includes('DEMUXER_ERROR')) {
-                    showRetry('Gagal membaca struktur file MKV.');
-                    clearInterval(errorPoll);
-                }
-            }
-        }, 1000);
-        return;
-      }
-
-      if (plyrInstance) {
-        plyrInstance.play().catch(e => console.error(e));
-        return;
-      }
-
-      const videoEl = document.getElementById('player');
-      if (videoEl) {
-        if (!videoEl.querySelector('source') && !videoEl.src) {
-          const srcEl = document.createElement('source');
-          srcEl.src = window.streamUrl;
-          srcEl.type = ${JSON.stringify(video.mime_type || 'video/mp4')};
-          videoEl.appendChild(srcEl);
-          videoEl.load();
-        }
-
-        plyrInstance = new Plyr(videoEl, {
-          controls: [
-            'play-large',
-            'restart',
-            'play',
-            'progress',
-            'current-time',
-            'duration',
-            'mute',
-            'volume',
-            'captions',
-            'settings',
-            'pip',
-            'airplay',
-            'fullscreen'
-          ],
-          settings: ['captions', 'quality', 'speed', 'loop'],
-          speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
-          keyboard: { focused: true, global: true },
-          tooltips: { controls: true, seek: true },
-          fullscreen: { enabled: true, fallback: true, iosNative: false },
-          hideControls: true,
-          resetOnEnd: true,
-        });
-
-        plyrInstance.on('ended', () => {
-          navigator.sendBeacon('/api/media/track', JSON.stringify({
-            drive_file_id: driveFileId,
-            id: window.videoId,
-            event: 'complete'
-          }));
-        });
-        
-        plyrInstance.on('error', (e) => {
-          console.error('[HaruStream] Plyr error:', e);
-        });
-      }
-    };
-
-    // ── Startup logic ─────────────────────────────────────
-    initSmartDeviceUI();
-
-    const isTouchMobile = /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                          (navigator.maxTouchPoints > 2 && window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 640);
-
-    if (isHeavy && !isTouchMobile && window.innerHeight > 240) {
-      // Desktop Laptop / PC (including iframes on Sontolfilm/HaruFilm):
-      // Show the modern format selection modal!
-      const modal = document.getElementById('warn-modal');
-      if (modal) modal.style.display = 'flex';
-    } else {
-      // Mobile touch screen, tiny container, or lightweight: start player immediately!
-      const modal = document.getElementById('warn-modal');
-      if (modal) modal.style.display = 'none';
-      const container = document.getElementById('player-container');
-      if (container) container.style.display = 'flex';
-      initPlayer('plyr');
+    function clearMoviWatchers() {
+      if (moviState.retryTimer) { clearTimeout(moviState.retryTimer); moviState.retryTimer = null; }
+      if (moviState.stallTimer) { clearInterval(moviState.stallTimer); moviState.stallTimer = null; }
     }
+    function moviSavePosition() {
+      try {
+        var t = moviState.el ? moviState.el.currentTime : 0;
+        if (typeof t === 'number' && isFinite(t) && t > 0) moviState.savedTime = t;
+      } catch (e) {}
+    }
+    function startMoviPlayer() {
+      var wrap = document.getElementById('player-wrap');
+      if (!wrap) return;
+      clearMoviWatchers();
+      hideMoviRetry();
+      moviState.failed = false;
+      moviState.started = false;
+      moviState.startTime = Date.now();
+      moviState.lastTime = -1;
+      moviState.lastAdvance = Date.now();
+      wrap.innerHTML = '';
+      var el = document.createElement('movi-player');
+      el.setAttribute('src', moviState.url);
+      el.setAttribute('controls', '');
+      el.setAttribute('title', moviState.fileName || 'Video');
+      el.setAttribute('showtitle', '');
+      el.setAttribute('titlemode', 'both');
+      el.setAttribute('theme', 'dark');
+      el.setAttribute('themecolor', '#6366f1 #ec4899');
+      el.setAttribute('persist', 'volume muted speed audiolang subtitlelang');
+      el.setAttribute('persistkey', 'harustream');
+      el.setAttribute('subtitlepicker', '');
+      el.setAttribute('subtitlecolor', '#FFFFFF');
+      el.setAttribute('subtitlebg', '0');
+      el.setAttribute('subtitleedge', 'shadow');
+      el.setAttribute('subtitlesize', '1');
+      moviState.el = el;
+      if (moviState.savedTime > 0) {
+        (function (saved) {
+          el.addEventListener('loadedmetadata', function () {
+            try { el.currentTime = saved; } catch (e) {}
+          });
+        })(moviState.savedTime);
+      }
+      el.addEventListener('error', function () { handleMoviFailure('network'); });
+      el.addEventListener('errordisplay', function () { handleMoviFailure('decode'); });
+      el.addEventListener('playing', function () {
+        if (moviState.failed) return;
+        moviState.started = true;
+        moviState.attempts = 0;
+        trackVideoView();
+        hideMoviRetry();
+      });
+      el.addEventListener('timeupdate', function () {
+        if (moviState.failed) return;
+        try {
+          var t = el.currentTime;
+          if (typeof t === 'number' && isFinite(t) && t > moviState.lastTime) {
+            moviState.started = true;
+            moviState.lastTime = t;
+            moviState.lastAdvance = Date.now();
+            moviState.savedTime = t;
+            moviState.attempts = 0;
+            hideMoviRetry();
+          }
+        } catch (e) {}
+      });
+      moviState.stallTimer = setInterval(function () {
+        if (moviState.failed) return;
+        try {
+          var cur = el.currentTime;
+          if (typeof cur !== 'number' || !isFinite(cur)) return;
+          if (el.paused) return;
+          var now = Date.now();
+          if (!moviState.started && now - moviState.startTime > 60000) { handleMoviFailure('stall'); return; }
+          if (moviState.started && now - moviState.lastAdvance > 15000) { handleMoviFailure('stall'); }
+        } catch (e) {}
+      }, 5000);
+      wrap.appendChild(el);
+    }
+    function handleMoviFailure(kind) {
+      if (moviState.failed) return;
+      moviState.failed = true;
+      moviSavePosition();
+      clearMoviWatchers();
+      moviState.attempts += 1;
+      var msg = '';
+      if (kind === 'decode') { msg = 'File tidak bisa dibaca (format atau file rusak).'; }
+      else { msg = 'Koneksi terputus atau lambat sehingga video berhenti memuat.'; }
+      if (moviState.attempts > 3) {
+        showMoviRetry(msg + ' Sudah 3x dicoba — silakan pakai External Streaming di atas, atau muat ulang halaman.', false);
+        return;
+      }
+      var delay = moviState.attempts === 1 ? 2000 : (moviState.attempts === 2 ? 5000 : 10000);
+      showMoviRetry(msg + ' Mencoba lagi otomatis dalam ' + (delay / 1000) + ' detik…', true);
+      moviState.retryTimer = setTimeout(function () { startMoviPlayer(); }, delay);
+    }
+    function retryMoviNow() {
+      clearMoviWatchers();
+      if (moviState.attempts > 3) moviState.attempts = 0;
+      startMoviPlayer();
+    }
+    function showMoviRetry(msg, showNow) {
+      var box = document.getElementById('movi-retry');
+      if (!box) return;
+      box.style.display = 'block';
+      box.innerHTML = '';
+      var text = document.createElement('div');
+      text.textContent = msg;
+      box.appendChild(text);
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = showNow ? 'Coba Lagi Sekarang' : 'Coba Lagi';
+      btn.addEventListener('click', retryMoviNow);
+      box.appendChild(btn);
+    }
+    function hideMoviRetry() {
+      var box = document.getElementById('movi-retry');
+      if (box) box.style.display = 'none';
+    }
+
+    // ── External streaming panel ──────────────────────────────────
+    function buildExternal() {
+      var grid = document.getElementById('ext-grid');
+      if (!grid || grid.childNodes.length) return;
+      var ua = (navigator.userAgent || '').toLowerCase();
+      var isAndroid = ua.indexOf('android') >= 0;
+      var isIOS = /ipad|iphone|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      var rawNoProto = ABS.indexOf('://') >= 0 ? ABS.split('://')[1] : ABS;
+      var encTitle = encodeURIComponent(DATA.title || 'video');
+      var mime = DATA.mime || 'video/*';
+      function addBtn(label, href, cls) {
+        var a = document.createElement('a');
+        a.className = 'ext-btn' + (cls ? ' ' + cls : '');
+        a.href = href;
+        a.textContent = label;
+        grid.appendChild(a);
+        return a;
+      }
+      if (!isIOS) addBtn('PotPlayer', 'potplayer://' + ABS);
+      if (isAndroid) {
+        addBtn('VLC Mobile', 'intent://' + rawNoProto + '#Intent;scheme=https;package=org.videolan.vlc;S.title=' + encTitle + ';type=video/*;end');
+        addBtn('MX Player', 'intent://' + rawNoProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mime + ';S.title=' + encTitle + ';i.decode_mode=2;b.decode_mode=2;end');
+      } else if (isIOS) {
+        addBtn('VLC iOS', 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(ABS));
+        addBtn('Outplayer', 'outplayer://' + ABS);
+      } else {
+        addBtn('VLC Desktop', 'vlc://' + ABS);
+        addBtn('MX Player', 'intent://' + rawNoProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mime + ';S.title=' + encTitle + ';end');
+        addBtn('Outplayer', 'outplayer://' + ABS);
+      }
+      var copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'ext-btn copy';
+      copyBtn.textContent = 'Salin Link Streaming';
+      copyBtn.addEventListener('click', function () {
+        function done() { copyBtn.textContent = 'Tersalin ✓'; setTimeout(function () { copyBtn.textContent = 'Salin Link Streaming'; }, 1600); }
+        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ABS).then(done).catch(done); }
+        else {
+          var ta = document.createElement('textarea');
+          ta.value = ABS; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); } catch (e) {}
+          document.body.removeChild(ta); done();
+        }
+      });
+      grid.appendChild(copyBtn);
+      addBtn('Download File', ABS + '?download=1', 'dl');
+    }
+    document.getElementById('btn-external').addEventListener('click', function () {
+      buildExternal();
+      document.getElementById('external-panel').classList.toggle('open');
+    });
+
+    // ── MediaInfo overlay ─────────────────────────────────────────
+    var miOverlay = document.getElementById('mi-overlay');
+    document.getElementById('mi-pre').textContent = DATA.mediainfo || 'MediaInfo belum tersedia untuk video ini. Pindai dulu dari dashboard HaruStream (detail video → Scan MediaInfo).';
+    document.getElementById('btn-mediainfo').addEventListener('click', function () { miOverlay.classList.add('open'); });
+    document.getElementById('mi-close').addEventListener('click', function () { miOverlay.classList.remove('open'); });
+    miOverlay.addEventListener('click', function (e) { if (e.target === miOverlay) miOverlay.classList.remove('open'); });
+
+    startMoviPlayer();
   </script>
 </body>
 </html>`;
 }
-
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -4994,6 +4744,20 @@ async function handleGetMediaInfo(videoId, env, user) {
     success: true,
     mediainfo_raw: row.mediainfo_raw || null,
     mediainfo_json: parsedJson
+  });
+}
+
+async function handleStreamUrl(videoId, env, user) {
+  const row = await env.DB.prepare('SELECT id, title FROM videos WHERE id = ?').bind(videoId).first();
+  if (!row) return errorResponse('Video not found.', 404);
+  const secret = env.JWT_SECRET || 'harustream-default-secret-change-me';
+  const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+  const token = await generateStreamToken(row.id, expiresAt, secret);
+  const cleanTitle = (row.title || 'video.mkv').replace(/[/]/g, '_').split(String.fromCharCode(92)).join('_');
+  return jsonResponse({
+    success: true,
+    url: `/stream/${row.id}/${token}/${expiresAt}/${encodeURIComponent(cleanTitle)}`,
+    expires_at: expiresAt
   });
 }
 
@@ -5215,6 +4979,12 @@ export default {
       if (method === 'GET') res = await handleGetMediaInfo(videoId, env, user);
       else if (method === 'PUT' || method === 'POST') res = await handleSaveMediaInfo(videoId, request, env, user);
       else res = errorResponse('Method not allowed.', 405);
+    }
+
+    // Signed stream URL mint (Paket C: /stream requires a token)
+    else if (path.match(/^\/api\/media\/\d+\/stream-url$/) && method === 'GET') {
+      const videoId = parseInt(path.split('/')[3]);
+      res = await handleStreamUrl(videoId, env, user);
     }
 
     // Single video detail

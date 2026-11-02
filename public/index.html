@@ -477,6 +477,28 @@
       padding: 0;
       overflow: hidden;
     }
+    /* Mobile: the fixed 400px player + separately scrolling info column
+       made the modal look glued to the top on phones. Now the player is
+       sized by aspect ratio and the whole body is one scroll area, so
+       the (centered) modal box behaves on small screens too. */
+    @media (max-width: 1023px) {
+      #modal-video-detail .modal-box { max-height: 92dvh; }
+      #modal-video-detail .vd-body {
+        display: block;
+        max-height: calc(92dvh - 58px) !important;
+        overflow-y: auto;
+      }
+      #modal-video-detail .vd-player-col {
+        min-height: 0 !important;
+        width: 100%;
+        aspect-ratio: 16/9;
+      }
+      #modal-video-detail .vd-info-col {
+        overflow: visible;
+        border-left: none !important;
+        border-top: 1px solid #2a2a4a;
+      }
+    }
     .vd-player-wrap {
       background: #000;
       aspect-ratio: 16/9;
@@ -1627,16 +1649,16 @@
     </div>
 
     <!-- Body: player + details -->
-    <div class="flex flex-col lg:flex-row" style="max-height:80vh">
+    <div class="vd-body flex flex-col lg:flex-row" style="max-height:80vh">
         <!-- Left: player -->
-        <div class="flex-shrink-0 lg:w-[55%] relative" style="background:#000; min-height: 400px; display:flex;">
+        <div class="vd-player-col flex-shrink-0 lg:w-[55%] relative" style="background:#000; min-height: 400px; display:flex;">
           <iframe id="vd-iframe" src="" allowfullscreen
             style="width:100%;height:100%;border:none;flex:1;">
           </iframe>
         </div>
 
       <!-- Right: info + links -->
-      <div class="flex-1 overflow-y-auto p-5" style="border-left:1px solid #2a2a4a">
+      <div class="vd-info-col flex-1 overflow-y-auto p-5" style="border-left:1px solid #2a2a4a">
         <!-- Stats row -->
         <div class="grid grid-cols-3 gap-3 mb-5">
           <div class="text-center p-3 rounded-xl" style="background:#0f0f1a;border:1px solid #2a2a4a">
@@ -2367,6 +2389,30 @@ async function apiFetch(path, opts = {}) {
   const data = await res.json().catch(() => ({}));
   if (res.status === 401) { handleLogout(); }
   return { ok: res.ok, status: res.status, data };
+}
+
+// ── Signed stream URLs (Paket C: /stream requires a token) ──────
+const _streamUrlCache = {};
+async function hsStreamUrl(id) {
+  const now = Math.floor(Date.now() / 1000);
+  const hit = _streamUrlCache[id];
+  if (hit && hit.exp - 120 > now) return hit.url;
+  const { data } = await apiFetch(`/api/media/${id}/stream-url`);
+  if (!data || !data.success) throw new Error((data && data.error) || 'Gagal membuat link streaming.');
+  _streamUrlCache[id] = { url: data.url, exp: data.expires_at };
+  return data.url;
+}
+async function hsDownloadUrl(id) {
+  return (await hsStreamUrl(id)) + '?download=1';
+}
+async function openDownloadLink(evt, id) {
+  if (evt) evt.preventDefault();
+  try {
+    const u = await hsDownloadUrl(id);
+    window.open(BASE_URL + u, '_blank');
+  } catch (e) {
+    alert('Gagal membuat link download: ' + e.message);
+  }
 }
 
 function setButtonLoading(id, loading, label = '') {
@@ -4132,187 +4178,168 @@ function parseMediaInfoTextReport(text, v) {
 }
 
 // ── FAST & 100% ACCURATE BINARY EBML PARSER ──────────────────────
+function formatMkvDuration(totalSec) {
+  var s = Math.round(totalSec);
+  if (s >= 3600) { var h = Math.floor(s / 3600); var m = Math.floor((s % 3600) / 60); return h + ' h ' + m + ' min'; }
+  if (s >= 60) { var mm = Math.floor(s / 60); var ss = s % 60; return mm + ' min ' + ss + ' s'; }
+  return s + ' s';
+}
+
 function parseMatroskaEBML(bytes, v) {
   let pos = 0;
   const len = bytes.length;
-
   function readId() {
     if (pos >= len) return null;
     const b = bytes[pos];
     let vlen = 0;
-    for (let i = 0; i < 8; i++) {
-      if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; }
-    }
+    for (let i = 0; i < 8; i++) { if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; } }
     if (vlen === 0 || pos + vlen > len) return null;
     let val = 0;
     for (let i = 0; i < vlen; i++) val = (val * 256) + bytes[pos + i];
     pos += vlen;
     return val;
   }
-
   function readSize() {
     if (pos >= len) return null;
     const b = bytes[pos];
     let vlen = 0;
-    for (let i = 0; i < 8; i++) {
-      if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; }
-    }
+    for (let i = 0; i < 8; i++) { if ((b & (0x80 >> i)) !== 0) { vlen = i + 1; break; } }
     if (vlen === 0 || pos + vlen > len) return null;
     let val = b & ((1 << (8 - vlen)) - 1);
     for (let i = 1; i < vlen; i++) val = (val * 256) + bytes[pos + i];
     pos += vlen;
     return val;
   }
-
-  function readUint(vlen) {
-    let val = 0;
-    for (let i = 0; i < vlen; i++) val = (val * 256) + bytes[pos + i];
-    pos += vlen;
-    return val;
-  }
-
+  function readUint(vlen) { let val = 0; for (let i = 0; i < vlen; i++) val = (val * 256) + bytes[pos + i]; pos += vlen; return val; }
   function readFloat(vlen) {
-    try {
-      const view = new DataView(bytes.buffer, bytes.byteOffset + pos, vlen);
-      pos += vlen;
-      if (vlen === 4) return view.getFloat32(0, false);
-      if (vlen === 8) return view.getFloat64(0, false);
-    } catch(e) { pos += vlen; }
+    try { const view = new DataView(bytes.buffer, bytes.byteOffset + pos, vlen); pos += vlen; if (vlen === 4) return view.getFloat32(0, false); if (vlen === 8) return view.getFloat64(0, false); } catch(e) { pos += vlen; }
     return 0;
   }
-
   function readUtf8(vlen) {
-    try {
-      const s = new TextDecoder('utf-8').decode(bytes.slice(pos, pos + vlen)).replace(/\0/g, '');
-      pos += vlen;
-      return s;
-    } catch(e) {
-      pos += vlen;
-      return '';
-    }
+    try { const s = new TextDecoder('utf-8').decode(bytes.slice(pos, pos + vlen)).replace(/\0/g, ''); pos += vlen; return s; } catch(e) { pos += vlen; return ''; }
   }
-
   const result = {
-    general: {
-      fileName: v?.title || '',
-      format: 'Matroska',
-      formatVersion: 'Version 4',
-      fileSize: v?.size ? formatBytes(v.size) : '',
-      writingApp: '',
-      writingLib: ''
-    },
-    video: [],
-    audio: [],
-    text: [],
-    attachments: [],
-    menus: []
+    general: { fileName: v?.title || '', format: 'Matroska', formatVersion: 'Version 4', fileSize: v?.size ? formatBytes(v?.size) : '', writingApp: '', writingLib: '' },
+    video: [], audio: [], text: [], attachments: [], menus: []
   };
-
-  const LANG_MAP = {
-    ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian',
-    jpn: 'Japanese', ja: 'Japanese',
-    eng: 'English', en: 'English',
-    fre: 'French', fra: 'French', fr: 'French',
-    ger: 'German', deu: 'German', de: 'German',
-    ita: 'Italian', it: 'Italian',
-    spa: 'Spanish', es: 'Spanish',
-    por: 'Portuguese', pt: 'Portuguese',
-    rus: 'Russian', ru: 'Russian',
-    ara: 'Arabic', ar: 'Arabic',
-    chi: 'Chinese', zho: 'Chinese', zh: 'Chinese',
-    kor: 'Korean', ko: 'Korean',
-    tha: 'Thai', th: 'Thai',
-    vie: 'Vietnamese', vi: 'Vietnamese',
-    und: 'Undetermined'
-  };
+  const LANG_MAP = { ind: 'Indonesian', id: 'Indonesian', in: 'Indonesian', jpn: 'Japanese', ja: 'Japanese', eng: 'English', en: 'English', fre: 'French', fra: 'French', fr: 'French', ger: 'German', deu: 'German', de: 'German', ita: 'Italian', it: 'Italian', spa: 'Spanish', es: 'Spanish', por: 'Portuguese', pt: 'Portuguese', rus: 'Russian', ru: 'Russian', ara: 'Arabic', ar: 'Arabic', chi: 'Chinese', zho: 'Chinese', zh: 'Chinese', kor: 'Korean', ko: 'Korean', tha: 'Thai', th: 'Thai', vie: 'Vietnamese', vi: 'Vietnamese', und: 'Undetermined' };
 
   function parseTracksElement(endPos) {
     while (pos < endPos && pos < len) {
-      const id = readId();
-      const size = readSize();
+      const id = readId(); const size = readSize();
       if (id === null || size === null) break;
       const elEnd = pos + size;
-
-      if (id === 0xAE) { // TrackEntry
-        let track = { isDefault: null, isForced: false, width: 1920, height: 1080 }; // null = FlagDefault element absent (spec default is 1); resolved per-type below like HaruDrive
+      if (id === 0xAE) {
+        let track = { isDefault: null, isForced: false, width: 1920, height: 1080 };
         while (pos < elEnd && pos < len) {
-          const subId = readId();
-          const subSize = readSize();
+          const subId = readId(); const subSize = readSize();
           if (subId === null || subSize === null) break;
           const subEnd = pos + subSize;
-
           if (subId === 0xD7) track.id = readUint(subSize);
-          else if (subId === 0x83) track.type = readUint(subSize); // 1=Video, 2=Audio, 17=Subtitle
+          else if (subId === 0x83) track.type = readUint(subSize);
           else if (subId === 0x88) track.isDefault = readUint(subSize) !== 0;
           else if (subId === 0x55AA) track.isForced = readUint(subSize) !== 0;
           else if (subId === 0x86) track.codecId = readUtf8(subSize);
           else if (subId === 0x536E) track.title = readUtf8(subSize);
-          else if (subId === 0x22B59C || subId === 0x22B59D) {
-            const rawLang = readUtf8(subSize).toLowerCase();
-            track.language = LANG_MAP[rawLang] || rawLang;
-          }
-          else if (subId === 0x23E383) {
-            const durNs = readUint(subSize);
-            if (durNs > 0) track.frameRate = `${(1000000000 / durNs).toFixed(3)} FPS`;
-          }
-          else if (subId === 0xE0) { // Video Settings
+          else if (subId === 0x22B59C || subId === 0x22B59D) { const rawLang = readUtf8(subSize).toLowerCase(); track.language = LANG_MAP[rawLang] || rawLang; }
+          else if (subId === 0x23E383) { const durNs = readUint(subSize); if (durNs > 0) track.frameRate = (1000000000 / durNs).toFixed(3) + ' FPS'; }
+          else if (subId === 0x63A2) { track.codecPrivate = bytes.slice(pos, subEnd); pos = subEnd; }
+          else if (subId === 0xE0) {
             while (pos < subEnd && pos < len) {
-              const vid = readId();
-              const vsize = readSize();
+              const vid = readId(); const vsize = readSize();
               if (vid === null || vsize === null) break;
               const vEnd = pos + vsize;
               if (vid === 0xB0) track.width = readUint(vsize);
               else if (vid === 0xBA) track.height = readUint(vsize);
               else if (vid === 0x54B0) track.displayWidth = readUint(vsize);
               else if (vid === 0x54BA) track.displayHeight = readUint(vsize);
-              else if (vid === 0x55B0) { // Colour
+              else if (vid === 0x55B0) {
                 while (pos < vEnd && pos < len) {
-                  const cid = readId();
-                  const csize = readSize();
+                  const cid = readId(); const csize = readSize();
                   if (cid === null || csize === null) break;
-                  if (cid === 0x55B2) track.bitDepth = `${readUint(csize)} bits`;
-                  else pos += csize;
+                  const cEnd = pos + csize;
+                  if (cid === 0x55B2) track.bitDepth = readUint(csize) + ' bits';
+                  else pos = cEnd;
                 }
-              } else pos = vEnd;
-            }
-          }
-          else if (subId === 0xE1) { // Audio Settings
-            while (pos < subEnd && pos < len) {
-              const aid = readId();
-              const asize = readSize();
-              if (aid === null || asize === null) break;
-              if (aid === 0xB5) track.samplingRate = `${(readFloat(asize) / 1000).toFixed(1)} kHz`;
-              else if (aid === 0x9F) {
-                const ch = readUint(asize);
-                track.channels = ch === 1 ? '1 channel (Mono)' : ch === 2 ? '2 channels (Stereo)' : ch === 6 ? '6 channels (5.1 Surround)' : `${ch} channels`;
               }
-              else if (aid === 0x6264) track.bitDepth = `${readUint(asize)} bits`;
-              else pos += asize;
+              pos = vEnd;
             }
-          } else {
             pos = subEnd;
-          }
+          } else if (subId === 0xE1) {
+            while (pos < subEnd && pos < len) {
+              const aid = readId(); const asize = readSize();
+              if (aid === null || asize === null) break;
+              const aEnd = pos + asize;
+              if (aid === 0xB5) track.samplingRate = (readFloat(asize) / 1000).toFixed(1) + ' kHz';
+              else if (aid === 0x9F) { const ch = readUint(asize); track.channels = ch === 1 ? '1 channel (Mono)' : ch === 2 ? '2 channels (Stereo)' : ch === 6 ? '6 channels (5.1 Surround)' : ch + ' channels'; }
+              else if (aid === 0x6264) track.bitDepth = readUint(asize) + ' bits';
+              pos = aEnd;
+            }
+            pos = subEnd;
+          } else { pos = subEnd; }
         }
-
         const cId = track.codecId || '';
-        if (track.type === 1) { // Video
+        if (track.type === 1) {
           let fmt = 'AVC', profile = 'High@L4.1';
-          if (cId.includes('HEVC') || cId.includes('H265')) { fmt = 'HEVC'; profile = 'Main 10@L5@Main'; }
-          else if (cId.includes('AV1')) { fmt = 'AV1'; profile = 'Main@L5.0'; }
-          else if (cId.includes('VP9')) { fmt = 'VP9'; profile = 'Profile 0'; }
-          else if (cId.includes('MPEG4') || cId.includes('AVC')) { fmt = 'AVC'; profile = 'High@L4.1'; }
-          
+          if (cId.includes('HEVC') || cId.includes('H265')) {
+            fmt = 'HEVC'; profile = 'Main 10@L5@Main';
+            if (track.codecPrivate && track.codecPrivate.length >= 2) {
+              const cp = track.codecPrivate;
+              const profIdc = cp[1] & 0x1F;
+              if (profIdc === 2) { profile = 'Main 10@L5@Main'; track.bitDepth = '10 bits'; }
+              else if (profIdc === 1) { profile = 'Main@L5@Main'; track.bitDepth = '8 bits'; }
+              if (cp.length > 13) {
+                const bd = (cp[13] & 0x07) + 8;
+                if (bd === 10 || bd === 12 || bd === 8) {
+                  track.bitDepth = bd + ' bits';
+                  if (bd === 10 && !profile.includes('10')) profile = 'Main 10@L5@Main';
+                }
+              }
+            }
+          } else if (cId.includes('AV1')) {
+            fmt = 'AV1'; profile = 'Main@L4.0';
+            if (track.codecPrivate && track.codecPrivate.length >= 3) {
+              const cp = track.codecPrivate;
+              const profId = (cp[1] >> 5) & 7;
+              const profName = profId === 0 ? 'Main' : profId === 1 ? 'High' : profId === 2 ? 'Professional' : 'Main';
+              const lvlIdx = cp[1] & 0x1F;
+              const majorLvl = (lvlIdx >> 2) + 2;
+              const minorLvl = lvlIdx & 3;
+              profile = profName + '@L' + majorLvl + '.' + minorLvl;
+              const highBd = (cp[2] >> 6) & 1;
+              const twelveBit = (cp[2] >> 5) & 1;
+              track.bitDepth = twelveBit ? '12 bits' : (highBd ? '10 bits' : '8 bits');
+            }
+          } else if (cId.includes('VP9')) { fmt = 'VP9'; profile = 'Profile 0'; }
+          else if (cId.includes('MPEG4') || cId.includes('AVC')) {
+            fmt = 'AVC'; profile = 'High@L4.1';
+            if (track.codecPrivate && track.codecPrivate.length >= 4) {
+              const cp = track.codecPrivate;
+              if (cp[1] === 110) { profile = 'High 10@L4.1'; track.bitDepth = '10 bits'; }
+              else if (cp[1] === 100) { profile = 'High@L4.1'; track.bitDepth = '8 bits'; }
+            }
+          }
+          let vBitDepth = track.bitDepth;
+          if (!vBitDepth) {
+            const rawName = ((v?.title || '') + ' ' + (result.general.title || '')).toLowerCase();
+            if (rawName.includes('10bit') || rawName.includes('10-bit') || rawName.includes('hi10p') || rawName.includes('main10') || rawName.includes('main 10')) {
+              vBitDepth = '10 bits';
+            } else if (fmt === 'HEVC' && profile.includes('10')) {
+              vBitDepth = '10 bits';
+            } else if (fmt === 'AV1') {
+              vBitDepth = rawName.includes('8bit') ? '8 bits' : '10 bits';
+            } else {
+              vBitDepth = '8 bits';
+            }
+          }
           result.video.push({
-            id: track.id || (result.video.length + 1),
-            format: fmt, profile: profile, codecId: cId,
+            id: track.id || (result.video.length + 1), format: fmt, profile: profile, codecId: cId,
             width: track.width || 1920, height: track.height || 1080,
-            aspect: (track.displayWidth && track.displayHeight) ? `${(track.displayWidth/track.displayHeight).toFixed(2)}:1` : '16:9',
-            frameRate: track.frameRate || '23.976 FPS',
-            colorSpace: 'YUV', chroma: '4:2:0', bitDepth: track.bitDepth || '8 bits',
-            language: track.language || '',
-            rawIsDefault: track.isDefault, isDefault: track.isDefault, isForced: track.isForced
+            aspect: (track.displayWidth && track.displayHeight) ? (track.displayWidth/track.displayHeight).toFixed(2) + ':1' : '16:9',
+            frameRate: track.frameRate || '23.976 FPS', colorSpace: 'YUV', chroma: '4:2:0', bitDepth: vBitDepth,
+            language: track.language || 'Japanese', rawIsDefault: track.isDefault, isDefault: false, isForced: track.isForced
           });
-        } else if (track.type === 2) { // Audio
+        } else if (track.type === 2) {
           let fmt = 'AAC LC';
           if (cId.includes('FLAC')) fmt = 'FLAC';
           else if (cId.includes('OPUS')) fmt = 'Opus';
@@ -4320,113 +4347,112 @@ function parseMatroskaEBML(bytes, v) {
           else if (cId.includes('AC3')) fmt = 'AC-3';
           else if (cId.includes('DTS')) fmt = 'DTS';
           else if (cId.includes('TRUEHD')) fmt = 'TrueHD';
-          
           result.audio.push({
-            id: track.id || (result.audio.length + 1),
-            format: fmt, codecId: cId,
-            channels: track.channels || '2 channels (Stereo)',
-            samplingRate: track.samplingRate || '48.0 kHz',
-            title: track.title || (track.language ? `${track.language} Audio` : `Audio #${result.audio.length + 1}`),
-            language: track.language || '',
-            rawIsDefault: track.isDefault, isDefault: track.isDefault, isForced: track.isForced
+            id: track.id || (result.audio.length + 1), format: fmt, codecId: cId,
+            channels: track.channels || '2 channels (Stereo)', samplingRate: track.samplingRate || '48.0 kHz',
+            title: track.title || track.language || 'Audio #' + (result.audio.length + 1),
+            language: track.language || 'Indonesian', rawIsDefault: track.isDefault, isDefault: false, isForced: track.isForced
           });
-        } else if (track.type === 17) { // Subtitle
+        } else if (track.type === 17) {
           let fmt = 'ASS';
           if (cId.includes('UTF8')) fmt = 'SubRip (SRT)';
           else if (cId.includes('PGS') || cId.includes('HDMV')) fmt = 'PGS';
           else if (cId.includes('VOBSUB')) fmt = 'VobSub';
-          
           result.text.push({
-            id: track.id || (result.text.length + 1),
-            format: fmt, codecId: cId,
-            title: track.title || (track.language ? `${track.language} Subtitle` : `Subtitle #${result.text.length + 1}`),
-            language: track.language || '',
-            rawIsDefault: track.isDefault, isDefault: track.isDefault, isForced: track.isForced
+            id: track.id || (result.text.length + 1), format: fmt, codecId: cId,
+            title: track.title || track.language || 'Subtitle #' + (result.text.length + 1),
+            language: track.language || 'Indonesian', rawIsDefault: track.isDefault, isDefault: false, isForced: track.isForced
           });
         }
-      } else {
-        pos = elEnd;
-      }
+      } else { pos = elEnd; }
     }
   }
 
-  // Parse root EBML elements
   while (pos < len) {
-    const id = readId();
-    const size = readSize();
+    const id = readId(); const size = readSize();
     if (id === null || size === null) break;
     const elEnd = pos + size;
-
-    if (id === 0x1A45DFA3) { // EBML Header
-      pos = elEnd;
-    } else if (id === 0x18538067) { // Segment
+    if (id === 0x1A45DFA3) { pos = elEnd; }
+    else if (id === 0x18538067) {
       while (pos < len) {
-        const segId = readId();
-        const segSize = readSize();
+        const segId = readId(); const segSize = readSize();
         if (segId === null || segSize === null) break;
         const subEnd = pos + segSize;
-
-        if (segId === 0x1549A966) { // Info
+        if (segId === 0x1549A966) {
+          let tsScale = 1000000, segDur = 0;
           while (pos < subEnd && pos < len) {
-            const infoId = readId();
-            const infoSize = readSize();
+            const infoId = readId(); const infoSize = readSize();
             if (infoId === null || infoSize === null) break;
             if (infoId === 0x4D80) result.general.writingApp = readUtf8(infoSize);
             else if (infoId === 0x5741) result.general.writingLib = readUtf8(infoSize);
             else if (infoId === 0x7BA9) result.general.title = readUtf8(infoSize);
+            else if (infoId === 0x2AD7B1) tsScale = readUint(infoSize) || 1000000;
+            else if (infoId === 0x4489) segDur = readFloat(infoSize);
             else pos += infoSize;
           }
-        } else if (segId === 0x1654AE6B) { // Tracks
-          parseTracksElement(subEnd);
-          break; // Read all tracks
-        } else {
-          pos = subEnd;
-        }
+          if (segDur > 0) result.general.duration = formatMkvDuration(segDur * tsScale / 1000000000);
+        } else if (segId === 0x1654AE6B) { parseTracksElement(subEnd); break; }
+        else { pos = subEnd; }
       }
       break;
+    } else { pos = elEnd; }
+  }
+
+  // Resolve Video Default
+  if (result.video.length > 0) {
+    const defV = result.video.find(v => v.rawIsDefault === true);
+    if (defV) {
+      result.video.forEach(v => { v.isDefault = (v === defV); });
     } else {
-      pos = elEnd;
+      result.video[0].isDefault = true;
     }
   }
 
-  // Resolve defaults per type (ported from HaruDrive): an explicit FlagDefault
-  // wins; otherwise a lone absent-flag track wins; otherwise the first track
-  // wins; subtitles fall back to Indonesian. Without this, tracks whose muxer
-  // omitted FlagDefault never showed a DEFAULT badge.
-  if (result.video.length > 0) {
-    const defV = result.video.find(v => v.rawIsDefault === true);
-    if (defV) result.video.forEach(v => { v.isDefault = (v === defV); });
-    else result.video[0].isDefault = true;
-  }
+  // Resolve Audio Default
   if (result.audio.length > 0) {
     const defA = result.audio.find(a => a.rawIsDefault === true);
-    if (defA) result.audio.forEach(a => { a.isDefault = (a === defA); });
-    else {
+    if (defA) {
+      result.audio.forEach(a => { a.isDefault = (a === defA); });
+    } else {
       const nullA = result.audio.filter(a => a.rawIsDefault === null);
-      if (nullA.length === 1 && result.audio.some(a => a.rawIsDefault === false)) result.audio.forEach(a => { a.isDefault = (a === nullA[0]); });
-      else result.audio[0].isDefault = true;
-    }
-  }
-  if (result.text.length > 0) {
-    const defT = result.text.find(t => t.rawIsDefault === true);
-    if (defT) result.text.forEach(t => { t.isDefault = (t === defT); });
-    else {
-      const nullT = result.text.filter(t => t.rawIsDefault === null);
-      const falseT = result.text.filter(t => t.rawIsDefault === false);
-      if (nullT.length === 1 && falseT.length > 0) result.text.forEach(t => { t.isDefault = (t === nullT[0]); });
-      else {
-        const indoT = result.text.find(t => t.rawIsDefault !== false && ((t.language && t.language.toLowerCase().includes('ind')) || (t.title && (t.title.toLowerCase().includes('indonesia') || t.title.toLowerCase().includes('bahasa')))));
-        if (indoT) result.text.forEach(t => { t.isDefault = (t === indoT); });
-        else if (result.text.length === 1 && result.text[0].rawIsDefault !== false) result.text[0].isDefault = true;
-        else result.text.forEach(t => { t.isDefault = false; });
+      if (nullA.length === 1 && result.audio.some(a => a.rawIsDefault === false)) {
+        result.audio.forEach(a => { a.isDefault = (a === nullA[0]); });
+      } else {
+        result.audio[0].isDefault = true;
       }
     }
   }
 
+  // Resolve Text / Subtitle Default
+  if (result.text.length > 0) {
+    const defT = result.text.find(t => t.rawIsDefault === true);
+    if (defT) {
+      result.text.forEach(t => { t.isDefault = (t === defT); });
+    } else {
+      const nullT = result.text.filter(t => t.rawIsDefault === null);
+      const falseT = result.text.filter(t => t.rawIsDefault === false);
+      if (nullT.length === 1 && falseT.length > 0) {
+        result.text.forEach(t => { t.isDefault = (t === nullT[0]); });
+      } else {
+        const indoT = result.text.find(t => t.rawIsDefault !== false && (
+          (t.language && t.language.toLowerCase().includes('ind')) ||
+          (t.title && (t.title.toLowerCase().includes('indonesia') || t.title.toLowerCase().includes('bahasa')))
+        ));
+        if (indoT) {
+          result.text.forEach(t => { t.isDefault = (t === indoT); });
+        } else if (result.text.length === 1 && result.text[0].rawIsDefault !== false) {
+          result.text[0].isDefault = true;
+        } else {
+          result.text.forEach(t => { t.isDefault = false; });
+        }
+      }
+    }
+  }
+
+  result._v = 3;
   return result;
 }
 
-// Build standard libmediainfo format raw text
 function buildMediaInfoRawText(data) {
   const g = data.general || {};
   let out = `General\n`;
@@ -4763,116 +4789,61 @@ function generateSmartInitialMediaInfo(v) {
 
 // ── FAST BINARY MP4 (ISOBMFF) PARSER ─────────────────────────────
 function parseMp4Boxes(bytes, v) {
-  let pos = 0;
-  const len = bytes.length;
-  if (len < 16) return null;
+  let pos = 0; const len = bytes.length; if (len < 16) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-
-  const result = {
-    general: {
-      fileName: v?.title || '',
-      format: 'MPEG-4',
-      formatVersion: 'Base Media / Version 2',
-      fileSize: v?.size ? formatBytes(v.size) : '',
-      writingApp: 'Lavf / ISOM'
-    },
-    video: [],
-    audio: [],
-    text: [],
-    menus: []
-  };
-
-  function readFourCC(offset) {
-    if (offset + 4 > len) return '';
-    return String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]);
-  }
-
+  const result = { general: { fileName: v?.title || '', format: 'MPEG-4', formatVersion: 'Base Media / Version 2', fileSize: v?.size ? formatBytes(v?.size) : '', writingApp: 'Lavf / ISOM' }, video: [], audio: [], text: [], menus: [] };
+  function readFourCC(offset) { if (offset + 4 > len) return ''; return String.fromCharCode(bytes[offset], bytes[offset+1], bytes[offset+2], bytes[offset+3]); }
   function parseLanguage(langInt) {
-    if (!langInt) return '';
+    if (!langInt) return 'Undetermined';
     const c1 = String.fromCharCode(((langInt >> 10) & 0x1F) + 0x60);
     const c2 = String.fromCharCode(((langInt >> 5) & 0x1F) + 0x60);
     const c3 = String.fromCharCode((langInt & 0x1F) + 0x60);
     const code = (c1 + c2 + c3).toLowerCase();
-    const map = {
-      ind: 'Indonesian', jpn: 'Japanese', eng: 'English', kor: 'Korean',
-      chi: 'Chinese', zho: 'Chinese', fra: 'French', fre: 'French',
-      deu: 'German', ger: 'German', spa: 'Spanish', ita: 'Italian',
-      por: 'Portuguese', rus: 'Russian', tha: 'Thai', vie: 'Vietnamese', und: 'Undetermined'
-    };
+    const map = { ind: 'Indonesian', jpn: 'Japanese', eng: 'English', kor: 'Korean', chi: 'Chinese', zho: 'Chinese', fra: 'French', fre: 'French', deu: 'German', ger: 'German', spa: 'Spanish', ita: 'Italian', por: 'Portuguese', rus: 'Russian', tha: 'Thai', vie: 'Vietnamese', und: 'Undetermined' };
     return map[code] || code;
   }
-
   function parseTrak(start, size) {
     const end = Math.min(start + size, len);
-    let p = start + 8;
-    let track = { width: 1920, height: 1080, type: 'video', isDefault: true };
-
+    let p = start + 8; let track = { width: 1920, height: 1080, type: 'video', isDefault: true };
     while (p < end && p < len - 8) {
-      const bSize = view.getUint32(p);
-      const bType = readFourCC(p + 4);
+      const bSize = view.getUint32(p); const bType = readFourCC(p + 4);
       if (bSize < 8 || p + bSize > end) break;
-
       if (bType === 'tkhd') {
-        const version = bytes[p + 8];
-        const widthOffset = version === 1 ? p + 96 : p + 84;
-        const heightOffset = widthOffset + 4;
-        if (heightOffset + 4 <= end) {
-          const w = view.getUint32(widthOffset) >> 16;
-          const h = view.getUint32(heightOffset) >> 16;
-          if (w > 0 && h > 0) { track.width = w; track.height = h; }
-        }
+        const version = bytes[p + 8]; const widthOffset = version === 1 ? p + 96 : p + 84; const heightOffset = widthOffset + 4;
+        if (heightOffset + 4 <= end) { const w = view.getUint32(widthOffset) >> 16; const h = view.getUint32(heightOffset) >> 16; if (w > 0 && h > 0) { track.width = w; track.height = h; } }
       } else if (bType === 'mdia') {
-        let mp = p + 8;
-        while (mp < p + bSize && mp < len - 8) {
-          const mSize = view.getUint32(mp);
-          const mType = readFourCC(mp + 4);
-          if (mSize < 8 || mp + mSize > p + bSize) break;
-
+        let mp = p + 8; const mEnd = Math.min(p + bSize, end);
+        while (mp < mEnd && mp < len - 8) {
+          const mSize = view.getUint32(mp); const mType = readFourCC(mp + 4);
+          if (mSize < 8 || mp + mSize > mEnd) break;
           if (mType === 'mdhd') {
-            const version = bytes[mp + 8];
-            const langOffset = version === 1 ? mp + 28 : mp + 20;
-            if (langOffset + 2 <= len) {
-              const langInt = view.getUint16(langOffset);
-              track.language = parseLanguage(langInt);
-            }
-          } else if (mType === 'hdlr') {
-            const hdlrType = readFourCC(mp + 16);
-            if (hdlrType === 'vide') track.type = 'video';
-            else if (hdlrType === 'soun') track.type = 'audio';
-            else if (hdlrType === 'sbtl' || hdlrType === 'text') track.type = 'text';
+            const vnum = bytes[mp + 8]; const langOffset = vnum === 1 ? mp + 28 : mp + 20;
+            if (langOffset + 2 <= mEnd) { const langInt = view.getUint16(langOffset); track.language = parseLanguage(langInt); }
+          } else if (mType === 'hdlr' && mp + 20 <= mEnd) {
+            const hType = readFourCC(mp + 16);
+            if (hType === 'vide') track.type = 'video'; else if (hType === 'soun') track.type = 'audio'; else if (hType === 'sbtl' || hType === 'text' || hType === 'subt' || hType === 'clcp') track.type = 'text';
           } else if (mType === 'minf') {
-            let sp = mp + 8;
-            while (sp < mp + mSize && sp < len - 8) {
-              const sSize = view.getUint32(sp);
-              const sType = readFourCC(sp + 4);
-              if (sSize < 8 || sp + sSize > mp + mSize) break;
-
-              if (sType === 'stbl') {
-                let stp = sp + 8;
-                while (stp < sp + sSize && stp < len - 8) {
-                  const stSize = view.getUint32(stp);
-                  const stType = readFourCC(stp + 4);
-                  if (stSize < 8 || stp + stSize > sp + sSize) break;
-
-                  if (stType === 'stsd') {
-                    const entryCount = view.getUint32(stp + 12);
-                    if (entryCount > 0 && stp + 20 <= len) {
-                      const codecFourCC = readFourCC(stp + 20);
-                      track.codecFourCC = codecFourCC;
-                      if (codecFourCC === 'avc1') { track.format = 'AVC'; track.codecId = 'avc1'; }
-                      else if (codecFourCC === 'hvc1' || codecFourCC === 'hev1') { track.format = 'HEVC'; track.codecId = 'hvc1'; }
-                      else if (codecFourCC === 'av01') { track.format = 'AV1'; track.codecId = 'av01'; }
-                      else if (codecFourCC === 'vp09') { track.format = 'VP9'; track.codecId = 'vp09'; }
-                      else if (codecFourCC === 'mp4a') { track.format = 'AAC LC'; track.codecId = 'mp4a-40-2'; }
-                      else if (codecFourCC === 'ac-3') { track.format = 'AC-3'; track.codecId = 'ac-3'; }
-                      else if (codecFourCC === 'ec-3') { track.format = 'E-AC-3'; track.codecId = 'ec-3'; }
-                      else if (codecFourCC === 'tx3g' || codecFourCC === 'wvtt') { track.format = 'Timed Text'; track.codecId = codecFourCC; }
+            let stp = mp + 8; const sEnd = Math.min(mp + mSize, mEnd);
+            while (stp < sEnd && stp < len - 8) {
+              const stSize = view.getUint32(stp); const stType = readFourCC(stp + 4);
+              if (stSize < 8 || stp + stSize > sEnd) break;
+              if (stType === 'stbl') {
+                let sdp = stp + 8; const sdEnd = Math.min(stp + stSize, sEnd);
+                while (sdp < sdEnd && sdp < len - 8) {
+                  const sdSize = view.getUint32(sdp); const sdType = readFourCC(sdp + 4);
+                  if (sdSize < 8 || sdp + sdSize > sdEnd) break;
+                  if (sdType === 'stsd' && sdp + 20 <= sdEnd) {
+                    track.codecFourCC = readFourCC(sdp + 16);
+                    if (track.type === 'audio' && sdp + 44 <= sdEnd) {
+                      const channels = view.getUint16(sdp + 32); const sampleRate = view.getUint32(sdp + 40) >> 16;
+                      if (channels > 0) track.channels = channels === 1 ? '1 channel (Mono)' : channels === 2 ? '2 channels (Stereo)' : channels + ' channels';
+                      if (sampleRate > 0) track.samplingRate = (sampleRate/1000).toFixed(1) + ' kHz';
                     }
                   }
-                  stp += stSize;
+                  sdp += sdSize;
                 }
               }
-              sp += sSize;
+              stp += stSize;
             }
           }
           mp += mSize;
@@ -4880,80 +4851,44 @@ function parseMp4Boxes(bytes, v) {
       }
       p += bSize;
     }
-
     if (track.type === 'video') {
-      result.video.push({
-        id: result.video.length + 1,
-        format: track.format || 'AVC',
-        profile: track.format === 'HEVC' ? 'Main 10@L5@Main' : 'High@L4.1',
-        codecId: track.codecId || 'avc1',
-        width: track.width || 1920,
-        height: track.height || 1080,
-        aspect: '16:9',
-        frameRate: '23.976 FPS',
-        bitDepth: track.format === 'HEVC' ? '10 bits' : '8 bits',
-        language: track.language || '',
-        isDefault: result.video.length === 0, isForced: false
-      });
+      const c = track.codecFourCC || 'avc1';
+      let fmt = 'AVC', prof = 'High@L4.1';
+      if (c === 'hvc1' || c === 'hev1') { fmt = 'HEVC'; prof = 'Main 10@L5@Main'; } else if (c === 'av01') { fmt = 'AV1'; prof = 'Main@L5.0'; } else if (c === 'vp09') { fmt = 'VP9'; prof = 'Profile 0'; }
+      result.video.push({ id: result.video.length + 1, format: fmt, profile: prof, codecId: c, width: track.width || 1920, height: track.height || 1080, aspect: (track.width / (track.height || 1)).toFixed(2) + ':1', frameRate: '23.976 FPS', colorSpace: 'YUV', chroma: '4:2:0', bitDepth: fmt === 'HEVC' ? '10 bits' : '8 bits', language: track.language || 'Japanese', isDefault: true, isForced: false });
     } else if (track.type === 'audio') {
-      result.audio.push({
-        id: result.audio.length + 2,
-        format: track.format || 'AAC LC',
-        codecId: track.codecId || 'mp4a-40-2',
-        channels: '2 channels (Stereo)',
-        samplingRate: '48.0 kHz',
-        title: track.language ? `${track.language} Audio` : `Audio #${result.audio.length + 1}`,
-        language: track.language || '',
-        isDefault: result.audio.length === 0, isForced: false
-      });
+      const c = track.codecFourCC || 'mp4a';
+      let fmt = 'AAC LC';
+      if (c === 'ec-3') fmt = 'E-AC-3'; else if (c === 'ac-3') fmt = 'AC-3'; else if (c === 'Opus') fmt = 'Opus'; else if (c === 'fLaC') fmt = 'FLAC';
+      result.audio.push({ id: result.audio.length + 2, format: fmt, codecId: c, channels: track.channels || '2 channels (Stereo)', samplingRate: track.samplingRate || '48.0 kHz', title: track.language !== 'Undetermined' ? track.language : 'Audio #' + (result.audio.length + 1), language: track.language !== 'Undetermined' ? track.language : 'Indonesian', isDefault: result.audio.length === 0, isForced: false });
     } else if (track.type === 'text') {
-      result.text.push({
-        id: result.text.length + 3,
-        format: 'Timed Text',
-        codecId: track.codecFourCC || 'tx3g',
-        title: track.language ? `${track.language} Subtitle` : `Subtitle #${result.text.length + 1}`,
-        language: track.language || '',
-        isDefault: result.text.length === 0, isForced: false
-      });
+      result.text.push({ id: result.text.length + 3, format: 'Timed Text', codecId: track.codecFourCC || 'tx3g', title: track.language || 'Subtitle #' + (result.text.length + 1), language: track.language || 'Indonesian', isDefault: result.text.length === 0, isForced: false });
     }
   }
-
   while (pos < len - 8) {
-    const boxSize = view.getUint32(pos);
-    const boxType = readFourCC(pos + 4);
+    const boxSize = view.getUint32(pos); const boxType = readFourCC(pos + 4);
     if (boxSize < 8 || pos + boxSize > len) break;
-
     if (boxType === 'moov') {
-      let mp = pos + 8;
-      const mEnd = pos + boxSize;
+      let mp = pos + 8; const mEnd = pos + boxSize;
       while (mp < mEnd && mp < len - 8) {
-        const subSize = view.getUint32(mp);
-        const subType = readFourCC(mp + 4);
+        const subSize = view.getUint32(mp); const subType = readFourCC(mp + 4);
         if (subSize < 8 || mp + subSize > mEnd) break;
-        if (subType === 'trak') {
-          parseTrak(mp, subSize);
-        }
+        if (subType === 'trak') { parseTrak(mp, subSize); }
         mp += subSize;
       }
       break;
     }
     pos += boxSize;
   }
-
-  if (result.video.length || result.audio.length) return result;
+  if (result.video.length || result.audio.length) { result._v = 3; return result; }
   return null;
 }
 
-// Memory cache for instantaneous 0ms transitions between videos in the same session
-const miMemoryCache = new Map();
-let activeMediaInfoVideoId = null;
-
-// ── FAST BINARY SCAN (HIGH SPEED RANGE FETCH) ───────────────────
 async function startBinaryMediaInfoScan(force = false) {
   if (!currentMediaInfoVideo) return;
   const v = currentMediaInfoVideo;
   const scanTargetId = v.id;
-  const streamUrl = `${BASE_URL}/stream/${v.id}`;
+  const streamUrl = BASE_URL + await hsStreamUrl(v.id);
   const fileSize = Number(v.size || 0);
 
   const scanBadge = $('mi-scan-badge');
@@ -5035,9 +4970,15 @@ async function openMediaInfoModal(videoId) {
 
   activeMediaInfoVideoId = videoId;
   currentMediaInfoVideo = v;
-  const streamUrl   = `${BASE_URL}/stream/${v.id}`;
-  const downloadUrl = `${BASE_URL}/stream/${v.id}?download=1`;
   const embedUrl    = `${BASE_URL}/embed/${v.id}`;
+  let streamUrl     = embedUrl;
+  let downloadUrl   = embedUrl;
+  hsStreamUrl(v.id).then(u => {
+    streamUrl   = BASE_URL + u;
+    downloadUrl = streamUrl + '?download=1';
+    if ($('mi-stream-url'))   $('mi-stream-url').textContent   = streamUrl;
+    if ($('mi-download-url')) $('mi-download-url').textContent = downloadUrl;
+  }).catch(() => {});
 
   const info = getMediaInfoDetails(v);
 
@@ -5146,7 +5087,7 @@ function renderMediaTable() {
       const isSelected = APP.selectedIds.has(v.id);
       const isTransfer = (v.provider_type || v.drive_provider_type) === 'transfer_it';
       const embedLink  = `${BASE_URL}/embed/${v.id}`;
-      const streamLink = isTransfer && v.storage_uri ? v.storage_uri : `${BASE_URL}/stream/${v.id}?download=1`;
+      const streamLink = isTransfer && v.storage_uri ? v.storage_uri : `${BASE_URL}/embed/${v.id}`;
       const info = getMediaInfoDetails(v);
 
       let expiryBadge = '';
@@ -5191,7 +5132,7 @@ function renderMediaTable() {
 
           <!-- Action buttons with clear touch targets -->
           <div class="grid grid-cols-4 sm:grid-cols-7 gap-1.5 mt-2.5 pt-2.5 border-t border-white/5">
-            <a href="${embedLink}" target="_blank" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-indigo-300 text-[10px] font-medium transition-all" title="Play">
+            <a href="#" onclick="openVideoDetail(${v.id}); return false;" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-indigo-300 text-[10px] font-medium transition-all" title="Play">
               <i class="fas fa-play text-xs mb-0.5"></i>Play
             </a>
             <button type="button" onclick="copyEmbedLink(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-medium transition-all" title="Embed Link">
@@ -5200,7 +5141,7 @@ function renderMediaTable() {
             <button type="button" onclick="copyEmbedCode(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] font-medium transition-all" title="Embed Code">
               <i class="fas fa-code text-xs mb-0.5"></i>iFrame
             </button>
-            <a href="${streamLink}" target="_blank" ${isTransfer ? '' : 'download'} class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="${isTransfer ? 'Buka di Transfer.it' : 'Download'}">
+            <a ${isTransfer ? `href="${streamLink}" target="_blank"` : `href="#" onclick="openDownloadLink(event, ${v.id})"`} class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-sky-300 text-[10px] font-medium transition-all" title="${isTransfer ? 'Buka di Transfer.it' : 'Download'}">
               <i class="fas fa-download text-xs mb-0.5"></i>DL
             </a>
             <button type="button" onclick="openMediaInfoModal(${v.id})" class="flex flex-col items-center justify-center p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-amber-300 text-[10px] font-medium transition-all" title="MediaInfo">
@@ -5224,7 +5165,7 @@ function renderMediaTable() {
       const isSelected = APP.selectedIds.has(v.id);
       const isTransfer = (v.provider_type || v.drive_provider_type) === 'transfer_it';
       const embedLink  = `${BASE_URL}/embed/${v.id}`;
-      const streamLink = isTransfer && v.storage_uri ? v.storage_uri : `${BASE_URL}/stream/${v.id}?download=1`;
+      const streamLink = isTransfer && v.storage_uri ? v.storage_uri : `${BASE_URL}/embed/${v.id}`;
       const info = getMediaInfoDetails(v);
 
       let expiryInfo = '';
@@ -5271,7 +5212,7 @@ function renderMediaTable() {
                 <button type="button" onclick="openVideoDetail(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Video Detail">
                   <i class="fas fa-info-circle text-[10px]"></i> Detail
                 </button>
-                <a href="${embedLink}" target="_blank" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
+                <a href="#" onclick="openVideoDetail(${v.id}); return false;" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" style="color:#818cf8" title="Open Player">
                   <i class="fas fa-external-link-alt text-[10px]"></i> Open
                 </a>
                 <button type="button" onclick="copyEmbedLink(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy Embed URL">
@@ -5280,7 +5221,7 @@ function renderMediaTable() {
                 <button type="button" onclick="copyEmbedCode(${v.id})" class="hover:text-indigo-300 flex items-center gap-1 transition-colors" title="Copy iFrame HTML Code">
                   <i class="fas fa-code text-[10px]"></i> Embed Code
                 </button>
-                <a href="${streamLink}" target="_blank" ${isTransfer ? '' : 'download'} class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="${isTransfer ? 'Buka di Transfer.it' : 'Direct Download / Stream Link'}">
+                <a ${isTransfer ? `href="${streamLink}" target="_blank"` : `href="#" onclick="openDownloadLink(event, ${v.id})"`} class="hover:text-sky-300 flex items-center gap-1 transition-colors" style="color:#38bdf8" title="${isTransfer ? 'Buka di Transfer.it' : 'Direct Download / Stream Link'}">
                   <i class="fas fa-download text-[10px]"></i> Download
                 </a>
                 <button type="button" onclick="deleteVideo(${v.id})" class="hover:text-red-400 flex items-center gap-1 transition-colors text-red-400/80" title="Delete Video">
@@ -5317,7 +5258,7 @@ function renderMediaGrid() {
   grid.innerHTML = APP.mediaData.map(v => {
     const embedLink = `${BASE_URL}/embed/${v.id}`;
     return `
-      <div class="video-grid-card group" onclick="window.open('${embedLink}','_blank')">
+      <div class="video-grid-card group" onclick="openVideoDetail(${v.id})">
         <div class="relative" style="padding-bottom:56.25%;background:#0f0f1a">
           ${v.thumbnail_url
             ? `<img src="${escHtml(v.thumbnail_url)}" class="absolute inset-0 w-full h-full object-cover" loading="lazy" onerror="this.style.display='none'" />`
@@ -5790,8 +5731,17 @@ function _populateVideoDetailModal(v) {
   const base        = BASE_URL;
   const isTransfer  = (v.provider_type || v.drive_provider_type) === 'transfer_it';
   const embedLink   = `${base}/embed/${v.id}`;
-  const streamLink  = `${base}/stream/${v.id}`;
-  const dlLink      = isTransfer && v.storage_uri ? v.storage_uri : `${base}/stream/${v.id}?download=1`;
+  const streamLink  = embedLink;
+  const dlLink      = isTransfer && v.storage_uri ? v.storage_uri : embedLink;
+  window._vdCurrentId = v.id;
+  if (!isTransfer) {
+    hsStreamUrl(v.id).then(u => {
+      if (window._vdCurrentId !== v.id) return;
+      if ($('vd-link-stream'))        $('vd-link-stream').textContent        = base + u;
+      if ($('vd-link-download'))      $('vd-link-download').textContent      = base + u + '?download=1';
+      if ($('vd-link-download-open')) $('vd-link-download-open').href        = base + u + '?download=1';
+    }).catch(() => {});
+  }
   const embedCode   = `<iframe src="${embedLink}" width="640" height="360" frameborder="0" allowfullscreen></iframe>`;
 
   // Header
@@ -6016,8 +5966,8 @@ function generateExportText() {
 
   const lines = data.map(v => {
     const parts = [];
-    const streamUrl  = `${BASE_URL}/stream/${v.id}`;
-    const downloadUrl = `${BASE_URL}/stream/${v.id}?download=1`;
+    const streamUrl  = `${BASE_URL}/embed/${v.id}`;
+    const downloadUrl = streamUrl;
 
     if (fields.title)        parts.push(v.title);
     if (fields.file_id)      parts.push(v.id);
@@ -6081,8 +6031,8 @@ function getExportItems() {
     size:         fields.size ? v.size : null,
     embedLink:    fields.embed_link ? `${BASE_URL}/embed/${v.id}` : null,
     embedCode:    fields.embed_code ? `<iframe src="${BASE_URL}/embed/${v.id}" width="640" height="360" frameborder="0" allowfullscreen></iframe>` : null,
-    streamLink:   fields.stream_link ? `${BASE_URL}/stream/${v.id}` : null,
-    downloadLink: fields.download_link ? `${BASE_URL}/stream/${v.id}?download=1` : null,
+    streamLink:   fields.stream_link ? `${BASE_URL}/embed/${v.id}` : null,
+    downloadLink: fields.download_link ? `${BASE_URL}/embed/${v.id}` : null,
     views:        fields.views ? v.views : null,
   }));
 }
@@ -6398,9 +6348,13 @@ function copyEmbedCode(id) {
   copyToClipboard(code, 'Embed Code HTML copied!');
 }
 
-function copyDownloadLink(id) {
-  const link = `${BASE_URL}/stream/${id}?download=1`;
-  copyToClipboard(link, 'Download Link copied!');
+async function copyDownloadLink(id) {
+  try {
+    const u = await hsDownloadUrl(id);
+    copyToClipboard(BASE_URL + u, 'Download Link copied! (berlaku 1 jam)');
+  } catch (e) {
+    alert('Gagal membuat link download: ' + e.message);
+  }
 }
 
 function escHtml(str) {
