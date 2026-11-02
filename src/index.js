@@ -4552,7 +4552,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
         }
       });
       grid.appendChild(copyBtn);
-      addBtn('Download File', ABS + '?download=1', 'dl');
     }
     document.getElementById('btn-external').addEventListener('click', function () {
       buildExternal();
