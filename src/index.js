@@ -4368,7 +4368,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
   <div id="ext-popup">
     <div class="ext-pop-title">Putar di aplikasi lain</div>
     <div id="ext-list"></div>
-    <div class="ext-note">Link streaming berlaku 1 jam. Kalau sudah kedaluwarsa, muat ulang halaman ini. Pilihan aplikasi menyesuaikan perangkatmu — file Playlist .m3u akan terbuka di player yang terpasang di perangkatmu.</div>
+    <div class="ext-note">Link streaming berlaku 1 jam. Kalau sudah kedaluwarsa, muat ulang halaman ini. Pilihan aplikasi menyesuaikan perangkatmu. Untuk VLC di PC, gunakan Salin Link Streaming lalu tempel di VLC lewat Media → Open Network Stream.</div>
   </div>
 
   <div id="movi-retry"></div>
@@ -4606,37 +4606,7 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       }
       var isWindows = ua.indexOf('windows') >= 0;
       var isMac = (ua.indexOf('macintosh') >= 0 || ua.indexOf('mac os x') >= 0) && !isIOS;
-      function addPlaylistRow() {
-        var a = document.createElement('a');
-        a.className = 'ext-row';
-        a.href = '#';
-        var ico = document.createElement('span');
-        ico.className = 'ext-ico';
-        ico.textContent = '⬇';
-        a.appendChild(ico);
-        a.appendChild(document.createTextNode('Playlist .m3u — untuk VLC & player lain'));
-        a.addEventListener('click', function (e) {
-          e.preventDefault();
-          var rawName = DATA.title || 'video';
-          var safeName = '';
-          for (var ci = 0; ci < rawName.length; ci++) {
-            var ch = rawName.charAt(ci);
-            if (rawName.charCodeAt(ci) !== 92 && '/:*?"<>|'.indexOf(ch) < 0) safeName += ch;
-          }
-          safeName = safeName.trim() || 'video';
-          var content = ['#EXTM3U', '#EXTINF:-1,' + rawName, ABS, ''].join(String.fromCharCode(10));
-          var blobUrl = URL.createObjectURL(new Blob([content], { type: 'audio/x-mpegurl' }));
-          var dl = document.createElement('a');
-          dl.href = blobUrl;
-          dl.download = safeName + '.m3u';
-          document.body.appendChild(dl);
-          dl.click();
-          document.body.removeChild(dl);
-          setTimeout(function () { URL.revokeObjectURL(blobUrl); }, 4000);
-        });
-        list.appendChild(a);
-        return a;
-      }
+
       if (isAndroid) {
         addRow('▶', 'VLC Mobile', 'intent://' + rawNoProto + '#Intent;scheme=https;package=org.videolan.vlc;S.title=' + encTitle + ';type=video/*;end');
         addRow('▶', 'MX Player', 'intent://' + rawNoProto + '#Intent;scheme=https;package=com.mxtech.videoplayer.ad;type=' + mime + ';S.title=' + encTitle + ';i.decode_mode=2;b.decode_mode=2;end');
@@ -4646,7 +4616,6 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       } else {
         if (isWindows) addRow('▶', 'PotPlayer', 'potplayer://' + ABS);
         if (isMac) addRow('▶', 'Outplayer', 'outplayer://' + ABS);
-        addPlaylistRow();
       }
       var copyRow = document.createElement('button');
       copyRow.type = 'button';
