@@ -4628,13 +4628,21 @@ function buildEmbedPage(video, streamUrl, driveFileId) {
       copyRow.appendChild(cLabel);
       copyRow.addEventListener('click', function () {
         function done() { cLabel.textContent = 'Tersalin ✓'; setTimeout(function () { cLabel.textContent = 'Salin Link Streaming'; }, 1600); }
-        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ABS).then(done).catch(done); }
-        else {
+        function fallbackCopy() {
           var ta = document.createElement('textarea');
-          ta.value = ABS; document.body.appendChild(ta); ta.select();
-          try { document.execCommand('copy'); } catch (e) {}
-          document.body.removeChild(ta); done();
+          ta.value = ABS;
+          ta.style.position = 'fixed'; ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.focus(); ta.select();
+          try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+          var okCopy = false;
+          try { okCopy = document.execCommand('copy'); } catch (e) {}
+          document.body.removeChild(ta);
+          if (okCopy) { done(); }
+          else { window.prompt('Salin link streaming ini:', ABS); }
         }
+        if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(ABS).then(done, fallbackCopy); }
+        else { fallbackCopy(); }
       });
       list.appendChild(copyRow);
     }
