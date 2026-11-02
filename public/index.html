@@ -2407,10 +2407,15 @@ async function hsDownloadUrl(id) {
 }
 async function openDownloadLink(evt, id) {
   if (evt) evt.preventDefault();
+  // Open the tab synchronously inside the click gesture — opening it
+  // after the awaited mint call gets the popup blocked by the browser.
+  const win = window.open('about:blank', '_blank');
   try {
     const u = await hsDownloadUrl(id);
-    window.open(BASE_URL + u, '_blank');
+    if (win) win.location.href = BASE_URL + u;
+    else window.location.href = BASE_URL + u;
   } catch (e) {
+    if (win) win.close();
     alert('Gagal membuat link download: ' + e.message);
   }
 }
@@ -4884,6 +4889,11 @@ function parseMp4Boxes(bytes, v) {
   return null;
 }
 
+// Memory cache for instantaneous 0ms transitions between videos in the same session
+const miMemoryCache = new Map();
+let activeMediaInfoVideoId = null;
+
+// ── FAST BINARY SCAN (HIGH SPEED RANGE FETCH) ───────────────────
 async function startBinaryMediaInfoScan(force = false) {
   if (!currentMediaInfoVideo) return;
   const v = currentMediaInfoVideo;

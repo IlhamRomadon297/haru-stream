@@ -3615,15 +3615,15 @@ async function handleStream(fileId, request, env, ctx) {
       }
       return new Response('Token streaming tidak valid.', { status: 403 });
     }
-  } else {
-    // Paket C: a stream token is REQUIRED — bare /stream/<id> URLs no
-    // longer play. Only exception: a logged-in dashboard session (its
-    // fetches carry the user JWT), so the app's own tooling keeps working.
-    const sessionUser = await authenticate(request, env).catch(() => null);
-    if (!sessionUser) {
-      return new Response('Link streaming memerlukan token yang valid. Buka video ini dari dashboard atau halaman embed HaruStream.', { status: 403 });
-    }
   }
+  // Bare /stream/<id> links stay PUBLIC and PERMANENT on purpose:
+  // HaruFilm posts store them as their download links
+  // (https://harustream.eu.cc/stream/<id>?download=1). A token is
+  // still validated when one is present (a copied tokenized link
+  // dies with its token), but a missing token must never be
+  // rejected. Token enforcement was tried in patch 8 and reverted
+  // here on 2026-11-02 because it broke every published download
+  // link. Do not re-add it.
 
   if (request.method === 'GET') {
     try {
