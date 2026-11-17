@@ -326,13 +326,58 @@ async function fetchAllDriveFolders(drive, db, validFolderIds) {
     }
     pageToken = data.nextPageToken;
   } while (pageToken);
+  // ── Shared folders (owned by other accounts, shared INTO this
+  // account's library tree) are invisible to the 'me' in owners query
+  // above, yet the dashboard tree is built from parent chains — a
+  // folder shared into an owned folder belongs in the library.
+  // List every non-owned folder the account can see, then keep only
+  // the ones reachable from an owned folder (fixpoint over parent
+  // links), so unrelated folders shared with the account ("Shared with
+  // me" junk) never enter the catalog.
+  {
+    const sharedQuery = encodeURIComponent("mimeType = 'application/vnd.google-apps.folder' and trashed = false and not 'me' in owners");
+    let sharedPageToken = null;
+    const sharedFolders = [];
+    do {
+      let sharedUrl = `${GOOGLE_DRIVE_API}/files?q=${sharedQuery}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+      if (sharedPageToken) sharedUrl += `&pageToken=${encodeURIComponent(sharedPageToken)}`;
+      const sharedResp = await fetch(sharedUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!sharedResp.ok) break;
+      const sharedData = await sharedResp.json();
+      if (sharedData.files) {
+        sharedFolders.push(...sharedData.files.filter(f => !f.trashed && f.name));
+      }
+      sharedPageToken = sharedData.nextPageToken;
+    } while (sharedPageToken);
+    if (sharedFolders.length > 0) {
+      const reachable = new Set(results.map(f => f.id));
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const f of sharedFolders) {
+          if (reachable.has(f.id)) continue;
+          if ((f.parents || []).some(p => reachable.has(p))) {
+            reachable.add(f.id);
+            grew = true;
+          }
+        }
+      }
+      const knownIds = new Set(results.map(f => f.id));
+      for (const f of sharedFolders) {
+        if (reachable.has(f.id) && !knownIds.has(f.id)) results.push(f);
+      }
+    }
+  }
   return results;
 }
 
 /**
  * Fetch all videos in the drive, or only within descendant folders if root_folder_id is set.
+ * allowedParentIds (null-root drives only): set of gdrive folder ids
+ * this sync indexes — shared videos are kept only when their direct
+ * parent is in it.
  */
-async function fetchAllDriveVideos(drive, db, validFolderIds) {
+async function fetchAllDriveVideos(drive, db, validFolderIds, allowedParentIds = null) {
   const accessToken = await getAccessToken(drive, db);
   const fields = 'nextPageToken,files(id,name,size,mimeType,modifiedTime,videoMediaMetadata,thumbnailLink,parents,trashed)';
   let results = [];
@@ -359,9 +404,39 @@ async function fetchAllDriveVideos(drive, db, validFolderIds) {
       }
       pageToken = data.nextPageToken;
     } while (pageToken);
+    // ── Shared videos (owned by other accounts, inside folders this
+    // drive already indexes) — same blind spot as folders above.
+    // Only keep videos whose direct parent is a folder this sync
+    // indexes, so unrelated files shared with the account never enter
+    // the catalog. allowedParentIds is null for rooted drives (their
+    // parent-chunk query below is already owner-agnostic) and for the
+    // owned-only listing above.
+    if (allowedParentIds && allowedParentIds.size > 0) {
+      const sharedQuery = encodeURIComponent("trashed = false and not 'me' in owners");
+      let sharedPageToken = null;
+      do {
+        let sharedUrl = `${GOOGLE_DRIVE_API}/files?q=${sharedQuery}&fields=${encodeURIComponent(fields)}&pageSize=1000&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`;
+        if (sharedPageToken) sharedUrl += `&pageToken=${encodeURIComponent(sharedPageToken)}`;
+        const sharedResp = await fetch(sharedUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+        if (!sharedResp.ok) break; // shared listing is best-effort; owned results stand
+        const sharedData = await sharedResp.json();
+        if (sharedData.files) {
+          const sharedVideos = sharedData.files.filter(f => {
+            if (f.trashed) return false;
+            if (!f.parents || !f.parents.some(p => allowedParentIds.has(p))) return false;
+            if (f.mimeType && f.mimeType.startsWith('video/')) return true;
+            if (!f.name) return false;
+            const ext = f.name.split('.').pop().toLowerCase();
+            return ['mkv','mp4','avi','webm','mov','flv','wmv','m4v','ts'].includes(ext);
+          });
+          results.push(...sharedVideos);
+        }
+        sharedPageToken = sharedData.nextPageToken;
+      } while (sharedPageToken);
+    }
     return results;
   }
-  
+
   const folderArray = Array.from(validFolderIds);
   const CHUNK_SIZE = 25; // max safe size for query string
   for (let i = 0; i < folderArray.length; i += CHUNK_SIZE) {
@@ -2470,7 +2545,11 @@ async function performDriveSync(drive, env, forceFullScan = false) {
   }
 
   // 2. Fetch active video files from GDrive for this drive
-  const gdriveFiles = await fetchAllDriveVideos(drive, env.DB, validFolderIds);
+  // For drives without a root folder, shared videos are only kept when
+  // their direct parent is a folder this sync indexes (see
+  // fetchAllDriveVideos). The folder set is known only after the folder
+  // diff above, so it is passed here.
+  const gdriveFiles = await fetchAllDriveVideos(drive, env.DB, validFolderIds, new Set(gdriveToD1Id.keys()));
   const gdriveMap = new Map();
   for (const f of gdriveFiles) {
     gdriveMap.set(f.id, f);
